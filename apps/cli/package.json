@@ -1,0 +1,12 @@
+{
+	"name": "cli",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"dependencies": {
+		"@agent-manager/projects": "workspace:*"
+	},
+	"devDependencies": {
+		"bun-types": "^1.2.17"
+	}
+}

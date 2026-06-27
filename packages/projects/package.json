@@ -1,0 +1,16 @@
+{
+	"name": "@agent-manager/projects",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./client-types": "./src/client-types.ts"
+	},
+	"dependencies": {
+		"zod": "^3.24.1"
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
+	}
+}

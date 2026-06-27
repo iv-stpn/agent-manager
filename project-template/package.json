@@ -1,0 +1,20 @@
+{
+	"name": "server",
+	"version": "0.0.1",
+	"private": true,
+	"scripts": {
+		"build:types": "tsc -p tsconfig.build.json",
+		"dev": "bun run --watch src/index.ts",
+		"start": "bun run src/index.ts"
+	},
+	"dependencies": {
+		"@anthropic-ai/sdk": "^0.54.0",
+		"discord.js": "^14.17.0",
+		"drizzle-orm": "^0.38.3",
+		"hono": "4.12.14",
+		"nanoid": "^5.1.5"
+	},
+	"devDependencies": {
+		"bun-types": "^1.2.17"
+	}
+}

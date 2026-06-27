@@ -1,0 +1,11 @@
+import { desc, eq } from "drizzle-orm";
+import type { Db } from "../client";
+import { type NewReport, type Report, reports } from "../schema";
+
+export function insertReport(db: Db, data: NewReport): void {
+	db.insert(reports).values(data).run();
+}
+
+export function listReports(db: Db, sessionId: string): Report[] {
+	return db.select().from(reports).where(eq(reports.sessionId, sessionId)).orderBy(desc(reports.createdAt)).all();
+}
