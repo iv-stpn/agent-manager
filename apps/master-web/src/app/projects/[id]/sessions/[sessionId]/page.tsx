@@ -44,6 +44,7 @@ export default function SessionPage() {
 	const [stopping, setStopping] = useState(false);
 	const [chatInput, setChatInput] = useState("");
 	const [sending, setSending] = useState(false);
+	const [streamingText, setStreamingText] = useState("");
 	const chatRef = useRef<HTMLTextAreaElement>(null);
 
 	// Cache keys — shared across mounts so navigating away and back reuses what
@@ -95,9 +96,12 @@ export default function SessionPage() {
 			projectId,
 			sessionId,
 			(event) => {
-				if (event.type === "session_updated") {
+				if (event.type === "text_delta") {
+					setStreamingText((prev) => prev + event.data.text);
+				} else if (event.type === "session_updated") {
 					mutateCache<Session>(sKey, (s) => (s ? { ...s, ...event.data } : s));
 				} else if (event.type === "message") {
+					if ((event.data as { role?: string }).role === "assistant") setStreamingText("");
 					mutateCache<Message[]>(mKey, (prev = []) => (prev.some((m) => m.id === event.data.id) ? prev : [...prev, event.data]));
 				} else if (event.type === "tool_call") {
 					mutateCache<ToolCall[]>(tKey, (prev = []) => {
@@ -212,7 +216,7 @@ export default function SessionPage() {
 	const systemPromptTokens = firstCacheRead?.cacheReadTokens ?? 0;
 
 	return (
-		<div className="h-full flex flex-col">
+		<div className="h-full flex flex-col  overflow-x-hidden">
 			{/* Top bar */}
 			<div className="border-b shrink-0 py-4 h-[110px]">
 				<div className={containerClassName}>
@@ -245,13 +249,7 @@ export default function SessionPage() {
 							toolCalls={toolCalls}
 							sessionStatus={session.status}
 							pendingToolCalls={toolCalls.filter((tc) => tc.status === "pending").length}
-							streamingMsgId={
-								// Only stream the latest message if it's from the assistant and is actually
-								// the last message — not when the user has already sent a follow-up.
-								session.status === "running" && messages.at(-1)?.role === "assistant"
-									? messages.at(-1)!.id
-									: null
-							}
+							streamingText={streamingText}
 						/>
 					</ScrollArea>
 					{/* Chat input — active sessions: interrupt; inactive: resume */}

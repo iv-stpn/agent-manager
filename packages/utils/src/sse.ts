@@ -25,6 +25,7 @@ export type CheckinStartedPayload = CheckinRecord & { questions: QuestionRecord[
 // Session stream: per-session events emitted by runner.ts.
 export type SessionStreamEvent =
 	| { type: "message"; data: MessageRecord }
+	| { type: "text_delta"; data: { text: string } }
 	| { type: "tool_call"; data: ToolCallRecord }
 	| { type: "token_update"; data: TokenUpdatePayload }
 	| { type: "checkin_started"; data: CheckinStartedPayload }
@@ -44,6 +45,7 @@ export type ProjectStreamEvent =
 	| { type: "session_created"; data: WithSession<SessionRecord> }
 	| { type: "session_updated"; data: WithSession<Pick<SessionRecord, "id" | "status">> }
 	| { type: "message"; data: WithSession<MessageRecord> }
+	| { type: "text_delta"; data: WithSession<{ text: string }> }
 	| { type: "tool_call"; data: WithSession<ToolCallRecord> }
 	| { type: "token_update"; data: WithSession<TokenUpdatePayload> }
 	| { type: "checkin_started"; data: WithSession<CheckinStartedPayload> }
@@ -56,6 +58,7 @@ export type ProjectStreamEvent =
 
 export const SESSION_STREAM_EVENTS = [
 	"message",
+	"text_delta",
 	"tool_call",
 	"token_update",
 	"checkin_started",

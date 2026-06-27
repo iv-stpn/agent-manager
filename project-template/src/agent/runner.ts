@@ -801,7 +801,7 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 
 	// ── Anthropic API ──────────────────────────────────────────────────────────────
 	private async callAnthropicApi(): Promise<Anthropic.Message> {
-		return this.client.messages.create(
+		const stream = this.client.messages.stream(
 			{
 				model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6",
 				max_tokens: 8192,
@@ -811,6 +811,12 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 			},
 			{ signal: this.abortController.signal }
 		);
+
+		stream.on("text", (text) => {
+			sessionEmitter.emit(this.sessionId, { type: "text_delta", data: { text } });
+		});
+
+		return stream.finalMessage();
 	}
 
 	private async requestSummary(): Promise<string> {

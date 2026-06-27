@@ -286,10 +286,10 @@ interface Props {
 	toolCalls: ToolCall[];
 	sessionStatus?: string;
 	pendingToolCalls?: number;
-	streamingMsgId?: string | null;
+	streamingText?: string;
 }
 
-export function MessageFeed({ messages, toolCalls, sessionStatus, pendingToolCalls = 0, streamingMsgId }: Props) {
+export function MessageFeed({ messages, toolCalls, sessionStatus, pendingToolCalls = 0, streamingText = "" }: Props) {
 	const bottomRef = useRef<HTMLDivElement>(null);
 
 	// Track which message IDs are "new" so we can apply entrance animation
@@ -312,10 +312,10 @@ export function MessageFeed({ messages, toolCalls, sessionStatus, pendingToolCal
 	const toolCallByUseId = new Map<string, ToolCall>();
 	for (const tc of toolCalls) toolCallByUseId.set(tc.toolUseId, tc);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-run when messages array grows
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-run when messages array grows or streaming text arrives
 	useEffect(() => {
 		bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [messages.length, sessionStatus]);
+	}, [messages.length, sessionStatus, streamingText]);
 
 	const isRunning = sessionStatus === "running";
 	const isPaused = sessionStatus === "paused";
@@ -334,15 +334,25 @@ export function MessageFeed({ messages, toolCalls, sessionStatus, pendingToolCal
 					key={msg.id}
 					message={msg}
 					toolCallByUseId={toolCallByUseId}
-					isStreaming={msg.id === streamingMsgId}
+					isStreaming={false}
 					isNew={newIds.has(msg.id)}
 				/>
 			))}
 
-			{isRunning && pendingToolCalls > 0 && (
+			{isRunning && streamingText && (
+				<div className="flex gap-3 group">
+					<div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-violet-500/20 text-violet-600 dark:text-violet-400 mt-1">
+						<Bot className="h-4 w-4" />
+					</div>
+					<div className="bg-muted rounded-lg px-3 py-2 text-sm leading-relaxed max-w-[85%] streaming-cursor">
+						<Markdown>{streamingText}</Markdown>
+					</div>
+				</div>
+			)}
+			{isRunning && !streamingText && pendingToolCalls > 0 && (
 				<ThinkingBubble label={`Running ${pendingToolCalls} tool${pendingToolCalls > 1 ? "s" : ""}…`} />
 			)}
-			{isRunning && pendingToolCalls === 0 && !streamingMsgId && (
+			{isRunning && !streamingText && pendingToolCalls === 0 && (
 				<ThinkingBubble label="Thinking…" />
 			)}
 			{isPaused && <AwaitingAnswerBubble />}

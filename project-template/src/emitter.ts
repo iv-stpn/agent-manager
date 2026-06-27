@@ -14,6 +14,7 @@ export type TokenStatistics = {
 export type AgentEvent =
 	| { type: "session_created"; data: Record<string, unknown> }
 	| { type: "message"; data: Record<string, unknown> }
+	| { type: "text_delta"; data: { text: string } }
 	| { type: "tool_call"; data: Record<string, unknown> }
 	| { type: "token_update"; data: TokenStatistics }
 	| { type: "checkin_started"; data: Record<string, unknown> }
