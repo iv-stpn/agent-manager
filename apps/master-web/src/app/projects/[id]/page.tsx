@@ -72,7 +72,7 @@ function ProjectDetailContent() {
 
 	const validTabs: Tab[] = ["overview", "sessions", "logs", "reports", "settings"];
 	const tabParam = searchParams.get("tab") as Tab | null;
-	const tab: Tab = tabParam && validTabs.includes(tabParam) ? tabParam : "overview";
+	const tab: Tab = tabParam && validTabs.includes(tabParam) ? tabParam : "sessions";
 
 	const setTab = (newTab: Tab) => {
 		const params = new URLSearchParams(searchParams.toString());

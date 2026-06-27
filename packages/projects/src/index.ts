@@ -13,6 +13,8 @@ export {
 	DiscordConfigSchema,
 	AgentConfigSchema,
 } from "./types";
+export { TemplateManager } from "./templates";
+export type { Template, TemplateCategory } from "./templates";
 export type {
 	ProjectStats,
 	SessionRecord,

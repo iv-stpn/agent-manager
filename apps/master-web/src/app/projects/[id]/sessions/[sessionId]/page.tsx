@@ -26,7 +26,6 @@ import type { Checkin, Compaction, Message, Question, Session, ToolCall } from "
 import { getCache, mutateCache, setCache, useQuery } from "@/lib/query-cache";
 import type { Project } from "@/lib/types";
 import { cn, formatTokens, statusBg } from "@/lib/utils";
-import { BackLink } from "@/components/back-link";
 import { ArrowLeft, RefreshCw, Send, Square } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -220,8 +219,7 @@ export default function SessionPage() {
 			{/* Top bar */}
 			<div className="border-b shrink-0 py-4 h-[110px]">
 				<div className={containerClassName}>
-					<BackLink href={`/projects/${projectId}?tab=sessions`} label="Sessions" />
-					<div className="flex items-center gap-4">
+<div className="flex items-center gap-4">
 						<div className="flex-1 min-w-0">
 							{session.name && <p className="text-lg font-semibold truncate mb-1">{session.name}</p>}
 						</div>

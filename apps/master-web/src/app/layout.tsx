@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Funnel_Sans } from "next/font/google";
-
+import { Sidebar } from "@/components/sidebar";
 import "./globals.css";
 
 const funnelSans = Funnel_Sans({ subsets: ["latin"] });
@@ -17,7 +17,10 @@ export default function RootLayout({
 }>) {
 	return (
 		<html lang="en">
-			<body className={funnelSans.className}>{children}</body>
+			<body className={`${funnelSans.className} pl-16`}>
+				<Sidebar />
+				{children}
+			</body>
 		</html>
 	);
 }

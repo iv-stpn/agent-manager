@@ -3,7 +3,7 @@
 // SSE streams connect directly to the agent server port to avoid proxy buffering.
 
 import type { AppType } from "@agent-manager/master-api";
-import type { CheckinRecord, CompactionRecord, CreateProjectInput, MessageRecord, QuestionRecord, SessionRecord, ToolCallRecord } from "@agent-manager/projects";
+import type { CheckinRecord, CompactionRecord, CreateProjectInput, MessageRecord, QuestionRecord, SessionRecord, Template, ToolCallRecord } from "@agent-manager/projects";
 import { PROJECT_STREAM_EVENTS, SESSION_STREAM_EVENTS, createEventStream } from "@agent-manager/utils";
 import type { ProjectStreamEvent, SessionStreamEvent } from "@agent-manager/utils";
 import { hc } from "hono/client";
@@ -25,6 +25,7 @@ export type {
 	QuestionRecord as Question,
 	ReportRecord as Report,
 	CompactionRecord as Compaction,
+	Template,
 } from "@agent-manager/projects";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3100";
@@ -240,4 +241,28 @@ export function createMasterStream(
 	}
 
 	return es;
+}
+
+// ── Template endpoints ────────────────────────────────────────────────────────
+
+export async function getTemplates(): Promise<Template[]> {
+	const res = await fetch(`${API_URL}/api/templates`);
+	if (!res.ok) throw new Error(`API ${res.status}`);
+	return res.json();
+}
+
+export async function createTemplate(data: Omit<Template, "id" | "createdAt" | "updatedAt">): Promise<Template> {
+	const res = await fetch(`${API_URL}/api/templates`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+	if (!res.ok) throw new Error(`API ${res.status}`);
+	return res.json();
+}
+
+export async function updateTemplate(id: string, data: Partial<Omit<Template, "id" | "createdAt">>): Promise<Template> {
+	const res = await fetch(`${API_URL}/api/templates/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+	if (!res.ok) throw new Error(`API ${res.status}`);
+	return res.json();
+}
+
+export async function deleteTemplate(id: string): Promise<void> {
+	await fetch(`${API_URL}/api/templates/${id}`, { method: "DELETE" });
 }
