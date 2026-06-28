@@ -113,7 +113,7 @@ export class ProjectDatabase {
 	}
 
 	// ── Full-shape reads for inspecting a stopped project ────────────────────────
-	// Each returns the camelCase shape the agent server returns, so the master-web
+	// Each returns the camelCase shape the agent server returns, so the host-web
 	// UI can consume them interchangeably with the live proxy responses. Returns
 	// empty arrays / null when the database or table is absent (new project).
 

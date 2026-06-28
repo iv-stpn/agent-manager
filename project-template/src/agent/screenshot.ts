@@ -1,15 +1,15 @@
-const MASTER_API_URL = process.env.MASTER_API_URL ?? "http://host.docker.internal:3100";
+const HOST_API_URL = process.env.HOST_API_URL ?? "http://host.docker.internal:3100";
 const PROJECT_ID = process.env.PROJECT_ID;
 
 /**
- * Screenshots are delegated to master-api so project containers don't bundle
+ * Screenshots are delegated to host-api so project containers don't bundle
  * Chromium/puppeteer. For workspace-relative file paths we send PROJECT_ID and
- * the path; master-api resolves it against the project's real workspace path
+ * the path; host-api resolves it against the project's real workspace path
  * (it sees the host filesystem) and loads it via file:// — preserving relative
  * CSS/image assets.
  */
 async function requestScreenshot(body: Record<string, unknown>): Promise<Buffer> {
-	const resp = await fetch(`${MASTER_API_URL}/api/render/screenshot`, {
+	const resp = await fetch(`${HOST_API_URL}/api/render/screenshot`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(body),

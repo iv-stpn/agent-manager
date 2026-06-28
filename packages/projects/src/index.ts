@@ -12,8 +12,8 @@ export type {
 	TechStack,
 	Template,
 	TemplateCategory,
-} from "./master-database";
-export { MasterDatabase } from "./master-database";
+} from "./host-database";
+export { HostDatabase } from "./host-database";
 export type {
 	CheckinRecord,
 	CompactionRecord,

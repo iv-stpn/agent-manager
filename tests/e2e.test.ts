@@ -4,7 +4,7 @@
  * End-to-End Test Suite
  *
  * Tests the complete project management system:
- * 1. Master API startup
+ * 1. Host API startup
  * 2. Project creation
  * 3. Project management operations
  * 4. Docker operations (if Docker is available)
@@ -37,7 +37,7 @@ let manager: any;
 let docker: any;
 // biome-ignore lint/suspicious/noExplicitAny: dynamically imported modules
 let projectDatabaseManager: any;
-let masterApiProcess: ReturnType<typeof Bun.spawn> | undefined;
+let hostApiProcess: ReturnType<typeof Bun.spawn> | undefined;
 
 // Test configuration
 const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
@@ -59,12 +59,12 @@ async function checkDocker(): Promise<boolean> {
 	}
 }
 
-async function startMasterApi(): Promise<ReturnType<typeof Bun.spawn>> {
-	console.log("Starting Master API...");
-	const proc = Bun.spawn(["bun", "run", "apps/master-api/src/index.ts"], {
+async function startHostApi(): Promise<ReturnType<typeof Bun.spawn>> {
+	console.log("Starting Host API...");
+	const proc = Bun.spawn(["bun", "run", "apps/host-api/src/index.ts"], {
 		env: {
 			...process.env,
-			MASTER_PORT: "3100",
+			HOST_PORT: "3100",
 		},
 		stdout: "pipe",
 		stderr: "pipe",
@@ -77,14 +77,14 @@ async function startMasterApi(): Promise<ReturnType<typeof Bun.spawn>> {
 }
 
 async function testApiHealth(): Promise<void> {
-	console.log("✓ Testing Master API health...");
+	console.log("✓ Testing Host API health...");
 	const response = await fetch(`${API_URL}/health`);
 	const data = await response.json();
 
-	if (!data.ok || data.service !== "master-api") {
-		throw new Error("Master API health check failed");
+	if (!data.ok || data.service !== "host-api") {
+		throw new Error("Host API health check failed");
 	}
-	console.log("  ✅ Master API is healthy");
+	console.log("  ✅ Host API is healthy");
 }
 
 async function testProjectCreation(): Promise<void> {
@@ -161,7 +161,7 @@ async function testProjectStructure(): Promise<void> {
 }
 
 async function testApiEndpoints(): Promise<void> {
-	console.log("\n✓ Testing Master API endpoints...");
+	console.log("\n✓ Testing Host API endpoints...");
 
 	// Test list projects
 	const listResponse = await fetch(`${API_URL}/api/projects`);
@@ -253,9 +253,9 @@ async function testProjectCleanup(): Promise<void> {
 async function cleanup(): Promise<void> {
 	console.log("\n🧹 Cleaning up...");
 
-	if (masterApiProcess) {
-		masterApiProcess.kill();
-		console.log("  ✅ Master API stopped");
+	if (hostApiProcess) {
+		hostApiProcess.kill();
+		console.log("  ✅ Host API stopped");
 	}
 
 	// Stop containers but keep the project folder for inspection
@@ -276,8 +276,8 @@ async function runTests() {
 		docker = new ProjectDocker(manager);
 		projectDatabaseManager = new ProjectDatabase(manager);
 
-		// Start Master API
-		masterApiProcess = await startMasterApi();
+		// Start Host API
+		hostApiProcess = await startHostApi();
 		await testApiHealth();
 
 		// Run tests

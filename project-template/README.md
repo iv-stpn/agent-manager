@@ -3,7 +3,7 @@
 This directory contains the **templates** for project agent and web
 applications.
 
-These templates are copied into each project when created via the master
+These templates are copied into each project when created via the host
 API/web.
 
 ## Structure

@@ -1,27 +1,27 @@
 # Architecture
 
 Agent Manager runs many isolated autonomous Claude agents, each scoped to its
-own project (workspace, database, container, ports). A thin master layer on the
+own project (workspace, database, container, ports). A thin host layer on the
 host creates and supervises projects; each project runs as a Docker container.
 
 ## Layers
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                      Master layer (host)                       │
+│                      Host layer (host)                       │
 │                                                                │
-│  master-api  (port 3100, Hono)                                 │
+│  host-api  (port 3100, Hono)                                 │
 │    • Project CRUD + Docker lifecycle (start/stop/build/logs)   │
 │    • Reads each project's config.json + data/agent.db          │
 │    • Centralized rendering: /api/render (mermaid + screenshots)│
 │    • Own SQLite DB for logs & historical stats (not runtime)   │
 │                                                                │
-│  master-web  (port 3101, Next.js)                              │
-│    • Dashboard over master-api: list projects, view sessions,  │
+│  host-web  (port 3101, Next.js)                              │
+│    • Dashboard over host-api: list projects, view sessions,  │
 │      messages, tool calls, check-ins, token charts             │
 │                                                                │
 │  cli  (apps/cli/projects.ts)                                   │
-│    • Same operations as master-api, from the terminal          │
+│    • Same operations as host-api, from the terminal          │
 └──────────────────────────────────────────────────────────────┘
                               │  manages
                               ▼
@@ -44,21 +44,21 @@ host creates and supervises projects; each project runs as a Docker container.
 │    • Autonomous Claude agent loop + REST API                   │
 │    • Optional Discord bot for check-ins / questions / reports  │
 │    • Mounts workspace at /workspace, DB at /data/agent.db      │
-│    • Calls master-api at host.docker.internal:3100 for renders │
+│    • Calls host-api at host.docker.internal:3100 for renders │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 Key points:
 
-- **The master has its own database for historical data.** It stores logs and
+- **The host has its own database for historical data.** It stores logs and
   statistics about past projects (e.g. aggregated token usage, session history
   snapshots). It does **not** store project-relevant data at runtime — that
-  remains in each project's own `data/agent.db`. master-api still opens project
+  remains in each project's own `data/agent.db`. host-api still opens project
   DBs in readonly mode to compute live stats and list sessions.
 - **`project-template/` is a template, never run directly.** Its `src/` and
   `Dockerfile` are copied into each project at creation time, so projects are
   fully isolated and can diverge.
-- **Rendering is centralized.** Chromium lives only on the host (master-api).
+- **Rendering is centralized.** Chromium lives only on the host (host-api).
   Project containers POST to `/api/render` for Mermaid diagrams and screenshots
   instead of bundling a browser into every image.
 - **Each project gets one container** (`agent`) on its own bridge network, with
@@ -100,7 +100,7 @@ Drizzle in
 [project-template/src/db/schema.ts](../project-template/src/db/schema.ts) and is
 the single source of truth. All timestamps are integer Unix epoch
 **milliseconds** (`unixepoch() * 1000`); IDs are application-generated text. The
-master reads this DB readonly; the agent container is the only writer.
+host reads this DB readonly; the agent container is the only writer.
 
 A **session** is one autonomous agent run for a given task, and everything else
 hangs off a session:
@@ -115,7 +115,7 @@ sessions ──┬─< messages ──< tool_calls
 ```
 
 See [DATABASE.md](DATABASE.md) for the full per-table column reference (both the
-per-project schema and the master database).
+per-project schema and the host database).
 
 See [USAGE.md](USAGE.md) for running the system and [TOOLS.md](TOOLS.md) for the
 agent's tool set.

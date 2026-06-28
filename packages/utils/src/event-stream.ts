@@ -62,7 +62,7 @@ export function createProjectStream(
 	);
 }
 
-export function createMasterStream(
+export function createHostStream(
 	onEvent: (type: string, payload: { projectId: string; data: unknown }) => void,
 	onSnapshot: (projects: unknown[]) => void,
 	baseUrl = ""
@@ -72,7 +72,7 @@ export function createMasterStream(
 	es.addEventListener("projects", (e) => {
 		try {
 			const parsed = JSON.parse((e as MessageEvent).data);
-			console.log("[SSE:master] projects (snapshot)", parsed);
+			console.log("[SSE:host] projects (snapshot)", parsed);
 			onSnapshot(parsed);
 		} catch {
 			// ignore malformed snapshot
@@ -84,7 +84,7 @@ export function createMasterStream(
 		es.addEventListener(event, (e) => {
 			try {
 				const parsed = JSON.parse((e as MessageEvent).data);
-				console.log(`[SSE:master] ${event}`, parsed);
+				console.log(`[SSE:host] ${event}`, parsed);
 				onEvent(event, parsed);
 			} catch {
 				// ignore malformed event

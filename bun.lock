@@ -22,8 +22,8 @@
         "bun-types": "^1.2.17",
       },
     },
-    "apps/master-api": {
-      "name": "@agent-manager/master-api",
+    "apps/host-api": {
+      "name": "@agent-manager/host-api",
       "version": "0.0.1",
       "dependencies": {
         "@agent-manager/projects": "workspace:*",
@@ -38,11 +38,11 @@
         "bun-types": "^1.2.17",
       },
     },
-    "apps/master-web": {
-      "name": "@agent-manager/master-web",
+    "apps/host-web": {
+      "name": "@agent-manager/host-web",
       "version": "0.0.1",
       "dependencies": {
-        "@agent-manager/master-api": "workspace:*",
+        "@agent-manager/host-api": "workspace:*",
         "@agent-manager/projects": "workspace:*",
         "@agent-manager/utils": "workspace:*",
         "@radix-ui/react-dialog": "^1.1.2",
@@ -113,9 +113,9 @@
     },
   },
   "packages": {
-    "@agent-manager/master-api": ["@agent-manager/master-api@workspace:apps/master-api"],
+    "@agent-manager/host-api": ["@agent-manager/host-api@workspace:apps/host-api"],
 
-    "@agent-manager/master-web": ["@agent-manager/master-web@workspace:apps/master-web"],
+    "@agent-manager/host-web": ["@agent-manager/host-web@workspace:apps/host-web"],
 
     "@agent-manager/projects": ["@agent-manager/projects@workspace:packages/projects"],
 

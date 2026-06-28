@@ -1,13 +1,13 @@
-const MASTER_API_URL = process.env.MASTER_API_URL ?? "http://host.docker.internal:3100";
+const HOST_API_URL = process.env.HOST_API_URL ?? "http://host.docker.internal:3100";
 
 /**
- * Render a Mermaid definition to a PNG. Rendering is delegated to master-api
+ * Render a Mermaid definition to a PNG. Rendering is delegated to host-api
  * (the single host that has Chromium + mermaid-cli installed), so project
  * containers no longer bundle a browser. The `title` argument is accepted for
  * call-site compatibility but is not used by the renderer.
  */
 export async function renderMermaid(definition: string): Promise<Buffer> {
-	const resp = await fetch(`${MASTER_API_URL}/api/render/mermaid`, {
+	const resp = await fetch(`${HOST_API_URL}/api/render/mermaid`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ definition }),

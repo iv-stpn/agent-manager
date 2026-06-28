@@ -28,7 +28,7 @@ app.get("/health", (c) => c.json({ ok: true, ts: Date.now() }));
 
 app.route("/api/sessions", sessionsRouter);
 app.route("/api/sessions", streamRouter);
-// Project-wide event stream (every session). master-api restreams this.
+// Project-wide event stream (every session). host-api restreams this.
 app.route("/api/stream", globalStreamRouter);
 
 // Start the HTTP server first so health checks pass immediately, then bring up

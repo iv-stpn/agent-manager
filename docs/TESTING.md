@@ -14,7 +14,7 @@ Two comprehensive test suites have been implemented:
 
 **Tests:**
 
-- ✅ Master API health
+- ✅ Host API health
 - ✅ Project creation/deletion
 - ✅ Template copying
 - ✅ File structure validation
@@ -131,7 +131,7 @@ bun run test:e2e && bun run test:integration
 
 | Feature              | E2E | Integration | Status |
 | -------------------- | --- | ----------- | ------ |
-| Master API           | ✅  | ✅          | Ready  |
+| Host API             | ✅  | ✅          | Ready  |
 | Project CRUD         | ✅  | ✅          | Ready  |
 | Template copying     | ✅  | ✅          | Ready  |
 | Docker build/start   | ❌  | ✅          | Ready  |
@@ -158,8 +158,8 @@ Configuration:
   API Key: ✅ Set
   Docker:  ⚠️  Not running
 
-✓ Testing Master API health...
-  ✅ Master API is healthy
+✓ Testing Host API health...
+  ✅ Host API is healthy
 ✓ Testing project creation...
   ✅ Project created: test-e2e
 ✓ Testing project list...
@@ -168,7 +168,7 @@ Configuration:
   ✅ Retrieved project: test-e2e
 ✓ Testing project structure...
   ✅ All required files and directories present
-✓ Testing Master API endpoints...
+✓ Testing Host API endpoints...
   ✅ GET /api/projects - 3 projects
 ✓ Testing database queries...
   ✅ Database stats: 0 sessions, 0 messages

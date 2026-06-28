@@ -208,7 +208,7 @@ export class ProjectDocker {
 	}
 
 	/**
-	 * Stop every project that is currently running. Used on master shutdown so
+	 * Stop every project that is currently running. Used on host shutdown so
 	 * downing the dev script also tears down all project containers.
 	 */
 	async stopAllProjects(): Promise<string[]> {

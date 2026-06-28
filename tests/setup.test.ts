@@ -35,7 +35,7 @@ function warn(message: string) {
 
 // Test 1: Check project structure
 console.log("1️⃣  Checking project structure...");
-const requiredDirs = ["apps/master-api", "apps/master-web", "apps/cli", "packages/projects", "project-template", "tests"];
+const requiredDirs = ["apps/host-api", "apps/host-web", "apps/cli", "packages/projects", "project-template", "tests"];
 
 for (const dir of requiredDirs) {
 	if (existsSync(dir)) {
@@ -87,7 +87,7 @@ if (process.env.ANTHROPIC_API_KEY) {
 console.log("\n5️⃣  Checking package.json scripts...");
 try {
 	const pkg = JSON.parse(await readFile("package.json", "utf-8"));
-	const requiredScripts = ["dev", "master", "master-web", "projects", "test:e2e", "test:integration"];
+	const requiredScripts = ["dev", "host", "host-web", "projects", "test:e2e", "test:integration"];
 
 	for (const script of requiredScripts) {
 		if (pkg.scripts[script]) {
@@ -120,7 +120,7 @@ console.log("=".repeat(60));
 if (failed === 0) {
 	console.log("\n✅ Setup is correct! You can now:");
 	console.log("   - Run tests: bun run test:e2e");
-	console.log("   - Start master: bun run dev");
+	console.log("   - Start host: bun run dev");
 	console.log("   - Create projects: bun run projects create <name>");
 	if (!process.env.ANTHROPIC_API_KEY) {
 		console.log("\n⚠️  For full integration tests, set ANTHROPIC_API_KEY:");
