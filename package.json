@@ -8,6 +8,7 @@
 	],
 	"scripts": {
 		"dev": "scripts/dev.sh",
+		"gen:db-md": "bun run scripts/gen-db-md.ts",
 		"dev:api": "bun run --elide-lines=0 --filter @agent-manager/master-api dev",
 		"dev:web": "bun run --elide-lines=0 --filter @agent-manager/master-web dev",
 		"build": "bun run --filter '*' build",

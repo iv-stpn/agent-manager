@@ -72,55 +72,59 @@ export class MasterDatabase {
 
 	private migrate() {
 		this.db.exec(`
+			-- Reusable prompt/config templates users can apply when creating projects.
 			CREATE TABLE IF NOT EXISTS templates (
 				id TEXT PRIMARY KEY,
-				name TEXT NOT NULL,
-				description TEXT NOT NULL DEFAULT '',
-				category TEXT NOT NULL,
-				content TEXT NOT NULL DEFAULT '',
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL
+				name TEXT NOT NULL, -- Display name of the template.
+				description TEXT NOT NULL DEFAULT '', -- Short description shown in the picker.
+				category TEXT NOT NULL, -- One of: tech-stack, ui-design, best-practices, system-prompt.
+				content TEXT NOT NULL DEFAULT '', -- The template body injected into a project.
+				created_at INTEGER NOT NULL, -- Creation time (epoch ms).
+				updated_at INTEGER NOT NULL -- Last update time (epoch ms).
 			);
 
+			-- Snapshot of a project kept after it is archived/removed, with rolled-up totals.
 			CREATE TABLE IF NOT EXISTS archived_projects (
 				id TEXT PRIMARY KEY,
-				name TEXT NOT NULL,
-				description TEXT,
-				created_at TEXT NOT NULL,
-				archived_at TEXT NOT NULL,
-				total_sessions INTEGER NOT NULL DEFAULT 0,
-				total_messages INTEGER NOT NULL DEFAULT 0,
-				total_input_tokens INTEGER NOT NULL DEFAULT 0,
-				total_output_tokens INTEGER NOT NULL DEFAULT 0,
-				total_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-				total_cache_write_tokens INTEGER NOT NULL DEFAULT 0
+				name TEXT NOT NULL, -- Project name at archive time.
+				description TEXT, -- Project description, if any.
+				created_at TEXT NOT NULL, -- When the project was originally created (ISO string).
+				archived_at TEXT NOT NULL, -- When the project was archived (ISO string).
+				total_sessions INTEGER NOT NULL DEFAULT 0, -- Number of sessions the project had.
+				total_messages INTEGER NOT NULL DEFAULT 0, -- Total messages across all sessions.
+				total_input_tokens INTEGER NOT NULL DEFAULT 0, -- Lifetime input tokens.
+				total_output_tokens INTEGER NOT NULL DEFAULT 0, -- Lifetime output tokens.
+				total_cache_read_tokens INTEGER NOT NULL DEFAULT 0, -- Lifetime prompt-cache read tokens.
+				total_cache_write_tokens INTEGER NOT NULL DEFAULT 0 -- Lifetime prompt-cache write tokens.
 			);
 
+			-- Per-session snapshot belonging to an archived project.
 			CREATE TABLE IF NOT EXISTS archived_sessions (
 				id TEXT PRIMARY KEY,
-				project_id TEXT NOT NULL,
-				name TEXT,
-				task TEXT NOT NULL DEFAULT '',
-				status TEXT NOT NULL DEFAULT 'stopped',
-				total_input_tokens INTEGER NOT NULL DEFAULT 0,
-				total_output_tokens INTEGER NOT NULL DEFAULT 0,
-				total_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-				total_cache_write_tokens INTEGER NOT NULL DEFAULT 0,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL,
+				project_id TEXT NOT NULL, -- Owning archived project.
+				name TEXT, -- Session name, if any.
+				task TEXT NOT NULL DEFAULT '', -- The task the session worked on.
+				status TEXT NOT NULL DEFAULT 'stopped', -- Final status at archive time.
+				total_input_tokens INTEGER NOT NULL DEFAULT 0, -- Session input tokens.
+				total_output_tokens INTEGER NOT NULL DEFAULT 0, -- Session output tokens.
+				total_cache_read_tokens INTEGER NOT NULL DEFAULT 0, -- Session prompt-cache read tokens.
+				total_cache_write_tokens INTEGER NOT NULL DEFAULT 0, -- Session prompt-cache write tokens.
+				created_at INTEGER NOT NULL, -- Session creation time (epoch ms).
+				updated_at INTEGER NOT NULL, -- Session last update time (epoch ms).
 				FOREIGN KEY (project_id) REFERENCES archived_projects(id) ON DELETE CASCADE
 			);
 
+			-- Single-row ('global') lifetime counters across the whole orchestrator.
 			CREATE TABLE IF NOT EXISTS statistics (
-				id TEXT PRIMARY KEY DEFAULT 'global',
-				total_projects_created INTEGER NOT NULL DEFAULT 0,
-				total_sessions_started INTEGER NOT NULL DEFAULT 0,
-				total_messages_sent INTEGER NOT NULL DEFAULT 0,
-				total_input_tokens INTEGER NOT NULL DEFAULT 0,
-				total_output_tokens INTEGER NOT NULL DEFAULT 0,
-				total_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-				total_cache_write_tokens INTEGER NOT NULL DEFAULT 0,
-				updated_at INTEGER NOT NULL
+				id TEXT PRIMARY KEY DEFAULT 'global', -- Always 'global'; one row.
+				total_projects_created INTEGER NOT NULL DEFAULT 0, -- Projects ever created.
+				total_sessions_started INTEGER NOT NULL DEFAULT 0, -- Sessions ever started.
+				total_messages_sent INTEGER NOT NULL DEFAULT 0, -- Messages ever sent.
+				total_input_tokens INTEGER NOT NULL DEFAULT 0, -- Lifetime input tokens.
+				total_output_tokens INTEGER NOT NULL DEFAULT 0, -- Lifetime output tokens.
+				total_cache_read_tokens INTEGER NOT NULL DEFAULT 0, -- Lifetime prompt-cache read tokens.
+				total_cache_write_tokens INTEGER NOT NULL DEFAULT 0, -- Lifetime prompt-cache write tokens.
+				updated_at INTEGER NOT NULL -- Last time the counters changed (epoch ms).
 			);
 		`);
 
