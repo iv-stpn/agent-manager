@@ -282,50 +282,6 @@ IMPORTANT: This is the ONLY correct way to record reports. Do NOT use write_file
 | `screenshot_targets` | `array` |  | Pages to screenshot. Each target can be: a URL (https://...), a workspace-relative file path (.html), or a raw HTML string (starts with '<'). |
 | `freeze_override` | `freeze` \| `continue` |  | Override the current freeze_report_mode for this specific report. 'freeze' = pause agent until user confirms; 'continue' = send report and keep working. |
 
-## Mode controls
-
-### `change_timeout`
-
-Change the total agent run timeout (default: 240 minutes). After timeout, agent freezes and awaits user input.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `minutes` | `number` | Yes | New total timeout in minutes (1–1440) |
-
-### `change_report_time_interval`
-
-Change the automatic report interval (default: 15 minutes). Set to 0 to disable automatic reports entirely.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `minutes` | `number` | Yes | Minutes between auto-reports (0 to disable) |
-
-### `change_freeze_report_mode`
-
-Control whether reports cause the agent to freeze and await user input.
-- always: freeze on every report
-- never: reports are async, agent continues immediately
-- custom: agent evaluates custom_rule to decide per-report
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `mode` | `always` \| `never` \| `custom` | Yes |  |
-| `custom_rule` | `string` |  | When mode=custom: describe the condition under which the agent should freeze (e.g. 'freeze if the report involves a security concern or major architecture decision') |
-
-### `change_freeze_ask_mode`
-
-Control how questions are sent to the user.
-- always: ask questions at every opportunity, grouped
-- requiredOnly: only urgent questions block; others accumulate for next report
-- onReportOnly: all questions accumulate until the next report cycle; urgent questions trigger an early report
-- never: all questions written to QUESTIONS.md; agent decides autonomously; asks at total timeout
-
-Note: freeze_report_mode takes precedence — if a report freezes, questions are always asked then.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `mode` | `always` \| `requiredOnly` \| `onReportOnly` \| `never` | Yes |  |
-
 ## Git
 
 ### `commit_changes`
@@ -342,36 +298,6 @@ Stage all workspace changes, run quality checks (lint, typecheck, tests), and cr
 ### `compact_context`
 
 Summarise the older portion of the conversation into a concise context block, freeing up context window space. Call this proactively when the conversation grows long or before an intensive multi-step operation.
-
-### `change_compact_threshold`
-
-Change the estimated context token threshold that triggers automatic context compaction (default: 80 000). Set to 0 to disable automatic compaction.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `tokens` | `number` | Yes | Threshold in tokens (0 to disable) |
-
-### `change_stop_threshold`
-
-Change the cumulative token budget at which the agent auto-stops (default: 400 000 tokens). The agent freezes and surfaces all pending questions when this limit is reached. Set to 0 to disable.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `tokens` | `number` | Yes | Cumulative token budget (0 to disable) |
-
-## Always-improve
-
-### `change_always_improve_mode`
-
-Control what happens after the original task is complete.
-- no (default): agent completes and reports done
-- yes: agent never stops; always looks for further improvements (code quality, tests, docs, performance, refactoring)
-- custom: agent continues within a specific scope defined by the user
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `mode` | `yes` \| `no` \| `custom` | Yes |  |
-| `scope` | `string` |  | When mode=custom: describe exactly what kinds of improvements are in scope (e.g. 'add tests and improve docs only; do not add new features') |
 
 ## Implementation checklist
 
@@ -397,16 +323,6 @@ Exit plan mode and resume full tool access. Optionally provide a plan summary do
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `plan_summary` | `string` |  | Summary of what you explored and the implementation plan you've formed |
-
-## Session Management
-
-### `set_session_name`
-
-Give this session a short, memorable name that describes what you're working on. This helps the user identify sessions at a glance. Call this early in the session, ideally after understanding the task. Keep names concise (2-5 words) and descriptive (e.g. 'Auth System Refactor', 'Payment API', 'Bug Fix: Login Flow').
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | `string` | Yes | Short, descriptive name for this session (2-5 words recommended) |
 
 ---
 

@@ -43,6 +43,18 @@ Per-session snapshot belonging to an archived project.
 | `created_at` | `INTEGER` | not null | Session creation time (epoch ms). |
 | `updated_at` | `INTEGER` | not null | Session last update time (epoch ms). |
 
+### `discord_channels`
+
+Discord channel/category mappings for the global bot.
+
+| Column | Type | Constraints | Description |
+| --- | --- | --- | --- |
+| `id` | `TEXT` | PK | Discord channel or category ID. |
+| `project_id` | `TEXT` | not null | Owning project. |
+| `session_id` | `TEXT` | — | Null for category/pinned channels. |
+| `type` | `TEXT` | not null | 'category' | 'summary' | 'todos' | 'session' | 'archive'. |
+| `created_at` | `INTEGER` | not null | Creation time (epoch ms). |
+
 ### `guideline_categories`
 
 Categories used to classify guidelines (e.g. "UI design", "Best practice").
