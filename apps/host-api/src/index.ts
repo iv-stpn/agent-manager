@@ -11,7 +11,6 @@ import { guidelinesRouter } from "./routes/guidelines";
 import { projectsRouter } from "./routes/projects";
 import { renderRouter } from "./routes/render";
 import { techStacksRouter } from "./routes/tech-stacks";
-import { templatesRouter } from "./routes/templates";
 import type { HonoHostEnv } from "./types";
 
 const PORT = Number(process.env.HOST_PORT ?? 3100);
@@ -49,7 +48,6 @@ const app = new Hono<HonoHostEnv>()
 	.get("/", (c) => c.text("Hello from Agent Manager API"))
 	.get("/health", (c) => c.json({ ok: true, ts: Date.now(), service: "agent-manager-api" }))
 	.route("/api/projects", projectsRouter)
-	.route("/api/templates", templatesRouter)
 	.route("/api/tech-stacks", techStacksRouter)
 	.route("/api/guideline-categories", guidelineCategoriesRouter)
 	.route("/api/guidelines", guidelinesRouter)

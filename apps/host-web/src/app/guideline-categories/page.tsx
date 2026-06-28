@@ -9,7 +9,7 @@ import {
 } from "@/lib/agent-api";
 import { mutateCache, useQuery } from "@/lib/query-cache";
 
-const EMPTY_FORM = { name: "", description: "" };
+const EMPTY_FORM = { name: "", description: "", color: "#6b7280" };
 const inputCls = "w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
 
 export default function GuidelineCategoriesPage() {
@@ -26,7 +26,7 @@ export default function GuidelineCategoriesPage() {
 	}
 
 	function openEdit(c: GuidelineCategory) {
-		setForm({ name: c.name, description: c.description });
+		setForm({ name: c.name, description: c.description, color: c.color });
 		setEditing(c);
 		setCreating(false);
 	}
@@ -97,9 +97,12 @@ export default function GuidelineCategoriesPage() {
 					<div className="bg-white rounded-xl border border-gray-200 divide-y">
 						{categories.map((c) => (
 							<div key={c.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
-								<div className="min-w-0">
-									<h3 className="font-semibold text-gray-900">{c.name}</h3>
-									{c.description && <p className="text-sm text-gray-500 mt-0.5">{c.description}</p>}
+								<div className="flex items-center gap-3 min-w-0">
+									<span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+									<div className="min-w-0">
+										<h3 className="font-semibold text-gray-900">{c.name}</h3>
+										{c.description && <p className="text-sm text-gray-500 mt-0.5">{c.description}</p>}
+									</div>
 								</div>
 								<div className="flex gap-1 shrink-0">
 									<button
@@ -168,6 +171,21 @@ export default function GuidelineCategoriesPage() {
 									className={inputCls}
 									placeholder="Short description"
 								/>
+							</div>
+							<div className="space-y-1.5">
+								<label className="text-sm font-medium text-gray-700" htmlFor="gc-color">
+									Color
+								</label>
+								<div className="flex items-center gap-2">
+									<input
+										id="gc-color"
+										type="color"
+										value={form.color}
+										onChange={(e) => setForm({ ...form, color: e.target.value })}
+										className="w-9 h-9 rounded-lg border border-gray-300 cursor-pointer p-0.5"
+									/>
+									<span className="text-sm text-gray-500">{form.color}</span>
+								</div>
 							</div>
 						</div>
 						<div className="flex gap-2 px-6 py-4 border-t">

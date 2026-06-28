@@ -8,6 +8,7 @@
 	],
 	"scripts": {
 		"dev": "scripts/dev.sh",
+		"reset:host-db": "bun run scripts/reset-host-db.ts",
 		"gen:db-md": "bun run scripts/gen-db-md.ts",
 		"dev:api": "bun run --elide-lines=0 --filter @agent-manager/host-api dev",
 		"dev:web": "bun run --elide-lines=0 --filter @agent-manager/host-web dev",

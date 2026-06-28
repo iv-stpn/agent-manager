@@ -45,6 +45,7 @@ export interface GuidelineCategory {
 	id: string;
 	name: string;
 	description: string;
+	color: string;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -144,6 +145,7 @@ export class HostDatabase {
 				id TEXT PRIMARY KEY,
 				name TEXT NOT NULL UNIQUE, -- Unique category name.
 				description TEXT NOT NULL DEFAULT '', -- Short description of what the category covers.
+				color TEXT NOT NULL DEFAULT '#6b7280', -- Hex color for UI badges/chips.
 				created_at INTEGER NOT NULL, -- Creation time (epoch ms).
 				updated_at INTEGER NOT NULL -- Last update time (epoch ms).
 			);
@@ -215,6 +217,12 @@ export class HostDatabase {
 			)
 			.run(Date.now());
 
+		// Migration: add color column to guideline_categories if missing.
+		const cols = this.db.query("PRAGMA table_info(guideline_categories)").all() as { name: string }[];
+		if (!cols.some((c) => c.name === "color")) {
+			this.db.query("ALTER TABLE guideline_categories ADD COLUMN color TEXT NOT NULL DEFAULT '#6b7280'").run();
+		}
+
 		this.seedDefaults();
 	}
 
@@ -226,21 +234,70 @@ export class HostDatabase {
 		// Default guideline categories — only seeded when the table is empty.
 		const categoryCount = (this.db.query("SELECT COUNT(*) AS n FROM guideline_categories").get() as { n: number }).n;
 		if (categoryCount === 0) {
-			const defaults: { name: string; description: string }[] = [
-				{ name: "UI design", description: "Visual design, layout, and interaction patterns." },
-				{ name: "Best practice", description: "Recommended engineering practices and conventions." },
-				{ name: "Behavior", description: "How the agent should behave while working." },
-				{ name: "Rule", description: "Hard constraints the agent must always follow." },
+			const categoryDefaults: { name: string; description: string; color: string }[] = [
+				{ name: "UI design", description: "Visual design, layout, and interaction patterns.", color: "#8b5cf6" },
+				{ name: "Best practice", description: "Recommended engineering practices and conventions.", color: "#10b981" },
+				{ name: "Behavior", description: "How the agent should behave while working.", color: "#f59e0b" },
+				{ name: "Rule", description: "Hard constraints the agent must always follow.", color: "#ef4444" },
 			];
-			const insert = this.db.query(
-				`INSERT INTO guideline_categories (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`
+			const catIds: Record<string, string> = {};
+			const insertCat = this.db.query(
+				`INSERT INTO guideline_categories (id, name, description, color, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
 			);
-			for (const cat of defaults) {
-				insert.run(randomUUID(), cat.name, cat.description, now, now);
+			for (const cat of categoryDefaults) {
+				const id = randomUUID();
+				catIds[cat.name] = id;
+				insertCat.run(id, cat.name, cat.description, cat.color, now, now);
+			}
+
+			// Default guidelines — seeded alongside categories.
+			const guidelineDefaults: { name: string; description: string; category: string; content: string }[] = [
+				{
+					name: "Consistent spacing",
+					description: "Use consistent spacing and padding across components.",
+					category: "UI design",
+					content: "Use a 4px/8px spacing scale. Prefer gap utilities over margin for flex/grid layouts.",
+				},
+				{
+					name: "Accessible color contrast",
+					description: "Ensure text meets WCAG AA contrast ratios.",
+					category: "UI design",
+					content: "All text must meet WCAG AA contrast (4.5:1 for normal text, 3:1 for large text). Test with browser dev tools.",
+				},
+				{
+					name: "Error handling",
+					description: "Handle errors explicitly rather than silently swallowing them.",
+					category: "Best practice",
+					content: "Never use empty catch blocks. Log or propagate errors. Show user-facing messages for recoverable failures.",
+				},
+				{
+					name: "Small focused commits",
+					description: "Keep commits small and focused on a single change.",
+					category: "Best practice",
+					content: "Each commit should represent one logical change. Separate refactors from feature work.",
+				},
+				{
+					name: "Explain before coding",
+					description: "Explain your plan before writing code.",
+					category: "Behavior",
+					content: "Before implementing, briefly describe your approach and which files you'll change. Ask for confirmation on non-trivial changes.",
+				},
+				{
+					name: "No unrelated changes",
+					description: "Don't modify files unrelated to the task.",
+					category: "Rule",
+					content: "Only touch files directly related to the current task. Do not refactor, reformat, or 'improve' unrelated code.",
+				},
+			];
+			const insertGuideline = this.db.query(
+				`INSERT INTO guidelines (id, name, description, category_id, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+			);
+			for (const g of guidelineDefaults) {
+				insertGuideline.run(randomUUID(), g.name, g.description, catIds[g.category], g.content, now, now);
 			}
 		}
 
-		// Default tech stacks (one per common language) — only seeded when the table is empty.
+		// Default tech stacks — only seeded when the table is empty.
 		const stackCount = (this.db.query("SELECT COUNT(*) AS n FROM tech_stacks").get() as { n: number }).n;
 		if (stackCount === 0) {
 			const defaults: Omit<TechStack, "id" | "createdAt" | "updatedAt">[] = [
@@ -258,42 +315,6 @@ export class HostDatabase {
 							label: "Frontend",
 							libraries: [{ name: "react", version: "19" }],
 							usagePatterns: ["use hono/client for the API client"],
-						},
-					],
-				},
-				{
-					language: "Python",
-					name: "Python API",
-					description: "FastAPI service with SQLAlchemy persistence.",
-					stack: [
-						{
-							label: "Backend",
-							libraries: [{ name: "fastapi" }, { name: "sqlalchemy", version: "2" }],
-							usagePatterns: ["async endpoints", "pydantic models for validation"],
-						},
-					],
-				},
-				{
-					language: "Go",
-					name: "Go Service",
-					description: "Standard-library HTTP service with idiomatic project layout.",
-					stack: [
-						{
-							label: "Backend",
-							libraries: [{ name: "net/http" }],
-							usagePatterns: ["context-aware handlers", "table-driven tests"],
-						},
-					],
-				},
-				{
-					language: "Rust",
-					name: "Rust Service",
-					description: "Axum web service running on the Tokio runtime.",
-					stack: [
-						{
-							label: "Backend",
-							libraries: [{ name: "axum" }, { name: "tokio", version: "1" }],
-							usagePatterns: ["async/await", "thiserror for error types"],
 						},
 					],
 				},
@@ -432,7 +453,7 @@ export class HostDatabase {
 	listGuidelineCategories(): GuidelineCategory[] {
 		return this.db
 			.query(
-				`SELECT id, name, description, created_at AS createdAt, updated_at AS updatedAt
+				`SELECT id, name, description, color, created_at AS createdAt, updated_at AS updatedAt
 				 FROM guideline_categories ORDER BY name ASC`
 			)
 			.all() as GuidelineCategory[];
@@ -442,7 +463,7 @@ export class HostDatabase {
 		return (
 			(this.db
 				.query(
-					`SELECT id, name, description, created_at AS createdAt, updated_at AS updatedAt
+					`SELECT id, name, description, color, created_at AS createdAt, updated_at AS updatedAt
 					 FROM guideline_categories WHERE id = ?`
 				)
 				.get(id) as GuidelineCategory | undefined) ?? undefined
@@ -454,10 +475,10 @@ export class HostDatabase {
 		const now = Date.now();
 		this.db
 			.query(
-				`INSERT INTO guideline_categories (id, name, description, created_at, updated_at)
-				 VALUES (?, ?, ?, ?, ?)`
+				`INSERT INTO guideline_categories (id, name, description, color, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, ?, ?)`
 			)
-			.run(id, data.name, data.description, now, now);
+			.run(id, data.name, data.description, data.color, now, now);
 		return { ...data, id, createdAt: now, updatedAt: now };
 	}
 
@@ -467,8 +488,8 @@ export class HostDatabase {
 
 		const updated = { ...existing, ...data, updatedAt: Date.now() };
 		this.db
-			.query(`UPDATE guideline_categories SET name = ?, description = ?, updated_at = ? WHERE id = ?`)
-			.run(updated.name, updated.description, updated.updatedAt, id);
+			.query(`UPDATE guideline_categories SET name = ?, description = ?, color = ?, updated_at = ? WHERE id = ?`)
+			.run(updated.name, updated.description, updated.color, updated.updatedAt, id);
 		return updated;
 	}
 

@@ -6,6 +6,7 @@ import type { HonoHostEnv } from "../types";
 const CreateCategorySchema = z.object({
 	name: z.string().min(1),
 	description: z.string().default(""),
+	color: z.string().default("#6b7280"),
 });
 
 const UpdateCategorySchema = CreateCategorySchema.partial();

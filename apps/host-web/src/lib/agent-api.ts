@@ -13,7 +13,6 @@ import type {
 	QuestionRecord,
 	SessionRecord,
 	TechStack,
-	Template,
 	ToolCallRecord,
 } from "@agent-manager/projects";
 import { hc } from "hono/client";
@@ -30,7 +29,6 @@ export type {
 	StackEntry,
 	StackLibrary,
 	TechStack,
-	Template,
 	ToolCallRecord as ToolCall,
 } from "@agent-manager/projects";
 export type {
@@ -220,31 +218,6 @@ export async function sendSessionMessage(projectId: string, id: string, message:
 // ── SSE streams — re-exported from @agent-manager/utils ─────────────────────
 
 export { createHostStream, createProjectStream, createSessionStream } from "@agent-manager/utils";
-
-// ── Template endpoints ────────────────────────────────────────────────────────
-
-export async function getTemplates(): Promise<Template[]> {
-	const res = await api.api.templates.$get();
-	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as Template[];
-}
-
-export async function createTemplate(data: Omit<Template, "id" | "createdAt" | "updatedAt">): Promise<Template> {
-	const res = await api.api.templates.$post({ json: data });
-	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as Template;
-}
-
-export async function updateTemplate(id: string, data: Partial<Omit<Template, "id" | "createdAt">>): Promise<Template> {
-	const res = await api.api.templates[":id"].$put({ param: { id }, json: data });
-	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as Template;
-}
-
-export async function deleteTemplate(id: string): Promise<void> {
-	const res = await api.api.templates[":id"].$delete({ param: { id } });
-	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-}
 
 // ── Tech stack endpoints ────────────────────────────────────────────────────
 

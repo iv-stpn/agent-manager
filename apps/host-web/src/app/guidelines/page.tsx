@@ -21,7 +21,7 @@ export default function GuidelinesPage() {
 
 	const categoryName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? "Uncategorized";
 	const visible =
-		filter === "all" ? guidelines : guidelines.filter((g) => (filter === "none" ? !g.categoryId : g.categoryId === filter));
+		filter === "all" ? guidelines : guidelines.filter((g) => g.categoryId === filter);
 
 	function openCreate() {
 		setForm(EMPTY_FORM);
@@ -103,22 +103,13 @@ export default function GuidelinesPage() {
 						onClick={() => setFilter(cat.id)}
 						className={cn(
 							"px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
-							filter === cat.id ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100"
+							filter === cat.id ? "text-white" : "text-gray-600 hover:bg-gray-100"
 						)}
+						style={filter === cat.id ? { backgroundColor: cat.color } : undefined}
 					>
 						{cat.name}
 					</button>
 				))}
-				<button
-					type="button"
-					onClick={() => setFilter("none")}
-					className={cn(
-						"px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
-						filter === "none" ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100"
-					)}
-				>
-					Uncategorized
-				</button>
 			</div>
 
 			<main className="max-w-5xl mx-auto px-6 py-8">
@@ -141,7 +132,10 @@ export default function GuidelinesPage() {
 								<div className="flex items-start justify-between gap-3">
 									<div className="min-w-0">
 										<div className="flex items-center gap-2 mb-1">
-											<span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+											<span
+												className="text-xs font-medium px-2 py-0.5 rounded-full text-white"
+												style={{ backgroundColor: categories.find((c) => c.id === g.categoryId)?.color ?? "#6b7280" }}
+											>
 												{categoryName(g.categoryId)}
 											</span>
 										</div>
@@ -232,7 +226,7 @@ export default function GuidelinesPage() {
 									onChange={(e) => setForm({ ...form, categoryId: e.target.value || null })}
 									className={inputCls}
 								>
-									<option value="">Uncategorized</option>
+									<option value="" disabled>Select a category</option>
 									{categories.map((c) => (
 										<option key={c.id} value={c.id}>
 											{c.name}

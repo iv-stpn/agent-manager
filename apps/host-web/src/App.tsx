@@ -7,7 +7,6 @@ import ProjectDetailPage from "./app/projects/[id]/page";
 import SessionPage from "./app/projects/[id]/sessions/[sessionId]/page";
 import StatisticsPage from "./app/statistics/page";
 import TechStacksPage from "./app/tech-stacks/page";
-import TemplatesPage from "./app/templates/page";
 
 export default function App() {
 	return (
@@ -17,7 +16,6 @@ export default function App() {
 				<Route path="/projects/:id" element={<ProjectDetailPage />} />
 				<Route path="/projects/:id/sessions/:sessionId" element={<SessionPage />} />
 				<Route path="/statistics" element={<StatisticsPage />} />
-				<Route path="/templates" element={<TemplatesPage />} />
 				<Route path="/tech-stacks" element={<TechStacksPage />} />
 				<Route path="/guidelines" element={<GuidelinesPage />} />
 				<Route path="/guideline-categories" element={<GuidelineCategoriesPage />} />

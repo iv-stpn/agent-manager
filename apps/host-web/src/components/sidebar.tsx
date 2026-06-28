@@ -1,4 +1,4 @@
-import { BarChart2, BookOpen, Home, Layers, LayoutTemplate, Plus, Tags } from "lucide-react";
+import { BarChart2, BookOpen, Home, Layers, Plus, Tags } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { toast } from "sonner";
@@ -52,7 +52,6 @@ export function Sidebar() {
 
 	const bottomLinks = [
 		{ href: "/statistics", icon: BarChart2, label: "Statistics" },
-		{ href: "/templates", icon: LayoutTemplate, label: "Templates" },
 		{ href: "/tech-stacks", icon: Layers, label: "Tech Stacks" },
 		{ href: "/guidelines", icon: BookOpen, label: "Guidelines" },
 		{ href: "/guideline-categories", icon: Tags, label: "Guideline Categories" },
