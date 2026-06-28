@@ -112,7 +112,7 @@ export const memoryRouter = new Hono<HonoHostEnv>()
 		const entryId = c.req.param("entryId");
 		const body = updateSchema.parse(await c.req.json());
 
-		const updates: Record<string, any> = {};
+		const updates: Record<string, string> = {};
 		if (body.title !== undefined) updates.title = body.title;
 		if (body.content !== undefined) updates.content = body.content;
 		if (body.type !== undefined) updates.type = body.type;

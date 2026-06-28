@@ -56,7 +56,7 @@ import {
 	searchFiles,
 	writeFile,
 } from "./tools/implementations/filesystem";
-import { deleteMemory, listMemories, recall, remember, updateMemory } from "./tools/implementations/memory";
+import { deleteMemory, listMemories, type MemoryType, recall, remember, updateMemory } from "./tools/implementations/memory";
 import { addTask, getCurrentTask, listTasks, setCurrentTask, updateTask } from "./tools/implementations/task";
 import { webFetch, webSearch } from "./tools/implementations/web";
 import { bootstrapWorkspace, buildStartupContext, MEMORY_SYSTEM_DESCRIPTION } from "./workspace";
@@ -155,10 +155,8 @@ export class AgentRunner {
 	// Tracking
 	private startTime = Date.now();
 	private lastReportTime = Date.now();
-	private lastReportCommit: string | null = null;
 	private stopped = false;
 	private totalTokensConsumed = 0;
-	private currentTask = "";
 
 	// Plan mode
 	private planMode = false;
@@ -1206,26 +1204,31 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 
 			// ── Memory Management ────────────────────────────────────────────────────────
 			case "remember":
-				return await remember(input.type as any, input.title as string, input.content as string, input.metadata as any);
+				return await remember(
+					input.type as MemoryType,
+					input.title as string,
+					input.content as string,
+					input.metadata as Record<string, unknown> | undefined
+				);
 			case "recall": {
-				const results = await recall(input.query as string, input.type as any, (input.limit as number) ?? 10);
+				const results = await recall(input.query as string, input.type as MemoryType | undefined, (input.limit as number) ?? 10);
 				return results.length > 0
 					? results.map((r) => `[${r.id}] (${r.type}) ${r.title}:\n${r.content}`).join("\n\n---\n\n")
 					: "No matching memories found.";
 			}
 			case "update_memory":
 				await updateMemory(input.id as string, {
-					title: input.title as any,
-					content: input.content as any,
-					type: input.type as any,
-					metadata: input.metadata as any,
+					title: input.title as string | undefined,
+					content: input.content as string | undefined,
+					type: input.type as MemoryType | undefined,
+					metadata: input.metadata as Record<string, unknown> | undefined,
 				});
 				return "Memory updated.";
 			case "delete_memory":
 				await deleteMemory(input.id as string);
 				return "Memory deleted.";
 			case "list_memories": {
-				const entries = await listMemories(input.type as any, (input.limit as number) ?? 100);
+				const entries = await listMemories(input.type as MemoryType | undefined, (input.limit as number) ?? 100);
 				return entries.length > 0
 					? entries.map((e) => `[${e.id}] (${e.type}) ${e.title}: ${e.content.slice(0, 150)}`).join("\n")
 					: "No memories found.";

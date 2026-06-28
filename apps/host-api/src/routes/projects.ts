@@ -145,8 +145,9 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 				if (!s.isDirectory()) return c.json({ status: "not_directory", path: resolved });
 				const entries = await readdir(resolved);
 				return c.json({ status: entries.length > 0 ? "not_empty" : "empty", path: resolved });
-			} catch (e: any) {
-				if (e.code === "ENOENT") return c.json({ status: "not_found", path: resolved });
+			} catch (e: unknown) {
+				if (e instanceof Error && "code" in e && (e as NodeJS.ErrnoException).code === "ENOENT")
+					return c.json({ status: "not_found", path: resolved });
 				throw e;
 			}
 		} catch (error) {

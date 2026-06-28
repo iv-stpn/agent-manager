@@ -66,7 +66,7 @@ export async function checkWorkspacePath(
 ): Promise<{ status: "not_found" | "empty" | "not_empty" | "not_directory"; path: string }> {
 	const res = await api.api.projects["check-path"].$post({ json: { path } });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as any;
+	return (await res.json()) as { status: "not_found" | "empty" | "not_empty" | "not_directory"; path: string };
 }
 
 export async function createProject(data: CreateProjectInput) {

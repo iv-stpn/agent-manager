@@ -55,7 +55,7 @@ app.get("/health", (c) => c.json({ status: "ok" }));
 // Add documents (upsert by id)
 app.post("/tables/:table/add", async (c) => {
 	const tableName = c.req.param("table");
-	const body = await c.req.json<{ documents: any[] }>();
+	const body = await c.req.json<{ documents: Record<string, unknown>[] }>();
 
 	const table = await getOrCreateTable(tableName);
 
@@ -128,7 +128,7 @@ app.post("/tables/:table/delete", async (c) => {
 // Update by id
 app.put("/tables/:table/update", async (c) => {
 	const tableName = c.req.param("table");
-	const body = await c.req.json<{ id: string; updates: Record<string, any> }>();
+	const body = await c.req.json<{ id: string; updates: Record<string, unknown> }>();
 
 	const table = await getOrCreateTable(tableName);
 
