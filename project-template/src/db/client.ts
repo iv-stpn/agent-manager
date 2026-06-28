@@ -127,6 +127,17 @@ export function initDb(path = process.env.DATABASE_PATH ?? "./data/agent.db") {
 		);
 	`);
 
+	sqlite.exec(`
+		CREATE TABLE IF NOT EXISTS todos (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL REFERENCES sessions(id),
+			text TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+		);
+	`);
+
 	// Migrations for existing databases
 	try {
 		// Add name column to sessions if it doesn't exist

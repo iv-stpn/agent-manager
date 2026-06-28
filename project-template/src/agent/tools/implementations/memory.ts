@@ -69,21 +69,3 @@ export async function searchMemory(pattern: string, caseSensitive = false): Prom
 	if (result.exitCode !== 0 && !result.stdout) return "No matches found in memory.";
 	return result.stdout || "No matches found in memory.";
 }
-
-export async function appendDecision(
-	title: string,
-	context: string,
-	decision: string,
-	rationale: string,
-	consequences?: string
-): Promise<string> {
-	const date = new Date().toISOString().split("T")[0];
-	const entry = `
-## ${title} — ${date}
-**Context:** ${context}
-**Decision:** ${decision}
-**Rationale:** ${rationale}
-${consequences ? `**Consequences:** ${consequences}` : ""}
-`;
-	return await writeMemory("DECISIONS.md", entry, true);
-}

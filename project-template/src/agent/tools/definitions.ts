@@ -263,35 +263,53 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 			required: ["pattern"],
 		},
 	},
+	// ── Todo Management ──────────────────────────────────────────────────────────
 	{
-		name: "append_decision",
-		description:
-			"Append a new architectural or design decision to DECISIONS.md. Automatically formats it with timestamp and proper structure. Never deletes previous decisions (append-only log).",
+		name: "add_todo",
+		description: "Add a new todo item to the agent's task list.",
 		input_schema: {
 			type: "object",
 			properties: {
-				title: {
+				text: { type: "string", description: "Todo item text" },
+				status: {
 					type: "string",
-					description: "Short decision title (e.g., 'Use PostgreSQL for persistence')",
-				},
-				context: {
-					type: "string",
-					description: "Why this decision was needed",
-				},
-				decision: {
-					type: "string",
-					description: "What was decided",
-				},
-				rationale: {
-					type: "string",
-					description: "Why this option over alternatives",
-				},
-				consequences: {
-					type: "string",
-					description: "Trade-offs, implications, or follow-up actions",
+					enum: ["pending", "in_progress", "done"],
+					description: "Initial status (default: pending)",
 				},
 			},
-			required: ["title", "context", "decision", "rationale"],
+			required: ["text"],
+		},
+	},
+	{
+		name: "list_todos",
+		description: "List todo items. Optionally filter by status.",
+		input_schema: {
+			type: "object",
+			properties: {
+				filter: {
+					type: "string",
+					enum: ["all", "pending", "in_progress", "done"],
+					description: "Status filter (default: all)",
+				},
+			},
+			required: [],
+		},
+	},
+	{
+		name: "update_todo",
+		description: "Update a todo item's status or text by its ID.",
+		input_schema: {
+			type: "object",
+			properties: {
+				id: { type: "string", description: "Todo ID (from list_todos)" },
+				status: {
+					type: "string",
+					enum: ["pending", "in_progress", "done"],
+					description: "New status",
+				},
+				text: { type: "string", description: "Updated text" },
+			},
+			required: ["id"],
 		},
 	},
 

@@ -164,5 +164,20 @@ export type Question = typeof questions.$inferSelect;
 export type NewQuestion = typeof questions.$inferInsert;
 export type Report = typeof reports.$inferSelect;
 export type NewReport = typeof reports.$inferInsert;
+export const todos = sqliteTable("todos", {
+	id: text("id").primaryKey(),
+	sessionId: text("session_id")
+		.notNull()
+		.references(() => sessions.id),
+	text: text("text").notNull(),
+	status: text("status", { enum: ["pending", "in_progress", "done"] })
+		.notNull()
+		.default("pending"),
+	createdAt: integer("created_at").notNull().default(sql`(unixepoch() * 1000)`),
+	updatedAt: integer("updated_at").notNull().default(sql`(unixepoch() * 1000)`),
+});
+
 export type Compaction = typeof compactions.$inferSelect;
 export type NewCompaction = typeof compactions.$inferInsert;
+export type Todo = typeof todos.$inferSelect;
+export type NewTodo = typeof todos.$inferInsert;

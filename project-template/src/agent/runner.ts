@@ -42,7 +42,8 @@ import {
 	searchFiles,
 	writeFile,
 } from "./tools/implementations/filesystem";
-import { appendDecision, readMemory, searchMemory, writeMemory } from "./tools/implementations/memory";
+import { readMemory, searchMemory, writeMemory } from "./tools/implementations/memory";
+import { addTodo, listTodos, updateTodo } from "./tools/implementations/todo";
 import { AGENT_DIR_STRUCTURE, bootstrapWorkspace, buildStartupContext } from "./workspace";
 
 const WORKSPACE = process.env.WORKSPACE_PATH ?? "/workspace";
@@ -1160,16 +1161,19 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 				return "Checklist sent but no response received — proceeding with best judgment.";
 			}
 
-			// ── Decisions ───────────────────────────────────────────────────────────────
-			case "append_decision": {
-				return await appendDecision(
-					input.title as string,
-					input.context as string,
-					input.decision as string,
-					input.rationale as string,
-					input.consequences as string | undefined
+			// ── Todo Management ─────────────────────────────────────────────────────────
+			case "add_todo":
+				return await addTodo(this.db, this.sessionId, input.text as string, input.status as "pending" | "in_progress" | "done" | undefined);
+			case "list_todos":
+				return await listTodos(this.db, this.sessionId, (input.filter as string) ?? "all");
+			case "update_todo":
+				return await updateTodo(
+					this.db,
+					this.sessionId,
+					input.id as string,
+					input.status as "pending" | "in_progress" | "done" | undefined,
+					input.text as string | undefined
 				);
-			}
 
 			// ── Timeout/interval changes ────────────────────────────────────────────────
 			case "change_timeout": {
