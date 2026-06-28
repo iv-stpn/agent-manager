@@ -27,6 +27,8 @@ import { renderRouter } from "./routes/render";
 import { techStacksRouter } from "./routes/tech-stacks";
 import type { HonoHostEnv } from "./types";
 
+export type { WorkspaceFolderStatus } from "./routes/projects";
+
 const rootDir = resolveWorkspaceRoot(import.meta.dir);
 
 const manager = new ProjectManager(rootDir);

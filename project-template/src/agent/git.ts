@@ -3,29 +3,22 @@ import { join } from "node:path";
 const GIT_AUTHOR_NAME = "Claude Agent";
 const GIT_AUTHOR_EMAIL = "agent@agent-manager.local";
 
+/** Run a git command in the workspace, returning its exit code and trimmed stdout. */
+async function git(workspace: string, args: string[]): Promise<{ exitCode: number; stdout: string }> {
+	const proc = Bun.spawn(["git", "-C", workspace, ...args], { stdout: "pipe", stderr: "pipe" });
+	const exitCode = await proc.exited;
+	const stdout = (await new Response(proc.stdout).text()).trim();
+	return { exitCode, stdout };
+}
+
 export async function isGitRepo(workspace: string): Promise<boolean> {
-	const proc = Bun.spawn(["git", "-C", workspace, "rev-parse", "--git-dir"], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	return (await proc.exited) === 0;
+	return (await git(workspace, ["rev-parse", "--git-dir"])).exitCode === 0;
 }
 
 export async function initGitRepo(workspace: string): Promise<string> {
-	const lines: string[] = [];
-
-	const run = async (args: string[]) => {
-		const proc = Bun.spawn(["git", "-C", workspace, ...args], {
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-		await proc.exited;
-		lines.push((await new Response(proc.stdout).text()).trim());
-	};
-
-	await run(["init"]);
-	await run(["config", "user.name", GIT_AUTHOR_NAME]);
-	await run(["config", "user.email", GIT_AUTHOR_EMAIL]);
+	await git(workspace, ["init"]);
+	await git(workspace, ["config", "user.name", GIT_AUTHOR_NAME]);
+	await git(workspace, ["config", "user.email", GIT_AUTHOR_EMAIL]);
 
 	// Default .gitignore if none exists
 	const gitignorePath = join(workspace, ".gitignore");
@@ -45,30 +38,16 @@ export async function initGitRepo(workspace: string): Promise<string> {
 			".DS_Store",
 		];
 		await Bun.write(gitignorePath, entries.join("\n").concat("\n"));
-		await run(["add", ".gitignore"]);
-		await run(["commit", "-m", "chore: initial commit — agent workspace initialised"]);
+		await git(workspace, ["add", ".gitignore"]);
+		await git(workspace, ["commit", "-m", "chore: initial commit — agent workspace initialised"]);
 	}
 
 	return `Git repo initialised in ${workspace}.`;
 }
 
 export async function getCurrentCommit(workspace: string): Promise<string | null> {
-	const proc = Bun.spawn(["git", "-C", workspace, "rev-parse", "HEAD"], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	if ((await proc.exited) !== 0) return null;
-	return (await new Response(proc.stdout).text()).trim().slice(0, 12);
-}
-
-export async function getCommitsSince(workspace: string, sinceCommit: string | null): Promise<string> {
-	const args = sinceCommit ? ["log", "--oneline", `${sinceCommit}..HEAD`] : ["log", "--oneline", "-20"];
-	const proc = Bun.spawn(["git", "-C", workspace, ...args], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	await proc.exited;
-	return ((await new Response(proc.stdout).text()) || "(no commits yet)").trim();
+	const { exitCode, stdout } = await git(workspace, ["rev-parse", "HEAD"]);
+	return exitCode === 0 ? stdout.slice(0, 12) : null;
 }
 
 export interface CommitResult {
@@ -178,14 +157,4 @@ export async function commitChanges(workspace: string, message: string, runQuali
 		output: output.join("\n\n"),
 		commit,
 	};
-}
-
-export async function hasUncommittedChanges(workspace: string): Promise<boolean> {
-	const proc = Bun.spawn(["git", "-C", workspace, "status", "--porcelain"], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	await proc.exited;
-	const out = await new Response(proc.stdout).text();
-	return out.trim().length > 0;
 }

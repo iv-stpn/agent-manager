@@ -18,16 +18,17 @@ import {
 	insertToolCall,
 	type Question,
 	updateCheckin,
+	updateMessageTokens,
 	updateQuestionCheckin,
 	updateSession,
 } from "../db";
 import { sessionEmitter } from "../emitter";
 import { env } from "../env";
-import { compactMessages, estimateTokens, UsageAnchor } from "./context";
+import { compactMessages, estimateTokens } from "./context";
 import { type ChecklistItem, type ReportData, sendChecklist, sendReport } from "./discord-client";
 import type { AgentError } from "./errors";
 import { classifyApiError, withRetry } from "./errors";
-import { commitChanges, getCurrentCommit } from "./git";
+import { commitChanges } from "./git";
 import {
 	isBashCommandReadOnly,
 	isPlanModeToolAllowed,
@@ -59,6 +60,7 @@ import {
 import { deleteMemory, listMemories, type MemoryType, recall, remember, updateMemory } from "./tools/implementations/memory";
 import { addTask, getCurrentTask, listTasks, setCurrentTask, updateTask } from "./tools/implementations/task";
 import { webFetch, webSearch } from "./tools/implementations/web";
+import { validateToolInput } from "./tools/validators";
 import { bootstrapWorkspace, buildStartupContext, MEMORY_SYSTEM_DESCRIPTION } from "./workspace";
 
 const WORKSPACE = env.WORKSPACE_PATH;
@@ -95,7 +97,7 @@ Read before you change. Understand the existing code, conventions, and tests bef
 
 Solve the task that was asked — no more. Don't over-engineer, don't add abstractions or configurability the task doesn't need, and don't add error handling for cases that can't happen. Don't create files (especially docs) unless they're required for the task.
 
-Plan first: add the task to \`.agent/TODO.md\`, write a checklist in \`.agent/plans/CURRENT_PLAN.md\`, and tick steps off as you go. Work in focused, committable chunks. Keep \`.agent/memory/\` and its \`MEMORY.md\` index current as you learn the codebase; archive finished plans.
+Plan first: use \`add_task\` to break work into trackable steps, then \`set_current_task\` as you progress through them. Work in focused, committable chunks. Use the memory tools to persist what you learn about the codebase across sessions.
 
 # Acting with care
 Weigh reversibility and blast radius before each action. Reading files, searching, and editing in the workspace are cheap and reversible — just do them. Pausing to confirm is cheap; an unwanted action (lost work, a bad commit, deleted state) can be expensive.
@@ -106,10 +108,10 @@ Commit only completed units of work via \`commit_changes\` (it runs quality chec
 Prefer the dedicated tools over shell equivalents so your work stays observable: \`read_file\` over \`cat\`, \`edit_file\` over \`sed\`, \`grep\`/\`glob\`/\`search_files\` over raw shell search. Reserve \`bash\` for things that genuinely need it.
 Make independent tool calls in the same turn so they run in parallel. Call \`compact_context\` before long operations or when the conversation grows large.
 
-Reports are permanent, immutable database records — the only audit trail of your progress. Use \`send_report\` for them; never write reports to files with \`write_file\`. Use the memory tools (\`remember\`, \`recall\`, \`update_memory\`, \`delete_memory\`, \`list_memories\`) for persistent knowledge.
+Reports are permanent, immutable database records — the only audit trail of your progress. Use \`send_report\` for them; never write reports to files. Use the memory tools (\`remember\`, \`recall\`, \`update_memory\`, \`delete_memory\`, \`list_memories\`) for persistent knowledge across sessions.
 
 # Questions and reporting
-Name the session early with \`set_session_name\` (2-5 words). Front-load clarifying questions with \`ask_checklist\` at the start; later, use \`urgent_question\` only when truly blocked. Send a report at each meaningful milestone, not just when the timer fires.
+Front-load clarifying questions with \`ask_checklist\` at the start; later, use \`urgent_question\` only when truly blocked. Send a report at each meaningful milestone, not just when the timer fires.
 
 # Tone
 You write for an engineer reading reports asynchronously. Be concise and direct — lead with the result, skip preamble. Use markdown; minimal emoji.
@@ -132,7 +134,7 @@ freeze_ask_mode —
 - always: queue_question anytime; questions are sent grouped, ASAP
 - requiredOnly: urgent_question only when blocked; queue_question accumulates for the next report
 - onReportOnly: all questions (including urgent) accumulate until the next report, then asked together
-- never: all questions go to QUESTIONS.md; decide autonomously; questions surface at timeout`;
+- never: decide autonomously; questions accumulate in memory and surface at timeout`;
 }
 
 // ── AgentRunner ───────────────────────────────────────────────────────────────
@@ -162,7 +164,8 @@ export class AgentRunner {
 	private planMode = false;
 
 	// Token budget management
-	private usageAnchor = new UsageAnchor();
+	private lastApiInputTokens = 0;
+	private lastUserMessageId: string | null = null;
 	private circuitBreaker = new CompactionCircuitBreaker();
 	private lastWarningState: TokenWarningState = "normal";
 
@@ -204,6 +207,53 @@ export class AgentRunner {
 	interject(text: string) {
 		this.injectedMessage = text;
 		this.abortController.abort("interject");
+	}
+
+	// ── Shared helpers ────────────────────────────────────────────────────────
+
+	/** Update the session status in the DB and notify listeners. */
+	private setStatus(status: "error" | "running" | "paused" | "compacting" | "completed" | "stopped"): void {
+		updateSession(this.db, this.sessionId, { status });
+		sessionEmitter.emit(this.sessionId, {
+			type: "session_updated",
+			data: { id: this.sessionId, status },
+		});
+	}
+
+	/** Append text as a user turn: merge into the last user message (to keep
+	 * strict user/assistant alternation) or push a new one. */
+	private appendUserText(text: string): void {
+		const last = this.messages[this.messages.length - 1];
+		if (last?.role === "user") {
+			if (Array.isArray(last.content)) {
+				(last.content as Anthropic.ContentBlockParam[]).push({ type: "text", text });
+			} else {
+				last.content = `${last.content}\n\n${text}`;
+			}
+		} else {
+			this.messages.push({ role: "user", content: text });
+		}
+	}
+
+	/** Persist a user message, emit it, and append it to the live context. */
+	private recordUserMessage(text: string): void {
+		const id = this.saveMessage("user", text, 0, 0);
+		this.lastUserMessageId = id;
+		sessionEmitter.emit(this.sessionId, {
+			type: "message",
+			data: {
+				id,
+				sessionId: this.sessionId,
+				role: "user",
+				content: text,
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+				createdAt: Date.now(),
+			},
+		});
+		this.appendUserText(text);
 	}
 
 	// ── Public setters for runtime config (used by Discord commands) ──────────
@@ -248,11 +298,8 @@ export class AgentRunner {
 	// ── Main loop ──────────────────────────────────────────────────────────────
 
 	async run(task: string): Promise<void> {
-		this.currentTask = task;
-
 		// ── Bootstrap workspace ────────────────────────────────────────────
 		const { isNewProject } = await bootstrapWorkspace(WORKSPACE);
-		this.lastReportCommit = await getCurrentCommit(WORKSPACE);
 
 		// ── Build startup context ──────────────────────────────────────────
 		const startupMsgs = await buildStartupContext(WORKSPACE, task, isNewProject);
@@ -273,8 +320,6 @@ export class AgentRunner {
 		const session = getSession(this.db, this.sessionId);
 		if (!session) throw new Error(`Session ${this.sessionId} not found`);
 
-		this.currentTask = session.task;
-		this.lastReportCommit = await getCurrentCommit(WORKSPACE);
 		this.stopped = false;
 		this.startTime = Date.now();
 		this.lastReportTime = Date.now();
@@ -311,37 +356,9 @@ export class AgentRunner {
 		}
 
 		// Append and persist the new user message
-		const msgId = this.saveMessage("user", message, 0, 0);
-		sessionEmitter.emit(this.sessionId, {
-			type: "message",
-			data: {
-				id: msgId,
-				sessionId: this.sessionId,
-				role: "user",
-				content: message,
-				inputTokens: 0,
-				outputTokens: 0,
-				cacheReadTokens: 0,
-				cacheWriteTokens: 0,
-				createdAt: Date.now(),
-			},
-		});
-		const last = this.messages[this.messages.length - 1];
-		if (last?.role === "user") {
-			if (Array.isArray(last.content)) {
-				(last.content as Anthropic.ContentBlockParam[]).push({ type: "text", text: message });
-			} else {
-				last.content = `${last.content}\n\n${message}`;
-			}
-		} else {
-			this.messages.push({ role: "user", content: message });
-		}
+		this.recordUserMessage(message);
 
-		updateSession(this.db, this.sessionId, { status: "running" });
-		sessionEmitter.emit(this.sessionId, {
-			type: "session_updated",
-			data: { id: this.sessionId, status: "running" },
-		});
+		this.setStatus("running");
 
 		await this.runLoop();
 	}
@@ -369,7 +386,7 @@ export class AgentRunner {
 
 				// Auto-compact context if too large (using circuit breaker)
 				const model = env.ANTHROPIC_MODEL;
-				const estTokens = this.usageAnchor.estimate(this.messages);
+				const estTokens = this.lastApiInputTokens || estimateTokens(this.messages);
 
 				// Emit token warning state changes
 				const warningInfo = calculateTokenWarningState(estTokens, model);
@@ -414,32 +431,7 @@ export class AgentRunner {
 						if (this.injectedMessage) {
 							const text = this.injectedMessage;
 							this.injectedMessage = null;
-							const msgId = this.saveMessage("user", text, 0, 0);
-							sessionEmitter.emit(this.sessionId, {
-								type: "message",
-								data: {
-									id: msgId,
-									sessionId: this.sessionId,
-									role: "user",
-									content: text,
-									inputTokens: 0,
-									outputTokens: 0,
-									cacheReadTokens: 0,
-									cacheWriteTokens: 0,
-									createdAt: Date.now(),
-								},
-							});
-							// Merge into last user turn to avoid consecutive user messages
-							const last = this.messages[this.messages.length - 1];
-							if (last?.role === "user") {
-								if (Array.isArray(last.content)) {
-									(last.content as Anthropic.ContentBlockParam[]).push({ type: "text", text });
-								} else {
-									last.content = `${last.content}\n\n${text}`;
-								}
-							} else {
-								this.messages.push({ role: "user", content: text });
-							}
+							this.recordUserMessage(text);
 						}
 						continue;
 					}
@@ -448,11 +440,16 @@ export class AgentRunner {
 
 				const inputTokens = response.usage.input_tokens;
 				const outputTokens = response.usage.output_tokens;
-				const cacheReadTokens = (response.usage as unknown as Record<string, number>).cache_read_input_tokens ?? 0;
-				const cacheWriteTokens = (response.usage as unknown as Record<string, number>).cache_creation_input_tokens ?? 0;
+				const cacheReadTokens = response.usage.cache_read_input_tokens ?? 0;
+				const cacheWriteTokens = response.usage.cache_creation_input_tokens ?? 0;
 
-				// Update usage anchor for efficient token estimation
-				this.usageAnchor.update(this.messages.length - 1, inputTokens);
+				this.lastApiInputTokens = inputTokens;
+
+				// Attribute input/cache-write tokens to the user message; cache-read to the assistant
+				if (this.lastUserMessageId) {
+					updateMessageTokens(this.db, this.lastUserMessageId, inputTokens, cacheWriteTokens);
+					this.lastUserMessageId = null;
+				}
 
 				this.totalTokensConsumed += inputTokens + outputTokens;
 				addTokens(this.db, this.sessionId, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens);
@@ -474,12 +471,11 @@ export class AgentRunner {
 				const msgId = this.saveMessage(
 					"assistant",
 					JSON.stringify(response.content),
-					inputTokens,
+					0,
 					outputTokens,
 					undefined,
 					undefined,
-					cacheReadTokens,
-					cacheWriteTokens
+					cacheReadTokens
 				);
 				sessionEmitter.emit(this.sessionId, {
 					type: "message",
@@ -488,10 +484,10 @@ export class AgentRunner {
 						sessionId: this.sessionId,
 						role: "assistant",
 						content: response.content,
-						inputTokens,
+						inputTokens: 0,
 						outputTokens,
 						cacheReadTokens,
-						cacheWriteTokens,
+						cacheWriteTokens: 0,
 						createdAt: Date.now(),
 					},
 				});
@@ -507,7 +503,7 @@ export class AgentRunner {
 						const continueMsg = this.buildImproveMessage();
 						this.messages.push({ role: "assistant", content: response.content });
 						this.messages.push({ role: "user", content: continueMsg });
-						this.saveMessage("user", continueMsg, 0, 0);
+						this.lastUserMessageId = this.saveMessage("user", continueMsg, 0, 0);
 						continue;
 					}
 
@@ -523,11 +519,7 @@ export class AgentRunner {
 						},
 						"completion"
 					);
-					updateSession(this.db, this.sessionId, { status: "completed" });
-					sessionEmitter.emit(this.sessionId, {
-						type: "session_updated",
-						data: { id: this.sessionId, status: "completed" },
-					});
+					this.setStatus("completed");
 					break;
 				}
 
@@ -536,7 +528,7 @@ export class AgentRunner {
 					this.messages.push({ role: "assistant", content: response.content });
 					const toolResults = await this.executeTools(toolBlocks, msgId);
 					this.messages.push({ role: "user", content: toolResults });
-					this.saveMessage("user", JSON.stringify(toolResults), 0, 0);
+					this.lastUserMessageId = this.saveMessage("user", JSON.stringify(toolResults), 0, 0);
 
 					// In 'always' mode: flush pending questions after each tool batch
 					if (this.freezeAskMode === "always" && this.pendingQuestions.length > 0) {
@@ -590,15 +582,11 @@ export class AgentRunner {
 
 	private async doCompaction(): Promise<void> {
 		const before = this.messages.length;
-		const estBefore = this.usageAnchor.estimate(this.messages);
+		const estBefore = this.lastApiInputTokens || estimateTokens(this.messages);
 
 		// Surface a dedicated "compacting" state while the (potentially slow)
 		// summarization round-trip runs, then restore "running".
-		updateSession(this.db, this.sessionId, { status: "compacting" });
-		sessionEmitter.emit(this.sessionId, {
-			type: "session_updated",
-			data: { id: this.sessionId, status: "compacting" },
-		});
+		this.setStatus("compacting");
 
 		let messages: MessageParam[];
 		let summary: string;
@@ -608,23 +596,14 @@ export class AgentRunner {
 		} catch (err) {
 			this.circuitBreaker.recordFailure();
 			console.error(`[Agent ${this.sessionId}] Compaction failed (attempt ${this.circuitBreaker.failures}):`, err);
-			// Restore running state and continue without compacting
-			updateSession(this.db, this.sessionId, { status: "running" });
-			sessionEmitter.emit(this.sessionId, {
-				type: "session_updated",
-				data: { id: this.sessionId, status: "running" },
-			});
+			// Restore running state (finally) and continue without compacting
 			return;
 		} finally {
-			updateSession(this.db, this.sessionId, { status: "running" });
-			sessionEmitter.emit(this.sessionId, {
-				type: "session_updated",
-				data: { id: this.sessionId, status: "running" },
-			});
+			this.setStatus("running");
 		}
 		this.messages = messages;
-		// Invalidate anchor — message array is restructured
-		this.usageAnchor.invalidate();
+		// Reset — message array is restructured after compaction
+		this.lastApiInputTokens = 0;
 		const estAfter = estimateTokens(this.messages);
 		console.log(
 			`[Agent ${this.sessionId}] Compacted context: ${before} → ${messages.length} messages (${estBefore} → ${estAfter} est. tokens)`
@@ -731,11 +710,7 @@ export class AgentRunner {
 			},
 		});
 
-		updateSession(this.db, this.sessionId, { status: "paused" });
-		sessionEmitter.emit(this.sessionId, {
-			type: "session_updated",
-			data: { id: this.sessionId, status: "paused" },
-		});
+		this.setStatus("paused");
 
 		let confirmed = false;
 		try {
@@ -754,9 +729,6 @@ export class AgentRunner {
 				confirmed = true;
 				this.injectAnswers(result.answers, pending);
 			}
-
-			// Update last-report commit after report
-			this.lastReportCommit = await getCurrentCommit(WORKSPACE);
 		} finally {
 			updateCheckin(this.db, checkinId, {
 				status: confirmed ? "answered" : "skipped",
@@ -775,11 +747,7 @@ export class AgentRunner {
 				},
 			});
 
-			updateSession(this.db, this.sessionId, { status: "running" });
-			sessionEmitter.emit(this.sessionId, {
-				type: "session_updated",
-				data: { id: this.sessionId, status: "running" },
-			});
+			this.setStatus("running");
 		}
 	}
 
@@ -793,14 +761,10 @@ export class AgentRunner {
 		const questionsMd = await this.buildQuestionsFile();
 		const sections: ReportData["sections"] = [{ title: "Progress at timeout", content: summary }];
 		if (questionsMd) {
-			sections.push({ title: "Accumulated Questions (QUESTIONS.md)", content: questionsMd });
+			sections.push({ title: "Accumulated Questions", content: questionsMd });
 		}
 		await this.triggerReport({ title: "⏰ Total Timeout — Agent Frozen", sections }, "completion", true);
-		updateSession(this.db, this.sessionId, { status: "stopped" });
-		sessionEmitter.emit(this.sessionId, {
-			type: "session_updated",
-			data: { id: this.sessionId, status: "stopped" },
-		});
+		this.setStatus("stopped");
 	}
 
 	private async handleStopThreshold(): Promise<void> {
@@ -821,11 +785,7 @@ export class AgentRunner {
 			"completion",
 			true
 		);
-		updateSession(this.db, this.sessionId, { status: "stopped" });
-		sessionEmitter.emit(this.sessionId, {
-			type: "session_updated",
-			data: { id: this.sessionId, status: "stopped" },
-		});
+		this.setStatus("stopped");
 	}
 
 	private async flushQuestionsToDiscord(): Promise<void> {
@@ -858,12 +818,12 @@ Continue to improve the codebase. For example, look for opportunities to:
 - Add or improve tests (unit, integration, edge cases)
 - Improve documentation (README, inline comments where genuinely needed)
 
-Add new improvement tasks to \`.agent/TODO.md\` and update \`.agent/plans/CURRENT_PLAN.md\`. Keep committing.`;
+Use \`add_task\` to track new improvements. Keep committing.`;
 		}
 
 		// "custom" mode: keep improving, but only within the configured scope
 		return `You have completed the initial task. Continue improving within this scope ONLY: ${this.alwaysImproveScope ?? ""}
-Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.agent/plans/CURRENT_PLAN.md\`. Keep committing.`;
+Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep committing.`;
 	}
 
 	// ── Anthropic API ──────────────────────────────────────────────────────────────
@@ -1072,14 +1032,21 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 
 			let output: string;
 			let status: "success" | "error" = "success";
-			try {
-				output = await this.dispatchTool(block.name, input);
-				// Truncate oversized tool results to prevent context bloat
-				output = truncateToolResult(output);
-			} catch (err) {
-				output = `Error: ${err}`;
+
+			// Validate inputs before dispatching
+			const validationError = validateToolInput(block.name, input);
+			if (validationError) {
+				output = `Validation error:\n${validationError}`;
 				status = "error";
-			}
+			} else
+				try {
+					output = await this.dispatchTool(block.name, input);
+					// Truncate oversized tool results to prevent context bloat
+					output = truncateToolResult(output);
+				} catch (err) {
+					output = `Error: ${err}`;
+					status = "error";
+				}
 
 			completeToolCall(this.db, toolCallId, output, status);
 			sessionEmitter.emit(this.sessionId, {
@@ -1109,12 +1076,7 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 	private async dispatchTool(name: string, input: Record<string, unknown>): Promise<string> {
 		// ── Plan mode enforcement ────────────────────────────────────────────────────
 		if (this.planMode) {
-			if (name === "exit_plan_mode") {
-				this.planMode = false;
-				const summary = (input.plan_summary as string) ?? undefined;
-				sessionEmitter.emit(this.sessionId, { type: "plan_mode", data: { active: false, summary } });
-				return summary ? `Exited plan mode. Plan summary recorded:\n${summary}` : "Exited plan mode. Full tool access restored.";
-			}
+			// exit_plan_mode is allowed through and handled by its switch case below.
 			if (!isPlanModeToolAllowed(name)) {
 				return PLAN_MODE_BLOCKED_MESSAGE;
 			}
@@ -1158,9 +1120,6 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 				return await readFile(input.path as string);
 			case "write_file": {
 				const p = input.path as string;
-				if (/^\.?agent\//i.test(p) || p.includes(".agent/")) {
-					return "Error: The .agent/ directory is no longer used. Use the memory tools (remember, recall, update_memory, delete_memory, list_memories) instead.";
-				}
 				await writeFile(p, input.content as string);
 				return `Written to ${p}`;
 			}
@@ -1175,23 +1134,15 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 					(input.max_results as number) ?? 100
 				);
 			case "edit_file": {
-				const ep = input.path as string;
-				if (/^\.?agent\//i.test(ep) || ep.includes(".agent/")) {
-					return "Error: The .agent/ directory is no longer used. Use the memory tools instead.";
-				}
 				return await editFile(
-					ep,
+					input.path as string,
 					input.old_string as string,
 					input.new_string as string,
 					(input.replace_all as boolean) ?? false
 				);
 			}
 			case "move_file": {
-				const dest = input.destination as string;
-				if (/^\.?agent\//i.test(dest) || dest.includes(".agent/")) {
-					return "Error: The .agent/ directory is no longer used. Use the memory tools instead.";
-				}
-				return await moveFile(input.source as string, dest);
+				return await moveFile(input.source as string, input.destination as string);
 			}
 			case "delete_file":
 				return await deleteFile(input.path as string, (input.recursive as boolean) ?? false);
@@ -1365,7 +1316,7 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 			}
 			case "never":
 				await this.appendToQuestionsFile(q);
-				return "Logged to QUESTIONS.md — proceeding with best judgment.";
+				return "Logged to memory — proceeding with best judgment.";
 		}
 	}
 
@@ -1382,11 +1333,7 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 		const pending = this.drainPending();
 		const questionsToAsk = freeze ? pending : [];
 
-		updateSession(this.db, this.sessionId, { status: "paused" });
-		sessionEmitter.emit(this.sessionId, {
-			type: "session_updated",
-			data: { id: this.sessionId, status: "paused" },
-		});
+		this.setStatus("paused");
 
 		try {
 			const result = await sendReport(this.sessionId, report, "manual", freeze, questionsToAsk, this.abortController.signal);
@@ -1402,14 +1349,9 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 			// Record in vector memory for semantic recall
 			remember("report", report.title, report.sections.map((s) => `${s.title ?? ""}\n${s.content}`).join("\n\n")).catch(() => {});
 
-			this.lastReportCommit = await getCurrentCommit(WORKSPACE);
 			if (result?.confirmed) this.injectAnswers(result.answers, pending);
 		} finally {
-			updateSession(this.db, this.sessionId, { status: "running" });
-			sessionEmitter.emit(this.sessionId, {
-				type: "session_updated",
-				data: { id: this.sessionId, status: "running" },
-			});
+			this.setStatus("running");
 		}
 
 		return freeze ? "Report sent and user acknowledged." : "Report sent (continuing).";

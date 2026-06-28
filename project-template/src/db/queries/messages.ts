@@ -9,6 +9,10 @@ export function insertMessage(db: Db, data: NewMessage) {
 	return result;
 }
 
+export function updateMessageTokens(db: Db, id: string, inputTokens: number, cacheWriteTokens: number) {
+	db.update(messages).set({ inputTokens, cacheWriteTokens }).where(eq(messages.id, id)).run();
+}
+
 export function getMessages(db: Db, sessionId: string) {
 	return db.select().from(messages).where(eq(messages.sessionId, sessionId)).orderBy(asc(messages.createdAt)).all();
 }

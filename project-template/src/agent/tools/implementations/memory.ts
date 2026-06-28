@@ -21,9 +21,6 @@ async function memoryRequest(path: string, opts: RequestInit = {}): Promise<Reco
 
 export type MemoryType = "decision" | "todo" | "plan" | "question" | "memory" | "report" | "context";
 
-/** Types available for direct use via the remember tool */
-export type UserMemoryType = "decision" | "plan" | "memory" | "context";
-
 export interface MemoryEntry {
 	id: string;
 	type: MemoryType;
@@ -73,13 +70,4 @@ export async function listMemories(type?: MemoryType, limit = 100): Promise<Memo
 	if (type) params.set("type", type);
 	const data = await memoryRequest(`?${params}`);
 	return (data.results as MemoryEntry[]) ?? [];
-}
-
-/** Get a single memory entry by ID. */
-export async function getMemory(id: string): Promise<MemoryEntry | null> {
-	try {
-		return (await memoryRequest(`/${id}`)) as MemoryEntry;
-	} catch {
-		return null;
-	}
 }

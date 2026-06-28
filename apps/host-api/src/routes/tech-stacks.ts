@@ -1,6 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
+import { getErrorMessage } from "../lib/errors";
 import type { HonoHostEnv } from "../types";
 
 const StackLibrarySchema = z.object({
@@ -32,7 +33,7 @@ export const techStacksRouter = new Hono<HonoHostEnv>()
 			const stack = c.var.hostDb.createTechStack(c.req.valid("json"));
 			return c.json(stack, 201);
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+			return c.json({ error: getErrorMessage(error) }, 400);
 		}
 	})
 	.put("/:id", zValidator("json", UpdateTechStackSchema), async (c) => {
@@ -40,7 +41,7 @@ export const techStacksRouter = new Hono<HonoHostEnv>()
 			const stack = c.var.hostDb.updateTechStack(c.req.param("id"), c.req.valid("json"));
 			return c.json(stack);
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 404);
+			return c.json({ error: getErrorMessage(error) }, 404);
 		}
 	})
 	.delete("/:id", (c) => {
@@ -48,6 +49,6 @@ export const techStacksRouter = new Hono<HonoHostEnv>()
 			c.var.hostDb.deleteTechStack(c.req.param("id"));
 			return c.json({ success: true });
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 404);
+			return c.json({ error: getErrorMessage(error) }, 404);
 		}
 	});

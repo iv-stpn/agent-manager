@@ -322,7 +322,7 @@ Exit plan mode and resume full tool access. Optionally provide a plan summary do
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `plan_summary` | `string` |  | Summary of what you explored and the implementation plan you've formed |
+| `plan_summary` | `string` | Yes | Summary of what you explored and the implementation plan you've formed |
 
 ---
 

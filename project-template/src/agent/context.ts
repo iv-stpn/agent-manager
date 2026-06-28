@@ -8,40 +8,6 @@ export function estimateTokens(messages: MessageParam[]): number {
 }
 
 /**
- * Usage anchor: caches the token count at a known message index so we only
- * need to estimate tokens for messages added after the anchor point.
- * Must be invalidated after compaction (message array is restructured).
- */
-export class UsageAnchor {
-	private index = -1;
-	private cachedTokens = 0;
-
-	update(index: number, inputTokens: number): void {
-		this.index = index;
-		this.cachedTokens = inputTokens;
-	}
-
-	invalidate(): void {
-		this.index = -1;
-		this.cachedTokens = 0;
-	}
-
-	/**
-	 * Estimate total tokens using the anchor if available.
-	 * Only estimates tokens for messages added after the anchor point.
-	 */
-	estimate(messages: MessageParam[]): number {
-		if (this.index < 0 || this.index >= messages.length) {
-			return estimateTokens(messages);
-		}
-		// Estimate only the new messages after the anchor
-		const newMessages = messages.slice(this.index + 1);
-		const newTokens = estimateTokens(newMessages);
-		return this.cachedTokens + newTokens;
-	}
-}
-
-/**
  * Extract only the conversational text from messages, ignoring tool_use and
  * tool_result blocks. Returns a readable transcript of just the human/assistant
  * dialogue.

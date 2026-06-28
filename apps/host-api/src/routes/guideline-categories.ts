@@ -1,6 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
+import { getErrorMessage } from "../lib/errors";
 import type { HonoHostEnv } from "../types";
 
 const CreateCategorySchema = z.object({
@@ -20,7 +21,7 @@ export const guidelineCategoriesRouter = new Hono<HonoHostEnv>()
 			const category = c.var.hostDb.createGuidelineCategory(c.req.valid("json"));
 			return c.json(category, 201);
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+			return c.json({ error: getErrorMessage(error) }, 400);
 		}
 	})
 	.put("/:id", zValidator("json", UpdateCategorySchema), async (c) => {
@@ -28,7 +29,7 @@ export const guidelineCategoriesRouter = new Hono<HonoHostEnv>()
 			const category = c.var.hostDb.updateGuidelineCategory(c.req.param("id"), c.req.valid("json"));
 			return c.json(category);
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 404);
+			return c.json({ error: getErrorMessage(error) }, 404);
 		}
 	})
 	.delete("/:id", (c) => {
@@ -36,6 +37,6 @@ export const guidelineCategoriesRouter = new Hono<HonoHostEnv>()
 			c.var.hostDb.deleteGuidelineCategory(c.req.param("id"));
 			return c.json({ success: true });
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 404);
+			return c.json({ error: getErrorMessage(error) }, 404);
 		}
 	});

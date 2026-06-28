@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from "hono";
+import { getErrorMessage } from "../lib/errors";
 import { createLogger } from "../lib/logger";
 import type { HonoHostEnv } from "../types";
 
@@ -50,7 +51,7 @@ function jsonStringify(value: unknown): string {
 			) ?? "null"
 		);
 	} catch (error) {
-		return `"[Unserializable: ${error instanceof Error ? error.message : "unknown error"}]"`;
+		return `"[Unserializable: ${getErrorMessage(error)}]"`;
 	}
 }
 

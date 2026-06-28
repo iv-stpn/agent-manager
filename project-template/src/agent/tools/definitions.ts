@@ -59,7 +59,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 	},
 	{
 		name: "write_file",
-		description: "Write content to a file in the workspace. Cannot write to .agent/memory/ — use write_memory for that.",
+		description: "Write content to a file in the workspace.",
 		input_schema: {
 			type: "object",
 			properties: {
@@ -436,7 +436,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 	{
 		name: "urgent_question",
 		description:
-			"Ask a critical question that blocks progress. In requiredOnly/always modes this sends immediately and waits. In onReportOnly mode it triggers an early report. In never mode it writes to QUESTIONS.md. Provide suggestions when possible.",
+			"Ask a critical question that blocks progress. In requiredOnly/always modes this sends immediately and waits. In onReportOnly mode it triggers an early report. In never mode it logs to memory and proceeds autonomously. Provide suggestions when possible.",
 		input_schema: {
 			type: "object",
 			properties: {
@@ -627,7 +627,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 					description: "Summary of what you explored and the implementation plan you've formed",
 				},
 			},
-			required: [],
+			required: ["plan_summary"],
 		},
 	},
 ];

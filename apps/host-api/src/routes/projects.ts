@@ -3,7 +3,10 @@ import { CreateProjectSchema, UpdateSettingsSchema } from "@agent-manager/projec
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { getErrorMessage } from "../lib/errors";
 import type { HonoHostEnv } from "../types";
+
+export type WorkspaceFolderStatus = "not_found" | "empty" | "not_empty" | "not_directory";
 
 async function enrichProject(
 	ctx: Context<HonoHostEnv>,
@@ -126,12 +129,14 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			const enriched = await Promise.all(projects.map((p) => enrichProject(c, p)));
 			return c.json({ projects: enriched });
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
+			return c.json({ error: getErrorMessage(error) }, 500);
 		}
 	})
 	// Check workspace path status (exists? empty?)
 	.post("/check-path", async (c) => {
 		try {
+			let status: WorkspaceFolderStatus = "not_found";
+
 			const { path: targetPath } = await c.req.json<{ path: string }>();
 			if (!targetPath) return c.json({ error: "path is required" }, 400);
 			const { resolve } = await import("node:path");
@@ -142,16 +147,20 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			const resolved = resolve(expanded);
 			try {
 				const s = await stat(resolved);
-				if (!s.isDirectory()) return c.json({ status: "not_directory", path: resolved });
+				if (!s.isDirectory()) {
+					status = "not_directory";
+					return c.json({ status, path: resolved });
+				}
+
 				const entries = await readdir(resolved);
-				return c.json({ status: entries.length > 0 ? "not_empty" : "empty", path: resolved });
-			} catch (e: unknown) {
-				if (e instanceof Error && "code" in e && (e as NodeJS.ErrnoException).code === "ENOENT")
-					return c.json({ status: "not_found", path: resolved });
-				throw e;
+				status = entries.length > 0 ? "not_empty" : "empty";
+				return c.json({ status, path: resolved });
+			} catch (error: unknown) {
+				if (error instanceof Error && "code" in error && error.code === "ENOENT") return c.json({ status, path: resolved });
+				throw error;
 			}
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
+			return c.json({ error: getErrorMessage(error) }, 500);
 		}
 	})
 	// Create new project
@@ -162,7 +171,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			const project = await c.var.manager.createProject(input);
 			return c.json({ project }, 201);
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+			return c.json({ error: getErrorMessage(error) }, 400);
 		}
 	})
 	.get("/:projectId", async (c) => {
@@ -180,7 +189,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			]);
 			return c.json({ project: { ...project, dockerStatus, stats, logLines } });
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 404);
+			return c.json({ error: getErrorMessage(error) }, 404);
 		}
 	})
 	// Delete project
@@ -197,7 +206,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			hub.projectStopped(projectId);
 			return c.json({ success: true });
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+			return c.json({ error: getErrorMessage(error) }, 400);
 		}
 	})
 	// Start project
@@ -210,7 +219,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			hub.projectStarted(projectId);
 			return c.json({ status });
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
+			return c.json({ error: getErrorMessage(error) }, 500);
 		}
 	})
 	// Start project with SSE progress stream
@@ -260,7 +269,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 				}
 			} catch (error) {
 				tail?.kill();
-				const msg = error instanceof Error ? error.message : "Unknown error";
+				const msg = getErrorMessage(error);
 				await send("start", "error", msg);
 				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
 			}
@@ -275,7 +284,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			hub.projectStopped(projectId);
 			return c.json({ success: true });
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
+			return c.json({ error: getErrorMessage(error) }, 500);
 		}
 	})
 	// Stop project with SSE progress stream
@@ -300,7 +309,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 				await send("stop", "done", "Containers stopped");
 				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: true }) });
 			} catch (error) {
-				const msg = error instanceof Error ? error.message : "Unknown error";
+				const msg = getErrorMessage(error);
 				await send("stop", "error", msg);
 				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
 			}
@@ -359,7 +368,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 				}
 			} catch (error) {
 				tail?.kill();
-				const msg = error instanceof Error ? error.message : "Unknown error";
+				const msg = getErrorMessage(error);
 				await send("stop", "error", msg);
 				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
 			}
@@ -375,7 +384,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			hub.projectRestarted(projectId);
 			return c.json({ status });
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
+			return c.json({ error: getErrorMessage(error) }, 500);
 		}
 	})
 	// Get project logs
@@ -386,7 +395,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			const logs = await c.var.docker.getProjectLogs(projectId, service);
 			return c.json({ logs });
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
+			return c.json({ error: getErrorMessage(error) }, 500);
 		}
 	})
 	// Build project
@@ -396,7 +405,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			await c.var.docker.buildProject(projectId);
 			return c.json({ success: true });
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
+			return c.json({ error: getErrorMessage(error) }, 500);
 		}
 	})
 	// Get project database stats
@@ -406,7 +415,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			const stats = await c.var.projectDatabaseManager.getProjectStats(projectId);
 			return c.json({ stats });
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
+			return c.json({ error: getErrorMessage(error) }, 500);
 		}
 	})
 	// List sessions — falls back to DB when the agent server is stopped
@@ -433,7 +442,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			const project = await c.var.manager.updateProject(projectId, updates);
 			return c.json({ project });
 		} catch (error) {
-			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+			return c.json({ error: getErrorMessage(error) }, 400);
 		}
 	})
 	// ---- Agent proxy: forward live agent endpoints to the project's server ----

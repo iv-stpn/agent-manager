@@ -2,19 +2,8 @@
 // RPC layer — response shapes are inferred from the server's route definitions.
 // SSE streams connect directly to the agent server port to avoid proxy buffering.
 
-import type { AppType } from "@agent-manager/host-api";
-import type {
-	CheckinRecord,
-	CompactionRecord,
-	CreateProjectInput,
-	Guideline,
-	GuidelineCategory,
-	MessageRecord,
-	QuestionRecord,
-	SessionRecord,
-	TechStack,
-	ToolCallRecord,
-} from "@agent-manager/projects";
+import type { AppType, WorkspaceFolderStatus } from "@agent-manager/host-api";
+import type { CreateProjectInput, Guideline, GuidelineCategory, TechStack } from "@agent-manager/projects";
 import { hc } from "hono/client";
 import { API_URL } from "@/constants";
 
@@ -61,12 +50,10 @@ export async function getProject(projectId?: string, signal?: AbortSignal) {
 	return (await res.json()).project;
 }
 
-export async function checkWorkspacePath(
-	path: string
-): Promise<{ status: "not_found" | "empty" | "not_empty" | "not_directory"; path: string }> {
+export async function checkWorkspacePath(path: string): Promise<{ status: WorkspaceFolderStatus; path: string }> {
 	const res = await api.api.projects["check-path"].$post({ json: { path } });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as { status: "not_found" | "empty" | "not_empty" | "not_directory"; path: string };
+	return await res.json();
 }
 
 export async function createProject(data: CreateProjectInput) {
@@ -123,7 +110,7 @@ export async function updateSettings(
 export async function getSessions(projectId: string) {
 	const res = await api.api.projects[":projectId"].sessions.$get({ param: { projectId } });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as SessionRecord[];
+	return await res.json();
 }
 
 export async function getReports(projectId: string) {
@@ -137,7 +124,7 @@ export async function getSession(projectId: string, id: string) {
 		param: { projectId, sessionId: id },
 	});
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as SessionRecord;
+	return await res.json();
 }
 
 export async function getMessages(projectId: string, id: string) {
@@ -145,7 +132,7 @@ export async function getMessages(projectId: string, id: string) {
 		param: { projectId, sessionId: id },
 	});
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as MessageRecord[];
+	return await res.json();
 }
 
 export async function getToolCalls(projectId: string, id: string) {
@@ -153,7 +140,7 @@ export async function getToolCalls(projectId: string, id: string) {
 		param: { projectId, sessionId: id },
 	});
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as ToolCallRecord[];
+	return await res.json();
 }
 
 export async function getCheckins(projectId: string, id: string) {
@@ -161,7 +148,7 @@ export async function getCheckins(projectId: string, id: string) {
 		param: { projectId, sessionId: id },
 	});
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as CheckinRecord[];
+	return await res.json();
 }
 
 export async function getQuestions(projectId: string, id: string) {
@@ -169,7 +156,7 @@ export async function getQuestions(projectId: string, id: string) {
 		param: { projectId, sessionId: id },
 	});
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as QuestionRecord[];
+	return await res.json();
 }
 
 export async function getCompactions(projectId: string, id: string) {
@@ -177,7 +164,7 @@ export async function getCompactions(projectId: string, id: string) {
 		param: { projectId, sessionId: id },
 	});
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as CompactionRecord[];
+	return await res.json();
 }
 
 export async function createSession(
@@ -198,7 +185,7 @@ export async function createSession(
 	const req = { param: { projectId }, json: data };
 	const res = await api.api.projects[":projectId"].sessions.$post(req);
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as SessionRecord;
+	return await res.json();
 }
 
 export async function stopSession(projectId: string, id: string): Promise<void> {
@@ -221,19 +208,19 @@ export { createHostStream, createProjectStream, createSessionStream } from "@age
 export async function getTechStacks(): Promise<TechStack[]> {
 	const res = await api.api["tech-stacks"].$get();
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as TechStack[];
+	return await res.json();
 }
 
 export async function createTechStack(data: Omit<TechStack, "id" | "createdAt" | "updatedAt">): Promise<TechStack> {
 	const res = await api.api["tech-stacks"].$post({ json: data });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as TechStack;
+	return await res.json();
 }
 
 export async function updateTechStack(id: string, data: Partial<Omit<TechStack, "id" | "createdAt">>): Promise<TechStack> {
 	const res = await api.api["tech-stacks"][":id"].$put({ param: { id }, json: data });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as TechStack;
+	return await res.json();
 }
 
 export async function deleteTechStack(id: string): Promise<void> {
@@ -246,7 +233,7 @@ export async function deleteTechStack(id: string): Promise<void> {
 export async function getGuidelineCategories(): Promise<GuidelineCategory[]> {
 	const res = await api.api["guideline-categories"].$get();
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as GuidelineCategory[];
+	return await res.json();
 }
 
 export async function createGuidelineCategory(
@@ -254,7 +241,7 @@ export async function createGuidelineCategory(
 ): Promise<GuidelineCategory> {
 	const res = await api.api["guideline-categories"].$post({ json: data });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as GuidelineCategory;
+	return await res.json();
 }
 
 export async function updateGuidelineCategory(
@@ -263,7 +250,7 @@ export async function updateGuidelineCategory(
 ): Promise<GuidelineCategory> {
 	const res = await api.api["guideline-categories"][":id"].$put({ param: { id }, json: data });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as GuidelineCategory;
+	return await res.json();
 }
 
 export async function deleteGuidelineCategory(id: string): Promise<void> {
@@ -276,19 +263,19 @@ export async function deleteGuidelineCategory(id: string): Promise<void> {
 export async function getGuidelines(): Promise<Guideline[]> {
 	const res = await api.api.guidelines.$get();
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as Guideline[];
+	return await res.json();
 }
 
 export async function createGuideline(data: Omit<Guideline, "id" | "createdAt" | "updatedAt">): Promise<Guideline> {
 	const res = await api.api.guidelines.$post({ json: data });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as Guideline;
+	return await res.json();
 }
 
 export async function updateGuideline(id: string, data: Partial<Omit<Guideline, "id" | "createdAt">>): Promise<Guideline> {
 	const res = await api.api.guidelines[":id"].$put({ param: { id }, json: data });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()) as Guideline;
+	return await res.json();
 }
 
 export async function deleteGuideline(id: string): Promise<void> {
