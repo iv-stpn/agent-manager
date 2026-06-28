@@ -36,7 +36,7 @@ let manager: any;
 // biome-ignore lint/suspicious/noExplicitAny: dynamically imported modules
 let docker: any;
 // biome-ignore lint/suspicious/noExplicitAny: dynamically imported modules
-let projectDb: any;
+let projectDatabaseManager: any;
 let masterApiProcess: ReturnType<typeof Bun.spawn> | undefined;
 
 // Test configuration
@@ -223,7 +223,7 @@ async function testDatabaseQuery(): Promise<void> {
 	console.log("\n✓ Testing database queries...");
 
 	try {
-		const stats = await projectDb.getProjectStats(TEST_PROJECT_ID);
+		const stats = await projectDatabaseManager.getProjectStats(TEST_PROJECT_ID);
 
 		if (typeof stats.sessions !== "number" || typeof stats.messages !== "number") {
 			throw new Error("Database stats query failed");
@@ -274,7 +274,7 @@ async function runTests() {
 		// Initialize
 		manager = new ProjectManager();
 		docker = new ProjectDocker(manager);
-		projectDb = new ProjectDatabase(manager);
+		projectDatabaseManager = new ProjectDatabase(manager);
 
 		// Start Master API
 		masterApiProcess = await startMasterApi();

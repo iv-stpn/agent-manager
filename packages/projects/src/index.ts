@@ -1,5 +1,7 @@
 export { ProjectDatabase } from "./database";
 export { ProjectDocker } from "./docker";
+export { MasterDatabase } from "./master-database";
+export type { ArchivedProject, ArchivedSession, GlobalStats, Template, TemplateCategory } from "./master-database";
 export { ProjectManager, resolveWorkspaceRoot } from "./manager";
 export type {
 	CheckinRecord,
@@ -11,17 +13,17 @@ export type {
 	SessionRecord,
 	ToolCallRecord,
 } from "./records";
-export type { Template, TemplateCategory } from "./templates";
-export { TemplateManager } from "./templates";
 export type {
 	AgentConfig,
 	CreateProjectInput,
 	DiscordConfig,
 	ProjectConfig,
+	UpdateSettingsInput,
 } from "./types";
 export {
 	AgentConfigSchema,
 	CreateProjectSchema,
 	DiscordConfigSchema,
 	ProjectConfigSchema,
+	UpdateSettingsSchema,
 } from "./types";

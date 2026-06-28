@@ -27,6 +27,60 @@ export class ProjectDocker {
 	}
 
 	/**
+	 * Start with captured output
+	 */
+	async startProjectWithOutput(projectId: string, onLine?: (line: string) => void | Promise<void>): Promise<string> {
+		const projectDir = this.manager.getProjectDir(projectId);
+		const composePath = join(projectDir, "docker-compose.yml");
+
+		if (!existsSync(composePath)) {
+			throw new Error(`Project "${projectId}" docker-compose.yml not found`);
+		}
+
+		const envPath = join(projectDir, ".env");
+		const envArgs = existsSync(envPath) ? ["--env-file", envPath] : [];
+
+		const proc = Bun.spawn(["docker", "compose", "-f", composePath, ...envArgs, "up", "-d"], {
+			cwd: projectDir,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+
+		const lines: string[] = [];
+		const readStream = async (stream: ReadableStream<Uint8Array>) => {
+			const reader = stream.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				buffer += decoder.decode(value, { stream: true });
+				const parts = buffer.split("\n");
+				buffer = parts.pop() || "";
+				for (const line of parts) {
+					if (line.trim()) {
+						lines.push(line);
+						await onLine?.(line);
+					}
+				}
+			}
+			if (buffer.trim()) {
+				lines.push(buffer);
+				await onLine?.(buffer);
+			}
+		};
+
+		await Promise.all([readStream(proc.stdout), readStream(proc.stderr)]);
+		const exitCode = await proc.exited;
+		if (exitCode !== 0) {
+			throw new Error(lines.join("\n") || `docker compose up failed with exit code ${exitCode}`);
+		}
+
+		await this.manager.updateProject(projectId, { status: "active" });
+		return lines.join("\n");
+	}
+
+	/**
 	 * Stop a project's Docker containers.
 	 *
 	 * When `removeImages` is set, the containers are torn down with
@@ -57,6 +111,62 @@ export class ProjectDocker {
 		}
 
 		await this.manager.updateProject(projectId, { status: "stopped" });
+	}
+
+	/**
+	 * Stop with captured output
+	 */
+	async stopProjectWithOutput(projectId: string, options: { removeImages?: boolean } = {}, onLine?: (line: string) => void | Promise<void>): Promise<string> {
+		const projectDir = this.manager.getProjectDir(projectId);
+		const composePath = join(projectDir, "docker-compose.yml");
+
+		if (!existsSync(composePath)) {
+			throw new Error(`Project "${projectId}" docker-compose.yml not found`);
+		}
+
+		const downArgs = options.removeImages ? ["--remove-orphans"] : [];
+		const proc = Bun.spawn(["docker", "compose", "-f", composePath, "down", ...downArgs], {
+			cwd: projectDir,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+
+		const lines: string[] = [];
+		const readStream = async (stream: ReadableStream<Uint8Array>) => {
+			const reader = stream.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				buffer += decoder.decode(value, { stream: true });
+				const parts = buffer.split("\n");
+				buffer = parts.pop() || "";
+				for (const line of parts) {
+					if (line.trim()) {
+						lines.push(line);
+						await onLine?.(line);
+					}
+				}
+			}
+			if (buffer.trim()) {
+				lines.push(buffer);
+				await onLine?.(buffer);
+			}
+		};
+
+		await Promise.all([readStream(proc.stdout), readStream(proc.stderr)]);
+		const exitCode = await proc.exited;
+		if (exitCode !== 0) {
+			throw new Error(lines.join("\n") || `docker compose down failed with exit code ${exitCode}`);
+		}
+
+		if (options.removeImages) {
+			await this.removeProjectImages(projectId);
+		}
+
+		await this.manager.updateProject(projectId, { status: "stopped" });
+		return lines.join("\n");
 	}
 
 	/**
@@ -195,6 +305,47 @@ export class ProjectDocker {
 		const result = await $`docker compose -f ${composePath} exec ${service} ${command}`.cwd(projectDir).text();
 
 		return result;
+	}
+
+	/**
+	 * Tail logs from a running project in real-time.
+	 * Returns a kill function to stop the tail process.
+	 */
+	tailProjectLogs(projectId: string, onLine: (line: string) => void | Promise<void>, service?: string): { kill: () => void } {
+		const projectDir = this.manager.getProjectDir(projectId);
+		const composePath = join(projectDir, "docker-compose.yml");
+
+		const serviceArgs = service ? [service] : [];
+		const proc = Bun.spawn(
+			["docker", "compose", "-f", composePath, "logs", "-f", "--tail=0", ...serviceArgs],
+			{ cwd: projectDir, stdout: "pipe", stderr: "pipe" }
+		);
+
+		const readStream = async (stream: ReadableStream<Uint8Array>) => {
+			const reader = stream.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+			try {
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					buffer += decoder.decode(value, { stream: true });
+					const parts = buffer.split("\n");
+					buffer = parts.pop() || "";
+					for (const line of parts) {
+						if (line.trim()) await onLine(line);
+					}
+				}
+				if (buffer.trim()) await onLine(buffer);
+			} catch {
+				// Process killed, expected
+			}
+		};
+
+		readStream(proc.stdout);
+		readStream(proc.stderr);
+
+		return { kill: () => proc.kill() };
 	}
 
 	/**

@@ -23,6 +23,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { toast } from "sonner";
 import { NewSessionDialog } from "@/components/new-session-dialog";
 import { SessionCard } from "@/components/session-card";
+import { StartupProgressModal } from "@/components/startup-progress-modal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,9 +31,6 @@ import { Label } from "@/components/ui/label";
 import type { Report, Session } from "@/lib/agent-api";
 import {
 	deleteProject as apiDeleteProject,
-	restartProject as apiRestartProject,
-	startProject as apiStartProject,
-	stopProject as apiStopProject,
 	createProjectStream,
 	getLogs,
 	getProject,
@@ -79,6 +77,8 @@ function ProjectDetailContent() {
 	};
 
 	const [dialogOpen, setDialogOpen] = useState(false);
+	const [progressOpen, setProgressOpen] = useState(false);
+	const [progressAction, setProgressAction] = useState<"start" | "restart" | "stop">("start");
 
 	// Project + docker status: one initial fetch, then the project SSE stream
 	// (below) keeps it live. No polling.
@@ -170,37 +170,19 @@ function ProjectDetailContent() {
 		return () => es.close();
 	}, [projectId, isRunning, project?.ports?.server]);
 
-	const startProject = async () => {
-		try {
-			if (!projectId) return;
-			await apiStartProject(projectId);
-			fetchProject();
-			toast.success("Project started");
-		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to start project");
-		}
+	const startProject = () => {
+		setProgressAction("start");
+		setProgressOpen(true);
 	};
 
-	const stopProject = async () => {
-		try {
-			if (!projectId) return;
-			await apiStopProject(projectId);
-			fetchProject();
-			toast.success("Project stopped");
-		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to stop project");
-		}
+	const stopProject = () => {
+		setProgressAction("stop");
+		setProgressOpen(true);
 	};
 
-	const restartProject = async () => {
-		try {
-			if (!projectId) return;
-			await apiRestartProject(projectId);
-			fetchProject();
-			toast.success("Project restarted");
-		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to restart project");
-		}
+	const restartProject = () => {
+		setProgressAction("restart");
+		setProgressOpen(true);
 	};
 
 	const deleteProject = async () => {
@@ -371,6 +353,18 @@ function ProjectDetailContent() {
 					{tab === "settings" && <SettingsTab projectId={project.id} />}
 				</div>
 			</main>
+
+			{projectId && (
+				<StartupProgressModal
+					open={progressOpen}
+					onOpenChange={setProgressOpen}
+					projectId={projectId}
+					action={progressAction}
+					onComplete={(success) => {
+						if (success) fetchProject();
+					}}
+				/>
+			)}
 		</div>
 	);
 }
@@ -639,6 +633,9 @@ function LogsTab({ projectId, running }: { projectId: string; running: boolean }
 }
 
 function SettingsTab({ projectId }: { projectId: string }) {
+	const [projectName, setProjectName] = useState("");
+	const [serverPort, setServerPort] = useState("");
+	const [workspacePath, setWorkspacePath] = useState("");
 	const [discordToken, setDiscordToken] = useState("");
 	const [discordChannel, setDiscordChannel] = useState("");
 	const [anthropicKey, setAnthropicKey] = useState("");
@@ -651,6 +648,9 @@ function SettingsTab({ projectId }: { projectId: string }) {
 		try {
 			const p = await getProject(projectId);
 			if (!p) return;
+			setProjectName(p.name ?? "");
+			setServerPort(String(p.ports?.server ?? ""));
+			setWorkspacePath(p.workspace?.path ?? "");
 			setDiscordToken(p.discord?.token ?? "");
 			setDiscordChannel(p.discord?.defaultChannelId ?? "");
 			setAnthropicKey(p.agent?.anthropicApiKey ?? "");
@@ -671,6 +671,9 @@ function SettingsTab({ projectId }: { projectId: string }) {
 		setSaving(true);
 		try {
 			await updateSettings(projectId, {
+				name: projectName || undefined,
+				ports: serverPort ? { server: Number(serverPort) } : undefined,
+				workspace: workspacePath ? { path: workspacePath, type: "external" } : undefined,
 				discord: {
 					token: discordToken || undefined,
 					defaultChannelId: discordChannel || undefined,
@@ -697,9 +700,46 @@ function SettingsTab({ projectId }: { projectId: string }) {
 	return (
 		<div className="max-w-3xl space-y-6">
 			<p className="text-sm text-gray-500">
-				Discord and Anthropic config are stored per-project (in config.json and the project&apos;s .env). Restart the project
-				after changing.
+				Settings are stored in the project&apos;s .env and docker-compose.yml. Restart the project after changing.
 			</p>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>General</CardTitle>
+				</CardHeader>
+				<CardContent className="space-y-4">
+					<div className="space-y-2">
+						<Label htmlFor="project-name">Project name</Label>
+						<Input
+							id="project-name"
+							placeholder="My Project"
+							value={projectName}
+							onChange={(e) => setProjectName(e.target.value)}
+						/>
+					</div>
+					<div className="space-y-2">
+						<Label htmlFor="server-port">Server port</Label>
+						<Input
+							id="server-port"
+							type="number"
+							placeholder="4000"
+							value={serverPort}
+							onChange={(e) => setServerPort(e.target.value)}
+						/>
+						<p className="text-xs text-muted-foreground">The port the agent server listens on inside Docker and on the host.</p>
+					</div>
+					<div className="space-y-2">
+						<Label htmlFor="workspace-path">Workspace path</Label>
+						<Input
+							id="workspace-path"
+							placeholder="/path/to/workspace"
+							value={workspacePath}
+							onChange={(e) => setWorkspacePath(e.target.value)}
+						/>
+						<p className="text-xs text-muted-foreground">Absolute host path mounted as /workspace in the container.</p>
+					</div>
+				</CardContent>
+			</Card>
 
 			<Card>
 				<CardHeader>

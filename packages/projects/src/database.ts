@@ -30,7 +30,7 @@ export class ProjectDatabase {
 	 * Open a project's database
 	 */
 	openDatabase(projectId: string): Database {
-		const dbPath = this.manager.getProjectDbPath(projectId);
+		const dbPath = this.manager.getprojectDatabaseManagerPath(projectId);
 
 		if (!existsSync(dbPath)) {
 			throw new Error(`Project "${projectId}" database not found`);

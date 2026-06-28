@@ -1,0 +1,146 @@
+/**
+ * Fine-grained token budget management.
+ * Inspired by easy-agent step12: multi-tier warning states, circuit breaker,
+ * tool result truncation, and output token tiers.
+ */
+
+// ── Model Context Windows ────────────────────────────────────────────────────
+
+const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
+	"claude-opus-4-8": 200_000,
+	"claude-sonnet-4-6": 200_000,
+	"claude-haiku-4-5-20251001": 200_000,
+	"claude-sonnet-4-20250514": 200_000,
+	"claude-opus-4-20250514": 200_000,
+};
+
+const DEFAULT_CONTEXT_WINDOW = 200_000;
+const MAX_OUTPUT_TOKENS_FOR_SUMMARY = 20_000;
+
+export function getContextWindowForModel(model: string): number {
+	const envOverride = process.env.AGENT_MAX_CONTEXT_TOKENS;
+	if (envOverride) {
+		const parsed = Number.parseInt(envOverride, 10);
+		if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+	}
+	return MODEL_CONTEXT_WINDOWS[model] ?? DEFAULT_CONTEXT_WINDOW;
+}
+
+/**
+ * Effective window = context window minus space reserved for summary output.
+ * For small windows (<100K) use 20% instead of a fixed 20K.
+ */
+export function getEffectiveContextWindow(model: string): number {
+	const contextWindow = getContextWindowForModel(model);
+	const reserved = Math.min(MAX_OUTPUT_TOKENS_FOR_SUMMARY, Math.floor(contextWindow * 0.2));
+	return contextWindow - reserved;
+}
+
+// ── Adaptive Buffer Scaling ──────────────────────────────────────────────────
+
+const AUTOCOMPACT_BUFFER_TOKENS = 13_000;
+const WARNING_THRESHOLD_BUFFER_TOKENS = 20_000;
+const BLOCKING_BUFFER_TOKENS = 3_000;
+const REFERENCE_WINDOW = 180_000;
+
+function scaleBuffer(buffer: number, effectiveWindow: number): number {
+	if (effectiveWindow >= REFERENCE_WINDOW) return buffer;
+	return Math.round(buffer * (effectiveWindow / REFERENCE_WINDOW));
+}
+
+export function getAutoCompactThreshold(model: string): number {
+	const effective = getEffectiveContextWindow(model);
+	return Math.max(0, effective - scaleBuffer(AUTOCOMPACT_BUFFER_TOKENS, effective));
+}
+
+export function getWarningThreshold(model: string): number {
+	const effective = getEffectiveContextWindow(model);
+	return Math.max(0, effective - scaleBuffer(WARNING_THRESHOLD_BUFFER_TOKENS, effective));
+}
+
+export function getBlockingLimit(model: string): number {
+	const effective = getEffectiveContextWindow(model);
+	return Math.max(0, effective - scaleBuffer(BLOCKING_BUFFER_TOKENS, effective));
+}
+
+// ── Four-State Warning System ────────────────────────────────────────────────
+
+export type TokenWarningState = "normal" | "warning" | "error" | "blocking";
+
+export interface TokenWarningInfo {
+	state: TokenWarningState;
+	estimatedTokens: number;
+	warningThreshold: number;
+	autoCompactThreshold: number;
+	blockingLimit: number;
+	contextWindow: number;
+}
+
+export function calculateTokenWarningState(estimatedTokens: number, model: string): TokenWarningInfo {
+	const contextWindow = getContextWindowForModel(model);
+	const blockingLimit = getBlockingLimit(model);
+	const autoCompactThreshold = getAutoCompactThreshold(model);
+	const warningThreshold = getWarningThreshold(model);
+
+	let state: TokenWarningState = "normal";
+	if (estimatedTokens >= blockingLimit) {
+		state = "blocking";
+	} else if (estimatedTokens >= autoCompactThreshold) {
+		state = "error";
+	} else if (estimatedTokens >= warningThreshold) {
+		state = "warning";
+	}
+
+	return { state, estimatedTokens, warningThreshold, autoCompactThreshold, blockingLimit, contextWindow };
+}
+
+// ── Circuit Breaker ──────────────────────────────────────────────────────────
+
+const MAX_CONSECUTIVE_FAILURES = 3;
+
+export class CompactionCircuitBreaker {
+	private consecutiveFailures = 0;
+
+	shouldAutoCompact(estimatedTokens: number, model: string, isCompactionCall = false): boolean {
+		// Escape condition: don't compact during a compaction call
+		if (isCompactionCall) return false;
+		// Circuit open
+		if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) return false;
+		return estimatedTokens >= getAutoCompactThreshold(model);
+	}
+
+	recordSuccess(): void {
+		this.consecutiveFailures = 0;
+	}
+
+	recordFailure(): void {
+		this.consecutiveFailures++;
+	}
+
+	reset(): void {
+		this.consecutiveFailures = 0;
+	}
+
+	get isOpen(): boolean {
+		return this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES;
+	}
+
+	get failures(): number {
+		return this.consecutiveFailures;
+	}
+}
+
+// ── Tool Result Truncation ───────────────────────────────────────────────────
+
+const DEFAULT_MAX_RESULT_CHARS = 100_000;
+
+export function truncateToolResult(content: string, maxChars = DEFAULT_MAX_RESULT_CHARS): string {
+	if (content.length <= maxChars) return content;
+	const truncated = content.slice(0, maxChars);
+	return `${truncated}\n\n[Output truncated: ${content.length.toLocaleString()} chars total, showing first ${maxChars.toLocaleString()}]`;
+}
+
+// ── Output Token Tiers ───────────────────────────────────────────────────────
+
+export const BASE_MAX_TOKENS = 8192;
+export const ESCALATED_MAX_TOKENS = 16384;

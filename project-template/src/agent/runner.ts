@@ -26,8 +26,11 @@ import { getChannel } from "../discord/bot";
 import { sendChecklistForm } from "../discord/forms";
 import { type ReportData, sendDiscordReport } from "../discord/report";
 import { sessionEmitter } from "../emitter";
-import { compactMessages, estimateTokens } from "./context";
+import { UsageAnchor, compactMessages, estimateTokens } from "./context";
+import { classifyApiError, CompactionError, withRetry } from "./errors";
+import type { AgentError } from "./errors";
 import { commitChanges, getCurrentCommit } from "./git";
+import { isBashCommandReadOnly, isPlanModeToolAllowed, PLAN_MODE_BASH_BLOCKED_MESSAGE, PLAN_MODE_BLOCKED_MESSAGE } from "./plan-mode";
 import { AGENT_TOOLS } from "./tools/definitions";
 import { executeBash, glob, grep } from "./tools/implementations/commands";
 import {
@@ -44,6 +47,14 @@ import {
 } from "./tools/implementations/filesystem";
 import { readMemory, searchMemory, writeMemory } from "./tools/implementations/memory";
 import { addTodo, listTodos, updateTodo } from "./tools/implementations/todo";
+import {
+	BASE_MAX_TOKENS,
+	CompactionCircuitBreaker,
+	calculateTokenWarningState,
+	ESCALATED_MAX_TOKENS,
+	truncateToolResult,
+	type TokenWarningState,
+} from "./token-budget";
 import { AGENT_DIR_STRUCTURE, bootstrapWorkspace, buildStartupContext } from "./workspace";
 
 const WORKSPACE = process.env.WORKSPACE_PATH ?? "/workspace";
@@ -145,6 +156,14 @@ export class AgentRunner {
 	private stopped = false;
 	private totalTokensConsumed = 0;
 	private currentTask = "";
+
+	// Plan mode
+	private planMode = false;
+
+	// Token budget management
+	private usageAnchor = new UsageAnchor();
+	private circuitBreaker = new CompactionCircuitBreaker();
+	private lastWarningState: TokenWarningState = "normal";
 
 	// Abort / interject
 	private abortController = new AbortController();
@@ -310,16 +329,34 @@ export class AgentRunner {
 					break;
 				}
 
-				// Auto-compact context if too large
+				// Auto-compact context if too large (using circuit breaker)
+				const model = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+				const estTokens = this.usageAnchor.estimate(this.messages);
+
+				// Emit token warning state changes
+				const warningInfo = calculateTokenWarningState(estTokens, model);
+				if (warningInfo.state !== this.lastWarningState) {
+					this.lastWarningState = warningInfo.state;
+					sessionEmitter.emit(this.sessionId, {
+						type: "token_warning",
+						data: {
+							state: warningInfo.state,
+							estimatedTokens: estTokens,
+							threshold: warningInfo.autoCompactThreshold,
+							contextWindow: warningInfo.contextWindow,
+						},
+					});
+				}
+
 				console.log("[Compaction]", {
-					threshold: this.compactThresholdTokens,
-					tokens: estimateTokens(this.messages),
+					state: warningInfo.state,
+					threshold: warningInfo.autoCompactThreshold,
+					tokens: estTokens,
+					circuitBreakerOpen: this.circuitBreaker.isOpen,
 				});
-				if (this.compactThresholdTokens > 0) {
-					const estTokens = estimateTokens(this.messages);
-					if (estTokens > this.compactThresholdTokens) {
-						await this.doCompaction();
-					}
+
+				if (this.circuitBreaker.shouldAutoCompact(estTokens, model)) {
+					await this.doCompaction();
 				}
 
 				// Auto-report interval
@@ -375,6 +412,9 @@ export class AgentRunner {
 				const outputTokens = response.usage.output_tokens;
 				const cacheReadTokens = (response.usage as unknown as Record<string, number>).cache_read_input_tokens ?? 0;
 				const cacheWriteTokens = (response.usage as unknown as Record<string, number>).cache_creation_input_tokens ?? 0;
+
+				// Update usage anchor for efficient token estimation
+				this.usageAnchor.update(this.messages.length - 1, inputTokens);
 
 				this.totalTokensConsumed += inputTokens + outputTokens;
 				addTokens(this.db, this.sessionId, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens);
@@ -467,14 +507,15 @@ export class AgentRunner {
 				}
 			}
 		} catch (err) {
-			console.error(`[Agent ${this.sessionId}] Fatal error:`, err);
+			const classified = classifyApiError(err);
+			console.error(`[Agent ${this.sessionId}] Fatal error [${classified.category}]:`, classified.message);
 
 			// Save error message to database
-			const errorMessage = err instanceof Error ? err.message : String(err);
+			const errorMessage = classified.message;
 			const errorDetails = err instanceof Error ? err.stack : undefined;
 			const errorMsgId = this.saveMessage(
 				"assistant",
-				JSON.stringify([{ type: "text", text: "An error occurred during execution." }]),
+				JSON.stringify([{ type: "text", text: `An error occurred during execution: ${classified.category}` }]),
 				0,
 				0,
 				errorMessage,
@@ -487,7 +528,7 @@ export class AgentRunner {
 					id: errorMsgId,
 					sessionId: this.sessionId,
 					role: "assistant",
-					content: JSON.stringify([{ type: "text", text: "An error occurred during execution." }]),
+					content: JSON.stringify([{ type: "text", text: `An error occurred during execution: ${classified.category}` }]),
 					inputTokens: 0,
 					outputTokens: 0,
 					cacheReadTokens: 0,
@@ -497,7 +538,9 @@ export class AgentRunner {
 				},
 			});
 
-			updateSession(this.db, this.sessionId, { status: "error" });
+			// Non-retryable auth errors → "error" status; others → "stopped" (may be resumable)
+			const finalStatus = classified.retryable ? "stopped" : "error";
+			updateSession(this.db, this.sessionId, { status: finalStatus });
 			sessionEmitter.emit(this.sessionId, {
 				type: "error",
 				data: { message: errorMessage },
@@ -509,7 +552,7 @@ export class AgentRunner {
 
 	private async doCompaction(): Promise<void> {
 		const before = this.messages.length;
-		const estBefore = estimateTokens(this.messages);
+		const estBefore = this.usageAnchor.estimate(this.messages);
 
 		// Surface a dedicated "compacting" state while the (potentially slow)
 		// summarization round-trip runs, then restore "running".
@@ -523,6 +566,17 @@ export class AgentRunner {
 		let summary: string;
 		try {
 			({ messages, summary } = await compactMessages(this.messages, this.client));
+			this.circuitBreaker.recordSuccess();
+		} catch (err) {
+			this.circuitBreaker.recordFailure();
+			console.error(`[Agent ${this.sessionId}] Compaction failed (attempt ${this.circuitBreaker.failures}):`, err);
+			// Restore running state and continue without compacting
+			updateSession(this.db, this.sessionId, { status: "running" });
+			sessionEmitter.emit(this.sessionId, {
+				type: "session_updated",
+				data: { id: this.sessionId, status: "running" },
+			});
+			return;
 		} finally {
 			updateSession(this.db, this.sessionId, { status: "running" });
 			sessionEmitter.emit(this.sessionId, {
@@ -531,6 +585,8 @@ export class AgentRunner {
 			});
 		}
 		this.messages = messages;
+		// Invalidate anchor — message array is restructured
+		this.usageAnchor.invalidate();
 		const estAfter = estimateTokens(this.messages);
 		console.log(
 			`[Agent ${this.sessionId}] Compacted context: ${before} → ${messages.length} messages (${estBefore} → ${estAfter} est. tokens)`
@@ -798,22 +854,58 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 
 	// ── Anthropic API ──────────────────────────────────────────────────────────────
 	private async callAnthropicApi(): Promise<Anthropic.Message> {
-		const stream = this.client.messages.stream(
+		const makeRequest = async (maxTokens: number): Promise<Anthropic.Message> => {
+			const stream = this.client.messages.stream(
+				{
+					model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6",
+					max_tokens: maxTokens,
+					system: this.systemPrompt,
+					tools: AGENT_TOOLS,
+					messages: this.messages,
+				},
+				{ signal: this.abortController.signal }
+			);
+
+			stream.on("text", (text) => {
+				sessionEmitter.emit(this.sessionId, { type: "text_delta", data: { text } });
+			});
+
+			return stream.finalMessage();
+		};
+
+		// Retry with exponential backoff for transient errors
+		const response = await withRetry(
+			() => makeRequest(BASE_MAX_TOKENS),
 			{
-				model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6",
-				max_tokens: 8192,
-				system: this.systemPrompt,
-				tools: AGENT_TOOLS,
-				messages: this.messages,
-			},
-			{ signal: this.abortController.signal }
+				maxAttempts: 3,
+				baseDelayMs: 1000,
+				maxDelayMs: 10_000,
+				signal: this.abortController.signal,
+				onRetry: (err: AgentError, attempt: number, nextDelayMs: number) => {
+					console.log(`[Agent ${this.sessionId}] API retry #${attempt}: ${err.category} — waiting ${Math.round(nextDelayMs)}ms`);
+					sessionEmitter.emit(this.sessionId, {
+						type: "error_recovered",
+						data: { attempt, error: err.message, nextRetryMs: Math.round(nextDelayMs) },
+					});
+				},
+			}
 		);
 
-		stream.on("text", (text) => {
-			sessionEmitter.emit(this.sessionId, { type: "text_delta", data: { text } });
-		});
+		// Output token tier escalation: if truncated, retry with higher limit
+		if (response.stop_reason === "max_tokens") {
+			console.log(`[Agent ${this.sessionId}] Response truncated at ${BASE_MAX_TOKENS} tokens, retrying with ${ESCALATED_MAX_TOKENS}`);
+			return withRetry(
+				() => makeRequest(ESCALATED_MAX_TOKENS),
+				{
+					maxAttempts: 2,
+					baseDelayMs: 1000,
+					maxDelayMs: 5000,
+					signal: this.abortController.signal,
+				}
+			);
+		}
 
-		return stream.finalMessage();
+		return response;
 	}
 
 	private async requestSummary(): Promise<string> {
@@ -960,6 +1052,8 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 			let status: "success" | "error" = "success";
 			try {
 				output = await this.dispatchTool(block.name, input);
+				// Truncate oversized tool results to prevent context bloat
+				output = truncateToolResult(output);
 			} catch (err) {
 				output = `Error: ${err}`;
 				status = "error";
@@ -991,7 +1085,41 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 	}
 
 	private async dispatchTool(name: string, input: Record<string, unknown>): Promise<string> {
+		// ── Plan mode enforcement ────────────────────────────────────────────────────
+		if (this.planMode) {
+			if (name === "exit_plan_mode") {
+				this.planMode = false;
+				const summary = (input.plan_summary as string) ?? undefined;
+				sessionEmitter.emit(this.sessionId, { type: "plan_mode", data: { active: false, summary } });
+				return summary
+					? `Exited plan mode. Plan summary recorded:\n${summary}`
+					: "Exited plan mode. Full tool access restored.";
+			}
+			if (!isPlanModeToolAllowed(name)) {
+				return PLAN_MODE_BLOCKED_MESSAGE;
+			}
+			// For bash in plan mode, check if the command is read-only
+			if (name === "bash" && !isBashCommandReadOnly((input.command as string) ?? "")) {
+				return PLAN_MODE_BASH_BLOCKED_MESSAGE;
+			}
+		}
+
 		switch (name) {
+			// ── Plan mode ────────────────────────────────────────────────────────────────
+			case "enter_plan_mode": {
+				this.planMode = true;
+				sessionEmitter.emit(this.sessionId, { type: "plan_mode", data: { active: true } });
+				return "Entered plan mode. Only read-only tools are available (grep, glob, read_file, list_directory, search_files, bash read-only commands). Call exit_plan_mode when ready to implement.";
+			}
+			case "exit_plan_mode": {
+				this.planMode = false;
+				const summary = (input.plan_summary as string) ?? undefined;
+				sessionEmitter.emit(this.sessionId, { type: "plan_mode", data: { active: false, summary } });
+				return summary
+					? `Exited plan mode. Plan summary recorded:\n${summary}`
+					: "Exited plan mode. Full tool access restored.";
+			}
+
 			// ── File system ──────────────────────────────────────────────────────────────
 			case "bash": {
 				const r = await executeBash(input.command as string, (input.timeout_ms as number) ?? 30_000);

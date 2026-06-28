@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { ProjectDatabase, ProjectDocker, ProjectManager, resolveWorkspaceRoot, TemplateManager } from "@agent-manager/projects";
+import { MasterDatabase, ProjectDatabase, ProjectDocker, ProjectManager, resolveWorkspaceRoot } from "@agent-manager/projects";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { EventHub } from "./lib/event-hub";
@@ -17,9 +17,9 @@ const rootDir = resolveWorkspaceRoot(import.meta.dir);
 
 const manager = new ProjectManager(rootDir);
 const docker = new ProjectDocker(manager);
-const projectDb = new ProjectDatabase(manager);
+const projectDatabaseManager = new ProjectDatabase(manager);
 const hub = new EventHub(manager, docker);
-const templateManager = new TemplateManager(rootDir);
+const masterDb = new MasterDatabase(rootDir);
 
 const logger = createLogger({ DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL });
 
@@ -38,9 +38,9 @@ const app = new Hono<HonoMasterEnv>()
 	.use("*", (c, next) => {
 		c.set("manager", manager);
 		c.set("docker", docker);
-		c.set("projectDb", projectDb);
+		c.set("projectDatabaseManager", projectDatabaseManager);
 		c.set("hub", hub);
-		c.set("templateManager", templateManager);
+		c.set("masterDb", masterDb);
 		return next();
 	})
 	.get("/", (c) => c.text("Hello from Agent Manager API"))
@@ -64,4 +64,4 @@ logger.info(`Projects dir: ${join(rootDir, ".projects")}`);
 
 // Only the type travels to master-web — no server code is bundled.
 export type AppType = typeof app;
-export default { port: PORT, fetch: app.fetch };
+export default { port: PORT, fetch: app.fetch, idleTimeout: 120 };

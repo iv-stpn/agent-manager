@@ -13,8 +13,6 @@ import type {
 	Template,
 	ToolCallRecord,
 } from "@agent-manager/projects";
-import type { ProjectStreamEvent, SessionStreamEvent } from "@agent-manager/utils";
-import { createEventStream, PROJECT_STREAM_EVENTS, SESSION_STREAM_EVENTS } from "@agent-manager/utils";
 import { hc } from "hono/client";
 
 export type {
@@ -58,6 +56,12 @@ export async function getProject(projectId?: string, signal?: AbortSignal) {
 	return (await res.json()).project;
 }
 
+export async function checkWorkspacePath(path: string): Promise<{ status: "not_found" | "empty" | "not_empty" | "not_directory"; path: string }> {
+	const res = await api.api.projects["check-path"].$post({ json: { path } });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as any;
+}
+
 export async function createProject(data: CreateProjectInput) {
 	const res = await api.api.projects.$post({ json: data });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
@@ -94,6 +98,10 @@ export async function getLogs(projectId: string, service?: string) {
 export async function updateSettings(
 	projectId: string,
 	data: {
+		name?: string;
+		description?: string;
+		ports?: { server?: number };
+		workspace?: { path: string; type: "external" | "internal" };
 		discord?: { token?: string; defaultChannelId?: string };
 		agent?: { anthropicApiKey?: string; anthropicBaseUrl?: string; model?: string };
 	}
@@ -199,83 +207,31 @@ export async function sendSessionMessage(projectId: string, id: string, message:
 	await api.api.projects[":projectId"].sessions[":sessionId"].message.$post(req);
 }
 
-// ── SSE streams (direct to agent server, bypass proxy) ───────────────────────
+// ── SSE streams — re-exported from @agent-manager/utils ─────────────────────
 
-export function createSessionStream(id: string, onEvent: (event: SessionStreamEvent) => void, port: number): EventSource {
-	return createEventStream<SessionStreamEvent>(
-		`http://localhost:${port}/api/sessions/${id}/stream`,
-		SESSION_STREAM_EVENTS,
-		onEvent,
-		"session"
-	);
-}
-
-export function createProjectStream(onEvent: (event: ProjectStreamEvent) => void, port: number): EventSource {
-	return createEventStream<ProjectStreamEvent>(`http://localhost:${port}/api/stream`, PROJECT_STREAM_EVENTS, onEvent, "project");
-}
-
-export function createMasterStream(
-	onEvent: (type: string, payload: { projectId: string; data: unknown }) => void,
-	onSnapshot: (projects: unknown[]) => void
-): EventSource {
-	// Use a relative URL so the request goes through Next.js's rewrite proxy,
-	// avoiding cross-origin issues with the SSE streaming response.
-	const es = new EventSource("/api/projects/events");
-
-	es.addEventListener("projects", (e) => {
-		try {
-			const parsed = JSON.parse((e as MessageEvent).data);
-			console.log("[SSE:master] projects (snapshot)", parsed);
-			onSnapshot(parsed);
-		} catch {
-			// ignore malformed snapshot
-		}
-	});
-
-	const events = ["project_status", "session_created", "message"];
-	for (const event of events) {
-		es.addEventListener(event, (e) => {
-			try {
-				const parsed = JSON.parse((e as MessageEvent).data);
-				console.log(`[SSE:master] ${event}`, parsed);
-				onEvent(event, parsed);
-			} catch {
-				// ignore malformed event
-			}
-		});
-	}
-
-	return es;
-}
+export { createSessionStream, createProjectStream, createMasterStream } from "@agent-manager/utils";
 
 // ── Template endpoints ────────────────────────────────────────────────────────
 
 export async function getTemplates(): Promise<Template[]> {
-	const res = await fetch(`${API_URL}/api/templates`);
-	if (!res.ok) throw new Error(`API ${res.status}`);
-	return res.json();
+	const res = await api.api.templates.$get();
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as Template[];
 }
 
 export async function createTemplate(data: Omit<Template, "id" | "createdAt" | "updatedAt">): Promise<Template> {
-	const res = await fetch(`${API_URL}/api/templates`, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(data),
-	});
-	if (!res.ok) throw new Error(`API ${res.status}`);
-	return res.json();
+	const res = await api.api.templates.$post({ json: data });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as Template;
 }
 
 export async function updateTemplate(id: string, data: Partial<Omit<Template, "id" | "createdAt">>): Promise<Template> {
-	const res = await fetch(`${API_URL}/api/templates/${id}`, {
-		method: "PUT",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(data),
-	});
-	if (!res.ok) throw new Error(`API ${res.status}`);
-	return res.json();
+	const res = await api.api.templates[":id"].$put({ param: { id }, json: data });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as Template;
 }
 
 export async function deleteTemplate(id: string): Promise<void> {
-	await fetch(`${API_URL}/api/templates/${id}`, { method: "DELETE" });
+	const res = await api.api.templates[":id"].$delete({ param: { id } });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
 }

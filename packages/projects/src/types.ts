@@ -35,6 +35,26 @@ export const ProjectConfigSchema = z.object({
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
 
+export const UpdateSettingsSchema = z.object({
+	name: z.string().min(1).max(50).optional(),
+	description: z.string().optional(),
+	ports: z
+		.object({
+			server: z.number().min(3000).max(65535).optional(),
+		})
+		.optional(),
+	workspace: z
+		.object({
+			path: z.string(),
+			type: z.enum(["external", "internal"]),
+		})
+		.optional(),
+	discord: DiscordConfigSchema.optional(),
+	agent: AgentConfigSchema.optional(),
+});
+
+export type UpdateSettingsInput = z.infer<typeof UpdateSettingsSchema>;
+
 export const CreateProjectSchema = z.object({
 	id: z
 		.string()

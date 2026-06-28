@@ -1,8 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { CreateProjectInput, ProjectConfig } from "./types";
-import { ProjectConfigSchema } from "./types";
 
 const PROJECTS_DIR = ".projects";
 const BASE_SERVER_PORT = 4000;
@@ -51,65 +51,114 @@ export function resolveWorkspaceRoot(startDir: string = process.cwd()): string {
 
 export class ProjectManager {
 	private projectsRoot: string;
-	private templatePath: string;
 
 	constructor(rootDir: string = resolveWorkspaceRoot()) {
 		this.projectsRoot = join(rootDir, PROJECTS_DIR);
-		this.templatePath = join(rootDir, "project-template");
 	}
 
-	/**
-	 * Get the root directory for all projects
-	 */
+	// ── Public accessors ─────────────────────────────────────────────────────
+
 	getProjectsRoot(): string {
 		return this.projectsRoot;
 	}
 
-	/**
-	 * Get the directory path for a specific project
-	 */
 	getProjectDir(projectId: string): string {
 		return join(this.projectsRoot, projectId);
 	}
 
-	/**
-	 * Get the database path for a specific project
-	 */
-	getProjectDbPath(projectId: string): string {
+	getprojectDatabaseManagerPath(projectId: string): string {
 		return join(this.getProjectDir(projectId), "data", "agent.db");
 	}
 
+	// ── Read ─────────────────────────────────────────────────────────────────
+
 	/**
-	 * Ensure the .projects directory exists
+	 * Get project configuration by reading docker-compose.yml + .env.
+	 * No config.json involved.
 	 */
-	private async ensureProjectsDir(): Promise<void> {
+	async getProject(projectId: string): Promise<ProjectConfig> {
+		const projectDir = this.getProjectDir(projectId);
+		const composePath = join(projectDir, "docker-compose.yml");
+
+		if (!existsSync(composePath)) {
+			throw new Error(`Project "${projectId}" does not exist`);
+		}
+
+		const compose = readFileSync(composePath, "utf-8");
+		const env = this.parseEnvFile(projectId);
+
+		// Parse structural data from docker-compose comments + content
+		const nameMatch = compose.match(/^# Project: (.+)$/m);
+		const createdMatch = compose.match(/^# Created: (.+)$/m);
+		const portMatch = compose.match(/^\s+- "(\d+):\d+"$/m);
+		const volumeMatch = compose.match(/^\s+- ([^:]+):\/workspace$/m);
+		const workspaceType = volumeMatch?.[1]?.includes("/workspace") ? "internal" as const : "external" as const;
+
+		const serverPort = portMatch ? Number.parseInt(portMatch[1], 10) : BASE_SERVER_PORT;
+		const workspacePath = volumeMatch?.[1] ?? join(projectDir, "workspace");
+
+		// Dates: prefer comment, fall back to file stat
+		const stat = statSync(composePath);
+		const createdAt = createdMatch?.[1] ?? stat.birthtime.toISOString();
+		const updatedAt = stat.mtime.toISOString();
+
+		const config: ProjectConfig = {
+			id: projectId,
+			name: env.PROJECT_NAME || nameMatch?.[1] || projectId,
+			description: env.DESCRIPTION || undefined,
+			createdAt,
+			updatedAt,
+			ports: { server: serverPort },
+			workspace: { path: workspacePath, type: workspaceType },
+			status: "stopped",
+		};
+
+		// Runtime config from .env
+		if (env.ANTHROPIC_API_KEY || env.ANTHROPIC_BASE_URL || env.ANTHROPIC_MODEL) {
+			config.agent = {
+				...(env.ANTHROPIC_API_KEY && { anthropicApiKey: env.ANTHROPIC_API_KEY }),
+				...(env.ANTHROPIC_BASE_URL && { anthropicBaseUrl: env.ANTHROPIC_BASE_URL }),
+				...(env.ANTHROPIC_MODEL && { model: env.ANTHROPIC_MODEL }),
+			};
+		}
+		if (env.DISCORD_TOKEN || env.DISCORD_DEFAULT_CHANNEL_ID) {
+			config.discord = {
+				...(env.DISCORD_TOKEN && { token: env.DISCORD_TOKEN }),
+				...(env.DISCORD_DEFAULT_CHANNEL_ID && { defaultChannelId: env.DISCORD_DEFAULT_CHANNEL_ID }),
+			};
+		}
+
+		return config;
+	}
+
+	/**
+	 * List all projects (directories containing docker-compose.yml).
+	 */
+	async listProjects(): Promise<ProjectConfig[]> {
 		if (!existsSync(this.projectsRoot)) {
-			await mkdir(this.projectsRoot, { recursive: true });
+			return [];
 		}
+
+		const { readdirSync } = await import("node:fs");
+		const entries = readdirSync(this.projectsRoot, { withFileTypes: true });
+		const projects: ProjectConfig[] = [];
+
+		for (const entry of entries) {
+			if (entry.isDirectory()) {
+				try {
+					const config = await this.getProject(entry.name);
+					projects.push(config);
+				} catch {
+					// Skip invalid projects
+				}
+			}
+		}
+
+		return projects.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 	}
 
-	/**
-	 * Find next available server port for a new project
-	 */
-	private async findAvailablePort(): Promise<number> {
-		const projects = await this.listProjects();
-		const usedPorts = new Set<number>();
+	// ── Create ───────────────────────────────────────────────────────────────
 
-		for (const project of projects) {
-			usedPorts.add(project.ports.server);
-		}
-
-		let serverPort = BASE_SERVER_PORT;
-		while (usedPorts.has(serverPort)) {
-			serverPort++;
-		}
-
-		return serverPort;
-	}
-
-	/**
-	 * Create a new project
-	 */
 	async createProject(input: CreateProjectInput): Promise<ProjectConfig> {
 		await this.ensureProjectsDir();
 
@@ -124,20 +173,17 @@ export class ProjectManager {
 
 		// Allocate server port
 		const defaultServerPort = await this.findAvailablePort();
-		const ports = {
-			server: input.ports?.server ?? defaultServerPort,
-		};
+		const ports = { server: input.ports?.server ?? defaultServerPort };
 
 		// Determine workspace configuration
-		const workspace = input.workspacePath
-			? {
-					path: resolve(input.workspacePath),
-					type: "external" as const,
-				}
-			: {
-					path: join(projectDir, "workspace"),
-					type: "internal" as const,
-				};
+		const expandedPath = input.workspacePath
+			? (input.workspacePath.startsWith("~/") || input.workspacePath === "~"
+				? input.workspacePath.replace("~", homedir())
+				: input.workspacePath)
+			: undefined;
+		const workspace = expandedPath
+			? { path: resolve(expandedPath), type: "external" as const }
+			: { path: join(projectDir, "workspace"), type: "internal" as const };
 
 		const now = new Date().toISOString();
 		const config: ProjectConfig = {
@@ -157,131 +203,69 @@ export class ProjectManager {
 		await mkdir(projectDir, { recursive: true });
 		await mkdir(join(projectDir, "data"), { recursive: true });
 
-		// Create internal workspace if needed
 		if (workspace.type === "internal") {
 			await mkdir(workspace.path, { recursive: true });
 		}
 
-		// Copy the server template into the project root. The db module is
-		// inlined under src/, so the project is self-contained — no workspace
-		// packages need to be copied alongside it.
-		console.log(`Copying server template to ${projectId}...`);
-		await cp(this.templatePath, projectDir, {
-			recursive: true,
-			filter: (src) => {
-				// Skip node_modules, dist, and other build artifacts
-				return !src.includes("node_modules") && !src.includes("dist") && !src.includes(".next");
-			},
-		});
-
-		// Write config
-		await this.saveProjectConfig(projectId, config);
-
-		// Generate docker-compose.yml
+		// Generate docker-compose.yml + .env (the only config files)
 		await this.generateDockerCompose(projectId, config);
-
-		// Generate .env file
 		await this.generateEnvFile(projectId, config);
 
 		return config;
 	}
 
-	/**
-	 * Delete a project
-	 */
-	async deleteProject(projectId: string): Promise<void> {
-		const projectDir = this.getProjectDir(projectId);
-
-		if (!existsSync(projectDir)) {
-			throw new Error(`Project "${projectId}" does not exist`);
-		}
-
-		// Remove entire project directory (but not external workspace)
-		await rm(projectDir, { recursive: true, force: true });
-	}
+	// ── Update ───────────────────────────────────────────────────────────────
 
 	/**
-	 * Get project configuration
+	 * Update project configuration.
+	 * Structural changes rewrite docker-compose.yml; runtime secrets update .env.
 	 */
-	async getProject(projectId: string): Promise<ProjectConfig> {
-		const configPath = join(this.getProjectDir(projectId), "config.json");
+	async updateProject(projectId: string, updates: Partial<Omit<ProjectConfig, "id" | "createdAt">>): Promise<ProjectConfig> {
+		const current = await this.getProject(projectId);
+		const { discord, agent, ...structuralUpdates } = updates;
 
-		if (!existsSync(configPath)) {
-			throw new Error(`Project "${projectId}" does not exist`);
-		}
-
-		const content = await readFile(configPath, "utf-8");
-		return ProjectConfigSchema.parse(JSON.parse(content));
-	}
-
-	/**
-	 * List all projects
-	 */
-	async listProjects(): Promise<ProjectConfig[]> {
-		if (!existsSync(this.projectsRoot)) {
-			return [];
-		}
-
-		const { readdirSync } = await import("node:fs");
-		const entries = readdirSync(this.projectsRoot, { withFileTypes: true });
-		const projects: ProjectConfig[] = [];
-
-		// Each project is a subdirectory containing config.json; skip any stray files.
-		for (const entry of entries) {
-			if (entry.isDirectory()) {
-				try {
-					const config = await this.getProject(entry.name);
-					projects.push(config);
-				} catch {
-					// Skip invalid projects
-				}
+		// Apply structural updates and regenerate docker-compose
+		const hasStructural = structuralUpdates.ports || structuralUpdates.workspace || structuralUpdates.name;
+		if (hasStructural) {
+			const updated: ProjectConfig = { ...current, ...structuralUpdates, updatedAt: new Date().toISOString() };
+			await this.generateDockerCompose(projectId, updated);
+			// Also update PROJECT_NAME in .env if name changed
+			if (structuralUpdates.name) {
+				await this.updateEnvVars(projectId, { PROJECT_NAME: structuralUpdates.name });
+			}
+			if (structuralUpdates.ports?.server) {
+				await this.updateEnvVars(projectId, { PORT: String(structuralUpdates.ports.server) });
 			}
 		}
 
-		return projects.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-	}
-
-	/**
-	 * Update project configuration
-	 */
-	async updateProject(projectId: string, updates: Partial<Omit<ProjectConfig, "id" | "createdAt">>): Promise<ProjectConfig> {
-		const config = await this.getProject(projectId);
-
-		const updated: ProjectConfig = {
-			...config,
-			...updates,
-			updatedAt: new Date().toISOString(),
-		};
-
-		await this.saveProjectConfig(projectId, updated);
-
-		// Regenerate docker-compose if ports or workspace changed
-		if (updates.ports || updates.workspace) {
-			await this.generateDockerCompose(projectId, updated);
+		// Write runtime settings directly to .env
+		if (discord !== undefined || agent !== undefined) {
+			await this.updateEnvVars(projectId, {
+				...(discord?.token !== undefined && { DISCORD_TOKEN: discord.token || "" }),
+				...(discord?.defaultChannelId !== undefined && { DISCORD_DEFAULT_CHANNEL_ID: discord.defaultChannelId || "" }),
+				...(agent?.anthropicApiKey !== undefined && { ANTHROPIC_API_KEY: agent.anthropicApiKey || "" }),
+				...(agent?.anthropicBaseUrl !== undefined && { ANTHROPIC_BASE_URL: agent.anthropicBaseUrl || "" }),
+				...(agent?.model !== undefined && { ANTHROPIC_MODEL: agent.model || "" }),
+			});
 		}
 
-		// Regenerate .env whenever discord/agent config (or anything else that
-		// feeds it) changes, so settings edits take effect on next start.
-		if (updates.discord !== undefined || updates.agent !== undefined) {
-			await this.generateEnvFile(projectId, updated);
+		return this.getProject(projectId);
+	}
+
+	// ── Delete ───────────────────────────────────────────────────────────────
+
+	async deleteProject(projectId: string): Promise<void> {
+		const projectDir = this.getProjectDir(projectId);
+		if (!existsSync(projectDir)) {
+			throw new Error(`Project "${projectId}" does not exist`);
 		}
-
-		return updated;
+		await rm(projectDir, { recursive: true, force: true });
 	}
 
-	/**
-	 * Save project configuration
-	 */
-	private async saveProjectConfig(projectId: string, config: ProjectConfig): Promise<void> {
-		const configPath = join(this.getProjectDir(projectId), "config.json");
-		await writeFile(configPath, JSON.stringify(config, null, 2));
-	}
+	// ── Helpers ──────────────────────────────────────────────────────────────
 
 	/**
 	 * Derive a Docker-valid project/network name from a project ID.
-	 * Docker references must match [a-z0-9][a-z0-9_-]* with no leading/trailing
-	 * separators and no consecutive separators, so IDs like "__tests__" are
-	 * sanitized to "tests" (the raw ID would produce invalid image tags).
 	 */
 	dockerProjectName(projectId: string): string {
 		const sanitized = projectId
@@ -293,21 +277,54 @@ export class ProjectManager {
 		return sanitized || "project";
 	}
 
-	/**
-	 * Generate docker-compose.yml for a project
-	 */
+	private async ensureProjectsDir(): Promise<void> {
+		if (!existsSync(this.projectsRoot)) {
+			await mkdir(this.projectsRoot, { recursive: true });
+		}
+	}
+
+	private async findAvailablePort(): Promise<number> {
+		const projects = await this.listProjects();
+		const usedPorts = new Set<number>();
+		for (const project of projects) {
+			usedPorts.add(project.ports.server);
+		}
+		let serverPort = BASE_SERVER_PORT;
+		while (usedPorts.has(serverPort)) {
+			serverPort++;
+		}
+		return serverPort;
+	}
+
+	private parseEnvFile(projectId: string): Record<string, string> {
+		const envPath = join(this.getProjectDir(projectId), ".env");
+		if (!existsSync(envPath)) return {};
+		const content = readFileSync(envPath, "utf-8");
+		const vars: Record<string, string> = {};
+		for (const line of content.split("\n")) {
+			const trimmed = line.trim();
+			if (!trimmed || trimmed.startsWith("#")) continue;
+			const idx = trimmed.indexOf("=");
+			if (idx === -1) continue;
+			vars[trimmed.slice(0, idx)] = trimmed.slice(idx + 1);
+		}
+		return vars;
+	}
+
+	// ── Generators ───────────────────────────────────────────────────────────
+
 	private async generateDockerCompose(projectId: string, config: ProjectConfig): Promise<void> {
 		const projectName = this.dockerProjectName(projectId);
 		const networkName = `${projectName}_network`;
 		const dockerCompose = `# Project: ${config.name}
-# Generated: ${new Date().toISOString()}
+# Created: ${config.createdAt}
 
 name: ${projectName}
 
 services:
   agent:
     build:
-      context: .
+      context: ../../project-template
       dockerfile: Dockerfile
     env_file:
       - .env
@@ -319,12 +336,9 @@ services:
       PROJECT_ID: "${projectId}"
       PROJECT_NAME: "${config.name}"
     extra_hosts:
-      # Let the container reach master-api running on the host (rendering gateway)
       - "host.docker.internal:host-gateway"
     volumes:
-      # Mount workspace from configured path
       - ${config.workspace.path}:/workspace
-      # Database directory (exposed from .projects)
       - ./data:/data
     ports:
       - "${config.ports.server}:${config.ports.server}"
@@ -341,17 +355,10 @@ networks:
 		await writeFile(composePath, dockerCompose);
 	}
 
-	/**
-	 * Generate .env file for a project.
-	 *
-	 * Discord + Anthropic config come from the project's settings (config.json),
-	 * not the global environment — each project carries its own bot token and
-	 * API key, set at initialization and editable via the UI/CLI.
-	 */
 	private async generateEnvFile(projectId: string, config: ProjectConfig): Promise<void> {
 		const lines: string[] = [
 			`# Project: ${config.name}`,
-			`# Generated: ${config.createdAt}`,
+			`# Created: ${config.createdAt}`,
 			"",
 			`PROJECT_ID=${projectId}`,
 			`PROJECT_NAME=${config.name}`,
@@ -396,6 +403,36 @@ networks:
 		lines.push("");
 
 		const envPath = join(this.getProjectDir(projectId), ".env");
+		await writeFile(envPath, lines.join("\n"));
+	}
+
+	/**
+	 * Update specific variables in a project's .env file in-place.
+	 */
+	private async updateEnvVars(projectId: string, vars: Record<string, string>): Promise<void> {
+		const envPath = join(this.getProjectDir(projectId), ".env");
+		if (!existsSync(envPath)) return;
+
+		const content = readFileSync(envPath, "utf-8");
+		const lines = content.split("\n");
+		const remaining = { ...vars };
+
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i];
+			const match = line.match(/^(#\s*)?([A-Z_]+)=(.*)/);
+			if (!match) continue;
+			const key = match[2];
+			if (!(key in remaining)) continue;
+
+			const value = remaining[key];
+			lines[i] = value ? `${key}=${value}` : `# ${key}=`;
+			delete remaining[key];
+		}
+
+		for (const [key, value] of Object.entries(remaining)) {
+			lines.push(value ? `${key}=${value}` : `# ${key}=`);
+		}
+
 		await writeFile(envPath, lines.join("\n"));
 	}
 }

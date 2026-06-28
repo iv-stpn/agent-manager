@@ -20,6 +20,24 @@ export type TokenUpdatePayload = {
 	totalCacheWriteTokens: number;
 };
 
+export type TokenWarningPayload = {
+	state: "normal" | "warning" | "error" | "blocking";
+	estimatedTokens: number;
+	threshold: number;
+	contextWindow: number;
+};
+
+export type PlanModePayload = {
+	active: boolean;
+	summary?: string;
+};
+
+export type ErrorRecoveredPayload = {
+	attempt: number;
+	error: string;
+	nextRetryMs: number;
+};
+
 export type CheckinStartedPayload = CheckinRecord & { questions: QuestionRecord[] };
 
 // Session stream: per-session events emitted by runner.ts.
@@ -28,6 +46,9 @@ export type SessionStreamEvent =
 	| { type: "text_delta"; data: { text: string } }
 	| { type: "tool_call"; data: ToolCallRecord }
 	| { type: "token_update"; data: TokenUpdatePayload }
+	| { type: "token_warning"; data: TokenWarningPayload }
+	| { type: "plan_mode"; data: PlanModePayload }
+	| { type: "error_recovered"; data: ErrorRecoveredPayload }
 	| { type: "checkin_started"; data: CheckinStartedPayload }
 	| { type: "checkin_completed"; data: CheckinRecord }
 	| { type: "compaction"; data: CompactionRecord }
@@ -48,6 +69,9 @@ export type ProjectStreamEvent =
 	| { type: "text_delta"; data: WithSession<{ text: string }> }
 	| { type: "tool_call"; data: WithSession<ToolCallRecord> }
 	| { type: "token_update"; data: WithSession<TokenUpdatePayload> }
+	| { type: "token_warning"; data: WithSession<TokenWarningPayload> }
+	| { type: "plan_mode"; data: WithSession<PlanModePayload> }
+	| { type: "error_recovered"; data: WithSession<ErrorRecoveredPayload> }
 	| { type: "checkin_started"; data: WithSession<CheckinStartedPayload> }
 	| { type: "checkin_completed"; data: WithSession<CheckinRecord> }
 	| { type: "compaction"; data: WithSession<CompactionRecord> }
@@ -61,6 +85,9 @@ export const SESSION_STREAM_EVENTS = [
 	"text_delta",
 	"tool_call",
 	"token_update",
+	"token_warning",
+	"plan_mode",
+	"error_recovered",
 	"checkin_started",
 	"checkin_completed",
 	"compaction",
@@ -109,34 +136,4 @@ export function isSessionRecord(v: unknown): v is SessionRecord {
 
 // ── Stream util ───────────────────────────────────────────────────────────────
 
-/**
- * Opens an EventSource to `url`, attaches one listener per event type, and
- * calls `onEvent` with a typed discriminated-union payload. Centralises the
- * MessageEvent cast and JSON-parse fallback so every stream function stays
- * to a single call-site.
- *
- * The `as E` cast is intentional: the server is trusted to emit the correct
- * shape; narrow `event.data` with the type guards above when needed.
- */
-export function createEventStream<E extends { type: string; data: unknown }>(
-	url: string,
-	events: ReadonlyArray<E["type"]>,
-	onEvent: (event: E) => void,
-	logPrefix: string
-): EventSource {
-	const es = new EventSource(url);
-	for (const type of events) {
-		es.addEventListener(type, (raw: Event) => {
-			const text = (raw as MessageEvent<string>).data;
-			let data: unknown;
-			try {
-				data = JSON.parse(text);
-			} catch {
-				data = text;
-			}
-			console.log(`[SSE:${logPrefix}] ${type}`, data);
-			onEvent({ type, data } as E);
-		});
-	}
-	return es;
-}
+// All event stream logic lives in event-stream.ts

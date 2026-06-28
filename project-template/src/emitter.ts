@@ -21,7 +21,10 @@ export type AgentEvent =
 	| { type: "checkin_completed"; data: Record<string, unknown> }
 	| { type: "compaction"; data: Record<string, unknown> }
 	| { type: "session_updated"; data: Record<string, unknown> }
-	| { type: "error"; data: { message: string } };
+	| { type: "error"; data: { message: string } }
+	| { type: "plan_mode"; data: { active: boolean; summary?: string } }
+	| { type: "token_warning"; data: { state: string; estimatedTokens: number; threshold: number; contextWindow: number } }
+	| { type: "error_recovered"; data: { attempt: number; error: string; nextRetryMs: number } };
 
 // A global event carries the same payload plus the originating session id, so a
 // project-wide stream can fan in events from every session.

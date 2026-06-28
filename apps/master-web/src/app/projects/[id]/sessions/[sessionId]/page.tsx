@@ -39,6 +39,8 @@ export default function SessionPage() {
 	const [chatInput, setChatInput] = useState("");
 	const [sending, setSending] = useState(false);
 	const [streamingText, setStreamingText] = useState("");
+	const [planMode, setPlanMode] = useState(false);
+	const [tokenWarning, setTokenWarning] = useState<{ state: string; estimatedTokens: number; threshold: number; contextWindow: number } | null>(null);
 	const chatRef = useRef<HTMLTextAreaElement>(null);
 
 	// Cache keys — shared across mounts so navigating away and back reuses what
@@ -158,6 +160,24 @@ export default function SessionPage() {
 					mutateCache<Compaction[]>(xKey, (prev = []) =>
 						prev.some((c) => c.id === event.data.id) ? prev : [...prev, event.data]
 					);
+				} else if (event.type === "plan_mode") {
+					setPlanMode(event.data.active);
+					if (event.data.active) {
+						toast.info("Agent entered plan mode (read-only)");
+					} else {
+						toast.success("Agent exited plan mode");
+					}
+				} else if (event.type === "token_warning") {
+					setTokenWarning(event.data);
+					if (event.data.state === "warning") {
+						toast.warning(`Context reaching capacity (${Math.round((event.data.estimatedTokens / event.data.contextWindow) * 100)}%)`);
+					} else if (event.data.state === "error") {
+						toast.error("Context near limit — auto-compacting");
+					} else if (event.data.state === "blocking") {
+						toast.error("Context at maximum capacity");
+					}
+				} else if (event.type === "error_recovered") {
+					toast.info(`API retry #${event.data.attempt}: ${event.data.error} (retrying in ${Math.round(event.data.nextRetryMs / 1000)}s)`);
 				}
 			},
 			serverPort
@@ -242,6 +262,26 @@ export default function SessionPage() {
 							{session.name && <p className="text-lg font-semibold truncate mb-1">{session.name}</p>}
 						</div>
 						<Badge className={cn("capitalize shrink-0", statusBg(session.status))}>{session.status}</Badge>
+						{planMode && (
+							<Badge className="shrink-0 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+								📋 Plan Mode
+							</Badge>
+						)}
+						{tokenWarning && tokenWarning.state !== "normal" && (
+							<Badge
+								className={cn(
+									"shrink-0",
+									tokenWarning.state === "warning" && "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+									tokenWarning.state === "error" && "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
+									tokenWarning.state === "blocking" && "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+								)}
+							>
+								{tokenWarning.state === "warning" && "⚠️"}
+								{tokenWarning.state === "error" && "🔴"}
+								{tokenWarning.state === "blocking" && "🛑"}
+								{" "}{Math.round((tokenWarning.estimatedTokens / tokenWarning.contextWindow) * 100)}% context
+							</Badge>
+						)}
 						<Button variant="secondary" size="icon" onClick={refreshAll} title="Refresh">
 							<RefreshCw className="h-4 w-4" />
 						</Button>

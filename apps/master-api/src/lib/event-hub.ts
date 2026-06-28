@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { ProjectDocker, ProjectManager } from "@agent-manager/projects";
+import { readSSEBody } from "@agent-manager/utils";
 
 // A master-level event: an agent-server event (tagged with its project) or a
 // project lifecycle change (start/stop). master-web's project list subscribes
@@ -119,40 +120,8 @@ export class EventHub {
 	}
 
 	private async read(body: ReadableStream<Uint8Array>, projectId: string, signal: AbortSignal): Promise<void> {
-		const reader = body.getReader();
-		const decoder = new TextDecoder();
-		let buffer = "";
-		while (!signal.aborted) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			buffer += decoder.decode(value, { stream: true });
-			// SSE frames are separated by a blank line.
-			let sep = buffer.indexOf("\n\n");
-			while (sep >= 0) {
-				const frame = buffer.slice(0, sep);
-				buffer = buffer.slice(sep + 2);
-				sep = buffer.indexOf("\n\n");
-				const parsed = parseFrame(frame);
-				if (!parsed || parsed.event === "ping") continue;
-				let data: unknown = parsed.data;
-				try {
-					data = JSON.parse(parsed.data);
-				} catch {
-					// leave as string
-				}
-				this.broadcast({ projectId, type: parsed.event, data });
-			}
-		}
+		await readSSEBody(body, (event: string, data: unknown) => {
+			this.broadcast({ projectId, type: event, data });
+		}, signal);
 	}
-}
-
-function parseFrame(frame: string): { event: string; data: string } | null {
-	let event = "message";
-	const dataLines: string[] = [];
-	for (const line of frame.split("\n")) {
-		if (line.startsWith("event:")) event = line.slice(6).trim();
-		else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
-	}
-	if (dataLines.length === 0) return null;
-	return { event, data: dataLines.join("\n") };
 }

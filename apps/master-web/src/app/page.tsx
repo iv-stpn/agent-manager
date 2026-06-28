@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { containerClassName } from "@/lib/classes";
 import { cn } from "@/lib/utils";
 import {
+	checkWorkspacePath,
 	createProject as apiCreateProject,
 	deleteProject as apiDeleteProject,
 	startProject as apiStartProject,
@@ -19,6 +20,7 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3100";
 
 export default function Home() {
 	const [creating, setCreating] = useState(false);
+	const [pathWarning, setPathWarning] = useState<{ status: "not_found" | "not_empty" | "not_directory"; path: string } | null>(null);
 	const [newProject, setNewProject] = useState({
 		name: "",
 		description: "",
@@ -72,8 +74,30 @@ export default function Home() {
 		return () => es.close();
 	}, []);
 
-	const createProject = async () => {
+	const createProject = async (skipPathCheck = false) => {
 		if (!newProject.name) return;
+
+		// Validate workspace path if provided
+		if (newProject.workspacePath && !skipPathCheck) {
+			try {
+				const result = await checkWorkspacePath(newProject.workspacePath);
+				if (result.status === "not_found") {
+					setPathWarning({ status: "not_found", path: result.path });
+					return;
+				}
+				if (result.status === "not_empty") {
+					setPathWarning({ status: "not_empty", path: result.path });
+					return;
+				}
+				if (result.status === "not_directory") {
+					setPathWarning({ status: "not_directory", path: result.path });
+					return;
+				}
+			} catch {
+				// If check fails, proceed anyway
+			}
+		}
+
 		try {
 			await apiCreateProject({
 				name: newProject.name,
@@ -100,6 +124,7 @@ export default function Home() {
 				model: "",
 			});
 			setCreating(false);
+			setPathWarning(null);
 			fetchProjects();
 			toast.success("Project created");
 		} catch (error) {
@@ -286,7 +311,7 @@ export default function Home() {
 						<div className="flex gap-2 mt-6">
 							<button
 								type="button"
-								onClick={createProject}
+								onClick={() => createProject()}
 								className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
 							>
 								Create
@@ -299,6 +324,79 @@ export default function Home() {
 								Cancel
 							</button>
 						</div>
+					</div>
+				</div>
+			)}
+
+			{/* Workspace Path Warning Modal */}
+			{pathWarning && (
+				<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
+					<div className="bg-white rounded-lg p-6 max-w-md w-full">
+						{pathWarning.status === "not_found" && (
+							<>
+								<h2 className="text-xl font-bold mb-2">Folder does not exist</h2>
+								<p className="text-sm text-gray-600 mb-4">
+									The folder <code className="bg-gray-100 px-1 rounded">{pathWarning.path}</code> does not exist. Would you like to create it?
+								</p>
+								<div className="flex gap-2">
+									<button
+										type="button"
+										onClick={() => { setPathWarning(null); createProject(true); }}
+										className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+									>
+										Create folder
+									</button>
+									<button
+										type="button"
+										onClick={() => setPathWarning(null)}
+										className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+									>
+										Go back
+									</button>
+								</div>
+							</>
+						)}
+						{pathWarning.status === "not_empty" && (
+							<>
+								<h2 className="text-xl font-bold mb-2">Folder is not empty</h2>
+								<p className="text-sm text-gray-600 mb-4">
+									The folder <code className="bg-gray-100 px-1 rounded">{pathWarning.path}</code> already exists and is not empty. Are you sure you want to use it as the workspace?
+								</p>
+								<div className="flex gap-2">
+									<button
+										type="button"
+										onClick={() => { setPathWarning(null); createProject(true); }}
+										className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+									>
+										Continue
+									</button>
+									<button
+										type="button"
+										onClick={() => setPathWarning(null)}
+										className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+									>
+										Go back
+									</button>
+								</div>
+							</>
+						)}
+						{pathWarning.status === "not_directory" && (
+							<>
+								<h2 className="text-xl font-bold mb-2">Path is not a directory</h2>
+								<p className="text-sm text-gray-600 mb-4">
+									The path <code className="bg-gray-100 px-1 rounded">{pathWarning.path}</code> exists but is not a directory. Please choose a different path.
+								</p>
+								<div className="flex gap-2">
+									<button
+										type="button"
+										onClick={() => setPathWarning(null)}
+										className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+									>
+										Go back
+									</button>
+								</div>
+							</>
+						)}
 					</div>
 				</div>
 			)}

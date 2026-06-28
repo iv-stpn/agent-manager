@@ -612,6 +612,33 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 		},
 	},
 
+	// ── Plan Mode ────────────────────────────────────────────────────────────────
+	{
+		name: "enter_plan_mode",
+		description:
+			"Enter plan mode — restricts available tools to read-only operations (grep, glob, read_file, list_directory, search_files, bash read-only commands). Use this when you need to explore the codebase and form a plan before making changes. Call exit_plan_mode when ready to implement.",
+		input_schema: {
+			type: "object",
+			properties: {},
+			required: [],
+		},
+	},
+	{
+		name: "exit_plan_mode",
+		description:
+			"Exit plan mode and resume full tool access. Optionally provide a plan summary documenting what you learned and intend to do.",
+		input_schema: {
+			type: "object",
+			properties: {
+				plan_summary: {
+					type: "string",
+					description: "Summary of what you explored and the implementation plan you've formed",
+				},
+			},
+			required: [],
+		},
+	},
+
 	// ── Session Management ────────────────────────────────────────────────────────
 	{
 		name: "set_session_name",

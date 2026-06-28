@@ -1,10 +1,4 @@
-import { AgentConfigSchema, CreateProjectSchema, DiscordConfigSchema } from "@agent-manager/projects";
-import { z } from "zod";
-
-const UpdateSettingsSchema = z.object({
-	discord: DiscordConfigSchema.optional(),
-	agent: AgentConfigSchema.optional(),
-});
+import { CreateProjectSchema, UpdateSettingsSchema } from "@agent-manager/projects";
 
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -15,8 +9,8 @@ async function enrichProject(
 	ctx: Context<HonoMasterEnv>,
 	project: Awaited<ReturnType<Context<HonoMasterEnv>["var"]["manager"]["getProject"]>>
 ) {
-	const { docker, projectDb } = ctx.var;
-	const [dockerStatus, stats] = await Promise.all([docker.getProjectStatus(project.id), projectDb.getProjectStats(project.id)]);
+	const { docker, projectDatabaseManager } = ctx.var;
+	const [dockerStatus, stats] = await Promise.all([docker.getProjectStatus(project.id), projectDatabaseManager.getProjectStats(project.id)]);
 	return { ...project, dockerStatus, stats };
 }
 
@@ -132,6 +126,32 @@ export const projectsRouter = new Hono<HonoMasterEnv>()
 			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
 		}
 	})
+	// Check workspace path status (exists? empty?)
+	.post("/check-path", async (c) => {
+		try {
+			const { path: targetPath } = await c.req.json<{ path: string }>();
+			if (!targetPath) return c.json({ error: "path is required" }, 400);
+			const { resolve } = await import("node:path");
+			const { stat, readdir } = await import("node:fs/promises");
+			const { homedir } = await import("node:os");
+			// Expand ~ to the user's home directory
+			const expanded = targetPath.startsWith("~/") || targetPath === "~"
+				? targetPath.replace("~", homedir())
+				: targetPath;
+			const resolved = resolve(expanded);
+			try {
+				const s = await stat(resolved);
+				if (!s.isDirectory()) return c.json({ status: "not_directory", path: resolved });
+				const entries = await readdir(resolved);
+				return c.json({ status: entries.length > 0 ? "not_empty" : "empty", path: resolved });
+			} catch (e: any) {
+				if (e.code === "ENOENT") return c.json({ status: "not_found", path: resolved });
+				throw e;
+			}
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
+		}
+	})
 	// Create new project
 	.post("/", async (c) => {
 		try {
@@ -146,11 +166,11 @@ export const projectsRouter = new Hono<HonoMasterEnv>()
 	.get("/:projectId", async (c) => {
 		try {
 			const projectId = c.req.param("projectId");
-			const { manager, docker, projectDb } = c.var;
+			const { manager, docker, projectDatabaseManager } = c.var;
 			const project = await manager.getProject(projectId);
 			const [dockerStatus, stats, logLines] = await Promise.all([
 				docker.getProjectStatus(projectId),
-				projectDb.getProjectStats(projectId),
+				projectDatabaseManager.getProjectStats(projectId),
 				docker.getProjectLogs(projectId, "agent").then(
 					(text) => (text.trim() ? text.trim().split("\n").length : 0),
 					() => null
@@ -191,6 +211,52 @@ export const projectsRouter = new Hono<HonoMasterEnv>()
 			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
 		}
 	})
+	// Start project with SSE progress stream
+	.get("/:projectId/start-stream", (c) => {
+		const projectId = c.req.param("projectId");
+		const origin = c.req.header("Origin");
+		if (origin) c.header("Access-Control-Allow-Origin", origin);
+
+		return streamSSE(c, async (stream) => {
+			const { docker, hub } = c.var;
+			const send = (step: string, status: "running" | "done" | "error", log?: string) =>
+				stream.writeSSE({ event: "progress", data: JSON.stringify({ step, status, log }) }).then(() => stream.sleep(0));
+			const delta = (step: string, line: string) =>
+				stream.writeSSE({ event: "delta", data: JSON.stringify({ step, line }) }).then(() => stream.sleep(0));
+
+			let tail: { kill: () => void } | null = null;
+			try {
+				await send("start", "running", "Starting containers...");
+				await docker.startProjectWithOutput(projectId, async (line) => { await delta("start", line); });
+				await send("start", "done");
+
+				// Tail container logs while waiting for health
+				tail = docker.tailProjectLogs(projectId, async (line) => { await delta("logs", line); });
+				await send("health", "running", "Waiting for services to become healthy...");
+				let healthy = false;
+				for (let i = 0; i < 30; i++) {
+					const s = await docker.getProjectStatus(projectId);
+					if (s.running) { healthy = true; break; }
+					await Bun.sleep(1000);
+				}
+				tail.kill();
+				if (healthy) {
+					hub.projectStarted(projectId);
+					await send("health", "done", "Project is running");
+					await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: true }) });
+				} else {
+					const logs = await docker.getProjectLogs(projectId, "agent").catch(() => "");
+					await send("health", "error", `Project did not become healthy:\n${logs.slice(-2000)}`);
+					await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false }) });
+				}
+			} catch (error) {
+				tail?.kill();
+				const msg = error instanceof Error ? error.message : "Unknown error";
+				await send("start", "error", msg);
+				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
+			}
+		});
+	})
 	// Stop project
 	.post("/:projectId/stop", async (c) => {
 		try {
@@ -202,6 +268,82 @@ export const projectsRouter = new Hono<HonoMasterEnv>()
 		} catch (error) {
 			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
 		}
+	})
+	// Stop project with SSE progress stream
+	.get("/:projectId/stop-stream", (c) => {
+		const projectId = c.req.param("projectId");
+		const origin = c.req.header("Origin");
+		if (origin) c.header("Access-Control-Allow-Origin", origin);
+
+		return streamSSE(c, async (stream) => {
+			const { docker, hub } = c.var;
+			const send = (step: string, status: "running" | "done" | "error", log?: string) =>
+				stream.writeSSE({ event: "progress", data: JSON.stringify({ step, status, log }) }).then(() => stream.sleep(0));
+			const delta = (step: string, line: string) =>
+				stream.writeSSE({ event: "delta", data: JSON.stringify({ step, line }) }).then(() => stream.sleep(0));
+
+			try {
+				await send("stop", "running", "Stopping containers...");
+				await docker.stopProjectWithOutput(projectId, {}, async (line) => { await delta("stop", line); });
+				hub.projectStopped(projectId);
+				await send("stop", "done", "Containers stopped");
+				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: true }) });
+			} catch (error) {
+				const msg = error instanceof Error ? error.message : "Unknown error";
+				await send("stop", "error", msg);
+				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
+			}
+		});
+	})
+	// Restart project with SSE progress stream
+	.get("/:projectId/restart-stream", (c) => {
+		const projectId = c.req.param("projectId");
+		const origin = c.req.header("Origin");
+		if (origin) c.header("Access-Control-Allow-Origin", origin);
+
+		return streamSSE(c, async (stream) => {
+			const { docker, hub } = c.var;
+			const send = (step: string, status: "running" | "done" | "error", log?: string) =>
+				stream.writeSSE({ event: "progress", data: JSON.stringify({ step, status, log }) }).then(() => stream.sleep(0));
+			const delta = (step: string, line: string) =>
+				stream.writeSSE({ event: "delta", data: JSON.stringify({ step, line }) }).then(() => stream.sleep(0));
+
+			let tail: { kill: () => void } | null = null;
+			try {
+				await send("stop", "running", "Stopping containers...");
+				await docker.stopProjectWithOutput(projectId, {}, async (line) => { await delta("stop", line); });
+				await send("stop", "done");
+
+				await send("start", "running", "Starting containers...");
+				await docker.startProjectWithOutput(projectId, async (line) => { await delta("start", line); });
+				await send("start", "done");
+
+				// Tail container logs while waiting for health
+				tail = docker.tailProjectLogs(projectId, async (line) => { await delta("logs", line); });
+				await send("health", "running", "Waiting for services to become healthy...");
+				let healthy = false;
+				for (let i = 0; i < 30; i++) {
+					const s = await docker.getProjectStatus(projectId);
+					if (s.running) { healthy = true; break; }
+					await Bun.sleep(1000);
+				}
+				tail.kill();
+				if (healthy) {
+					hub.projectRestarted(projectId);
+					await send("health", "done", "Project is running");
+					await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: true }) });
+				} else {
+					const logs = await docker.getProjectLogs(projectId, "agent").catch(() => "");
+					await send("health", "error", `Project did not become healthy:\n${logs.slice(-2000)}`);
+					await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false }) });
+				}
+			} catch (error) {
+				tail?.kill();
+				const msg = error instanceof Error ? error.message : "Unknown error";
+				await send("stop", "error", msg);
+				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
+			}
+		});
 	})
 	// Restart project
 	.post("/:projectId/restart", async (c) => {
@@ -241,7 +383,7 @@ export const projectsRouter = new Hono<HonoMasterEnv>()
 	.get("/:projectId/stats", async (c) => {
 		try {
 			const projectId = c.req.param("projectId");
-			const stats = await c.var.projectDb.getProjectStats(projectId);
+			const stats = await c.var.projectDatabaseManager.getProjectStats(projectId);
 			return c.json({ stats });
 		} catch (error) {
 			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 500);
@@ -251,19 +393,23 @@ export const projectsRouter = new Hono<HonoMasterEnv>()
 	.get("/:projectId/sessions", async (c) => {
 		const projectId = c.req.param("projectId");
 		return proxyOrDb(c, projectId, "/api/sessions", async () =>
-			c.json(maskActiveSessions(await c.var.projectDb.getSessions(projectId)))
+			c.json(maskActiveSessions(await c.var.projectDatabaseManager.getSessions(projectId)))
 		);
 	})
 	// All check-ins across every session — always DB-backed (reports tab)
 	.get("/:projectId/reports", async (c) => {
 		const projectId = c.req.param("projectId");
-		return c.json(await c.var.projectDb.getReports(projectId));
+		return c.json(await c.var.projectDatabaseManager.getReports(projectId));
 	})
 	// Update project settings (Discord + Anthropic config)
 	.put("/:projectId/settings", async (c) => {
 		try {
 			const projectId = c.req.param("projectId");
-			const updates = UpdateSettingsSchema.parse(await c.req.json());
+			const { ports, ...rest } = UpdateSettingsSchema.parse(await c.req.json());
+			const updates: Parameters<typeof c.var.manager.updateProject>[1] = {
+				...rest,
+				...(ports?.server && { ports: { server: ports.server } }),
+			};
 			const project = await c.var.manager.updateProject(projectId, updates);
 			return c.json({ project });
 		} catch (error) {
@@ -278,38 +424,38 @@ export const projectsRouter = new Hono<HonoMasterEnv>()
 	.get("/:projectId/sessions/:sessionId", async (c) => {
 		const { projectId, sessionId } = c.req.param();
 		return proxyOrDb(c, projectId, `/api/sessions/${sessionId}`, async () => {
-			const s = await c.var.projectDb.getSession(projectId, sessionId);
+			const s = await c.var.projectDatabaseManager.getSession(projectId, sessionId);
 			return s ? c.json(maskActiveSession(s)) : c.json({ error: "Not found" }, 404);
 		});
 	})
 	.get("/:projectId/sessions/:sessionId/messages", async (c) => {
 		const { projectId, sessionId } = c.req.param();
 		return proxyOrDb(c, projectId, `/api/sessions/${sessionId}/messages`, async () =>
-			c.json(await c.var.projectDb.getMessages(projectId, sessionId))
+			c.json(await c.var.projectDatabaseManager.getMessages(projectId, sessionId))
 		);
 	})
 	.get("/:projectId/sessions/:sessionId/tools", async (c) => {
 		const { projectId, sessionId } = c.req.param();
 		return proxyOrDb(c, projectId, `/api/sessions/${sessionId}/tools`, async () =>
-			c.json(await c.var.projectDb.getToolCalls(projectId, sessionId))
+			c.json(await c.var.projectDatabaseManager.getToolCalls(projectId, sessionId))
 		);
 	})
 	.get("/:projectId/sessions/:sessionId/checkins", async (c) => {
 		const { projectId, sessionId } = c.req.param();
 		return proxyOrDb(c, projectId, `/api/sessions/${sessionId}/checkins`, async () =>
-			c.json(await c.var.projectDb.getCheckins(projectId, sessionId))
+			c.json(await c.var.projectDatabaseManager.getCheckins(projectId, sessionId))
 		);
 	})
 	.get("/:projectId/sessions/:sessionId/questions", async (c) => {
 		const { projectId, sessionId } = c.req.param();
 		return proxyOrDb(c, projectId, `/api/sessions/${sessionId}/questions`, async () =>
-			c.json(await c.var.projectDb.getQuestions(projectId, sessionId))
+			c.json(await c.var.projectDatabaseManager.getQuestions(projectId, sessionId))
 		);
 	})
 	.get("/:projectId/sessions/:sessionId/compactions", async (c) => {
 		const { projectId, sessionId } = c.req.param();
 		return proxyOrDb(c, projectId, `/api/sessions/${sessionId}/compactions`, async () =>
-			c.json(await c.var.projectDb.getCompactions(projectId, sessionId))
+			c.json(await c.var.projectDatabaseManager.getCompactions(projectId, sessionId))
 		);
 	})
 	.post("/:projectId/sessions/:sessionId/stop", async (c) => {
