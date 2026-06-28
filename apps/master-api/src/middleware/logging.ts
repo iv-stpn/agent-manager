@@ -221,9 +221,13 @@ export const responseLogger: MiddlewareHandler<HonoMasterEnv> = async (context, 
 	];
 
 	try {
+		const contentType = context.res.headers.get("content-type");
+		const isStream = contentType?.includes("text/event-stream") || contentType?.includes("application/octet-stream");
 		const body = isWebSocketHandshake(context.req.raw, context.res)
 			? { body: "websocket-handshake" }
-			: processBody(await context.res.clone().text(), context.res.headers.get("content-type"));
+			: isStream
+				? { body: "stream" }
+				: processBody(await context.res.clone().text(), contentType);
 
 		console.info("<--", ...logData, colorResponseTime(Date.now() - executionStart), body);
 	} catch (error) {
