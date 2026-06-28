@@ -1,19 +1,15 @@
 import { BarChart2, BookOpen, Home, Layers, Plus, Tags } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { NewProjectDialog } from "@/components/new-project-dialog";
 import type { EnrichedProject } from "@/lib/agent-api";
-import { createProject as apiCreateProject, createHostStream, getProjects } from "@/lib/agent-api";
+import { createHostStream, getProjects } from "@/lib/agent-api";
 import { mutateCache, setCache, useQuery } from "@/lib/query-cache";
 import { cn } from "@/lib/utils";
 
 export function Sidebar() {
 	const { pathname } = useLocation();
 	const [creating, setCreating] = useState(false);
-	const [name, setName] = useState("");
 
 	const { data: projects = [] } = useQuery("projects", () => getProjects());
 
@@ -37,18 +33,6 @@ export function Sidebar() {
 	}, []);
 
 	const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1];
-
-	async function createProject() {
-		if (!name.trim()) return;
-		try {
-			await apiCreateProject({ name: name.trim() });
-			setName("");
-			setCreating(false);
-			toast.success("Project created");
-		} catch (err) {
-			toast.error(err instanceof Error ? err.message : "Failed to create project");
-		}
-	}
 
 	const bottomLinks = [
 		{ href: "/statistics", icon: BarChart2, label: "Statistics" },
@@ -123,34 +107,7 @@ export function Sidebar() {
 				</div>
 			</aside>
 
-			<Dialog
-				open={creating}
-				onOpenChange={(open) => {
-					setCreating(open);
-					if (!open) setName("");
-				}}
-			>
-				<DialogContent className="max-w-xs">
-					<DialogHeader>
-						<DialogTitle>New Project</DialogTitle>
-					</DialogHeader>
-					<Input
-						autoFocus
-						value={name}
-						onChange={(e) => setName(e.target.value)}
-						onKeyDown={(e) => e.key === "Enter" && createProject()}
-						placeholder="Project name"
-					/>
-					<div className="flex gap-2">
-						<Button className="flex-1" onClick={createProject} disabled={!name.trim()}>
-							Create
-						</Button>
-						<Button className="flex-1" variant="secondary" onClick={() => setCreating(false)}>
-							Cancel
-						</Button>
-					</div>
-				</DialogContent>
-			</Dialog>
+			<NewProjectDialog open={creating} onOpenChange={setCreating} />
 		</>
 	);
 }

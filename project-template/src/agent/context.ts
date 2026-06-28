@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
+import { env } from "../env";
 
 // Rough token estimate: 1 token ≈ 4 chars
 export function estimateTokens(messages: MessageParam[]): number {
@@ -98,7 +99,7 @@ export async function compactMessages(
 		return { messages, summary: "" };
 	}
 
-	const model = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+	const model = env.ANTHROPIC_MODEL;
 
 	let summary = "";
 	try {

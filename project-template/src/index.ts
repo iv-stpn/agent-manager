@@ -2,15 +2,13 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { initDb, stopRunningSessions } from "./db";
-import { startDiscordBot } from "./discord/bot";
+import { env } from "./env";
 import { sessionsRouter } from "./routes/sessions";
 import { globalStreamRouter, streamRouter } from "./routes/stream";
 import type { HonoProjectEnv } from "./types";
 
-const PORT = Number(process.env.PORT ?? 3010);
-
 // Initialize DB (creates tables if needed)
-const db = initDb(process.env.DATABASE_PATH ?? "../data/agent.db");
+const db = initDb(env.DATABASE_PATH);
 
 // Any session marked "running" or "compacting" at startup was orphaned by a hard shutdown — stop them now.
 stopRunningSessions(db);
@@ -31,20 +29,10 @@ app.route("/api/sessions", streamRouter);
 // Project-wide event stream (every session). host-api restreams this.
 app.route("/api/stream", globalStreamRouter);
 
-// Start the HTTP server first so health checks pass immediately, then bring up
-// the Discord bot. The bot talks to Discord over its outbound gateway socket —
-// it never needs a public/inbound URL, so there is no tunnel to manage.
 try {
-	Bun.serve({ port: PORT, fetch: app.fetch });
-	console.log(`[Server] API running on http://localhost:${PORT}`);
+	Bun.serve({ port: env.PORT, fetch: app.fetch });
+	console.log(`[Server] API running on http://localhost:${env.PORT}`);
 } catch (err) {
 	console.error("[Server] Failed to bind:", err);
 	process.exit(1);
-}
-
-const discordToken = process.env.DISCORD_TOKEN;
-if (discordToken) {
-	startDiscordBot(discordToken).catch((err) => console.error("[Discord] Failed to start:", err));
-} else {
-	console.warn("[Discord] DISCORD_TOKEN not set — bot disabled");
 }

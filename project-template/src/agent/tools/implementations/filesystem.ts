@@ -1,7 +1,8 @@
 import { join } from "node:path";
+import { env } from "../../../env";
 import { executeBash } from "./commands";
 
-const WORKSPACE = process.env.WORKSPACE_PATH ?? "/workspace";
+const WORKSPACE = env.WORKSPACE_PATH;
 
 /** Resolve a path to an absolute path within the workspace sandbox */
 export function sandboxPath(p: string): string {

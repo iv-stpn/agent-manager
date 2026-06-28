@@ -16,6 +16,7 @@ import type {
 	ToolCallRecord,
 } from "@agent-manager/projects";
 import { hc } from "hono/client";
+import { API_URL } from "@/constants";
 
 export type {
 	CheckinRecord as Checkin,
@@ -33,7 +34,6 @@ export type {
 } from "@agent-manager/projects";
 export type {
 	AgentConfig,
-	DiscordConfig,
 	EnrichedProject,
 	ProjectConfig,
 	ProjectDockerContainer,
@@ -41,7 +41,6 @@ export type {
 	ProjectStats,
 } from "./types";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3100";
 const api = hc<AppType>(API_URL);
 
 // ── Project endpoints ─────────────────────────────────────────────────────────
@@ -110,7 +109,6 @@ export async function updateSettings(
 		description?: string;
 		ports?: { server?: number };
 		workspace?: { path: string; type: "external" | "internal" };
-		discord?: { token?: string; defaultChannelId?: string };
 		agent?: { anthropicApiKey?: string; anthropicBaseUrl?: string; model?: string };
 	}
 ) {
@@ -188,7 +186,6 @@ export async function createSession(
 		task: string;
 		reportIntervalMins?: number;
 		totalTimeoutMins?: number;
-		discordChannelId?: string;
 		freezeReportMode?: "always" | "never" | "custom";
 		freezeReportCustomRule?: string;
 		freezeAskMode?: "always" | "requiredOnly" | "onReportOnly" | "never";

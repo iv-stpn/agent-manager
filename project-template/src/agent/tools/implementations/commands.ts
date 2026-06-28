@@ -1,4 +1,6 @@
-const WORKSPACE = process.env.WORKSPACE_PATH ?? "/workspace";
+import { env } from "../../../env";
+
+const WORKSPACE = env.WORKSPACE_PATH;
 
 export async function executeBash(
 	command: string,

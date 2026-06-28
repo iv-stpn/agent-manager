@@ -1,5 +1,7 @@
-const HOST_API_URL = process.env.HOST_API_URL ?? "http://host.docker.internal:3100";
-const PROJECT_ID = process.env.PROJECT_ID;
+import { env } from "../env";
+
+const HOST_API_URL = env.HOST_API_URL;
+const PROJECT_ID = env.PROJECT_ID;
 
 /**
  * Screenshots are delegated to host-api so project containers don't bundle

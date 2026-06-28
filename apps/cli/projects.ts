@@ -20,25 +20,12 @@ async function prompt(rl: readline.Interface, label: string, opts?: { secret?: b
 }
 
 interface CollectedSettings {
-	discord?: { token?: string; defaultChannelId?: string };
 	agent?: { anthropicApiKey?: string; anthropicBaseUrl?: string; model?: string };
 }
 
-/** Interactively collect Discord + Anthropic config at project init. */
-async function collectSettings(rl: readline.Interface, skipDiscord: boolean, skipAgent: boolean): Promise<CollectedSettings> {
+/** Interactively collect Anthropic config at project init. */
+async function collectSettings(rl: readline.Interface, _skipDiscord: boolean, skipAgent: boolean): Promise<CollectedSettings> {
 	const settings: CollectedSettings = {};
-
-	if (!skipDiscord) {
-		console.log("\n--- Discord (per-project bot) ---");
-		const token = await prompt(rl, "Discord bot token (leave empty to disable)");
-		const defaultChannelId = await prompt(rl, "Default Discord channel ID (optional)");
-		if (token || defaultChannelId) {
-			settings.discord = {
-				token: token || undefined,
-				defaultChannelId: defaultChannelId || undefined,
-			};
-		}
-	}
 
 	if (!skipAgent) {
 		console.log("\n--- Anthropic (per-project agent) ---");
@@ -60,13 +47,12 @@ async function collectSettings(rl: readline.Interface, skipDiscord: boolean, ski
 const commands = {
 	async create(name: string, description?: string) {
 		const flags = process.argv.slice(2).filter((a) => a.startsWith("--"));
-		const skipDiscord = flags.includes("--skip-discord");
 		const skipAgent = flags.includes("--skip-agent");
 
 		console.log(`Creating project "${name}"...`);
 		const rl = readline.createInterface({ input: stdin, output: stdout });
 		try {
-			const settings = await collectSettings(rl, skipDiscord, skipAgent);
+			const settings = await collectSettings(rl, false, skipAgent);
 			const project = await manager.createProject({
 				name,
 				description,
@@ -85,14 +71,11 @@ const commands = {
 		const rl = readline.createInterface({ input: stdin, output: stdout });
 		try {
 			const settings = await collectSettings(rl, false, false);
-			const updates: { discord?: unknown; agent?: unknown } = {};
-			if (settings.discord) updates.discord = settings.discord;
-			if (settings.agent) updates.agent = settings.agent;
-			if (Object.keys(updates).length === 0) {
+			if (!settings.agent) {
 				console.log("No changes entered.");
 				return;
 			}
-			const updated = await manager.updateProject(projectId, updates);
+			const updated = await manager.updateProject(projectId, { agent: settings.agent });
 			console.log("✅ Settings updated. Restart the project for changes to take effect.");
 			console.log(JSON.stringify(updated, null, 2));
 		} finally {
@@ -127,7 +110,6 @@ const commands = {
 			console.log(`${statusEmoji} ${project.name} (${project.id})`);
 			console.log(`   Server port: ${project.ports.server}`);
 			console.log(`   Status: ${project.status}`);
-			console.log(`   Discord: ${project.discord?.token ? "configured" : "not set"}`);
 			console.log(`   Anthropic: ${project.agent?.anthropicApiKey ? "configured" : "not set"}`);
 			if (project.description) {
 				console.log(`   Description: ${project.description}`);
@@ -179,8 +161,8 @@ Claude Agent - Project Manager CLI
 Usage: bun run projects <command> [options]
 
 Commands:
-  create <name> [description]    Create a new project (prompts for Discord + Anthropic)
-  settings <projectId>           Edit Discord + Anthropic settings for a project
+  create <name> [description]    Create a new project (prompts for Anthropic config)
+  settings <projectId>           Edit Anthropic settings for a project
   delete <projectId>             Delete a project
   list                           List all projects
   start <projectId>              Start project containers
@@ -192,12 +174,11 @@ Commands:
   help                           Show this help message
 
 Flags:
-  --skip-discord                 Skip Discord prompts during create
   --skip-agent                   Skip Anthropic prompts during create
 
 Examples:
   bun run projects create "My Project" "A demo project"
-  bun run projects create "No Bot" --skip-discord
+  bun run projects create "Quick Start" --skip-agent
   bun run projects list
   bun run projects settings demo
   bun run projects start demo

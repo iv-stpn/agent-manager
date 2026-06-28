@@ -3,9 +3,8 @@ import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { API_URL } from "@/constants";
 import { cn } from "@/lib/utils";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3100";
 
 interface StartupProgressModalProps {
 	open: boolean;
@@ -20,6 +19,8 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 	const [done, setDone] = useState(false);
 	const [success, setSuccess] = useState(false);
 	const logRef = useRef<HTMLPreElement>(null);
+	const onCompleteRef = useRef(onComplete);
+	onCompleteRef.current = onComplete;
 
 	useEffect(() => {
 		if (!open || !projectId) return;
@@ -50,14 +51,14 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 			onComplete(success) {
 				setDone(true);
 				setSuccess(success);
-				onComplete(success);
+				onCompleteRef.current(success);
 			},
 			onError() {
 				setDone(true);
 				setSuccess(false);
 			},
 		});
-	}, [open, projectId, action, onComplete]);
+	}, [open, projectId, action]);
 
 	useEffect(() => {
 		if (logRef.current) {
@@ -70,7 +71,7 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 
 	return (
 		<Dialog open={open} onOpenChange={canClose ? onOpenChange : undefined}>
-			<DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => !canClose && e.preventDefault()}>
+			<DialogContent open={open} className="sm:max-w-md" onPointerDownOutside={(e) => !canClose && e.preventDefault()}>
 				<DialogHeader>
 					<DialogTitle className="flex items-center gap-2">
 						{!done && <Loader2 className="w-4 h-4 animate-spin text-blue-600" />}

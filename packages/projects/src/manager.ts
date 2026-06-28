@@ -73,8 +73,8 @@ export class ProjectManager {
 	// ── Read ─────────────────────────────────────────────────────────────────
 
 	/**
-	 * Get project configuration by reading docker-compose.yml + .env.
-	 * No config.json involved.
+	 * Get project configuration by reading docker-compose.yml.
+	 * All config lives in the compose environment block.
 	 */
 	async getProject(projectId: string): Promise<ProjectConfig> {
 		const projectDir = this.getProjectDir(projectId);
@@ -85,7 +85,7 @@ export class ProjectManager {
 		}
 
 		const compose = readFileSync(composePath, "utf-8");
-		const env = this.parseEnvFile(projectId);
+		const env = this.parseComposeEnvironment(compose);
 
 		// Parse structural data from docker-compose comments + content
 		const nameMatch = compose.match(/^# Project: (.+)$/m);
@@ -113,7 +113,6 @@ export class ProjectManager {
 			status: "stopped",
 		};
 
-		// Runtime config from .env
 		if (env.ANTHROPIC_API_KEY || env.ANTHROPIC_BASE_URL || env.ANTHROPIC_MODEL) {
 			config.agent = {
 				...(env.ANTHROPIC_API_KEY && { anthropicApiKey: env.ANTHROPIC_API_KEY }),
@@ -121,13 +120,6 @@ export class ProjectManager {
 				...(env.ANTHROPIC_MODEL && { model: env.ANTHROPIC_MODEL }),
 			};
 		}
-		if (env.DISCORD_TOKEN || env.DISCORD_DEFAULT_CHANNEL_ID) {
-			config.discord = {
-				...(env.DISCORD_TOKEN && { token: env.DISCORD_TOKEN }),
-				...(env.DISCORD_DEFAULT_CHANNEL_ID && { defaultChannelId: env.DISCORD_DEFAULT_CHANNEL_ID }),
-			};
-		}
-
 		return config;
 	}
 
@@ -194,7 +186,6 @@ export class ProjectManager {
 			updatedAt: now,
 			ports,
 			workspace,
-			discord: input.discord,
 			agent: input.agent,
 			status: "stopped",
 		};
@@ -207,9 +198,8 @@ export class ProjectManager {
 			await mkdir(workspace.path, { recursive: true });
 		}
 
-		// Generate docker-compose.yml + .env (the only config files)
+		// Generate docker-compose.yml (the only config file)
 		await this.generateDockerCompose(projectId, config);
-		await this.generateEnvFile(projectId, config);
 
 		return config;
 	}
@@ -218,37 +208,18 @@ export class ProjectManager {
 
 	/**
 	 * Update project configuration.
-	 * Structural changes rewrite docker-compose.yml; runtime secrets update .env.
+	 * All changes rewrite docker-compose.yml directly.
 	 */
 	async updateProject(projectId: string, updates: Partial<Omit<ProjectConfig, "id" | "createdAt">>): Promise<ProjectConfig> {
 		const current = await this.getProject(projectId);
-		const { discord, agent, ...structuralUpdates } = updates;
+		const merged: ProjectConfig = {
+			...current,
+			...updates,
+			agent: updates.agent !== undefined ? updates.agent : current.agent,
+			updatedAt: new Date().toISOString(),
+		};
 
-		// Apply structural updates and regenerate docker-compose
-		const hasStructural = structuralUpdates.ports || structuralUpdates.workspace || structuralUpdates.name;
-		if (hasStructural) {
-			const updated: ProjectConfig = { ...current, ...structuralUpdates, updatedAt: new Date().toISOString() };
-			await this.generateDockerCompose(projectId, updated);
-			// Also update PROJECT_NAME in .env if name changed
-			if (structuralUpdates.name) {
-				await this.updateEnvVars(projectId, { PROJECT_NAME: structuralUpdates.name });
-			}
-			if (structuralUpdates.ports?.server) {
-				await this.updateEnvVars(projectId, { PORT: String(structuralUpdates.ports.server) });
-			}
-		}
-
-		// Write runtime settings directly to .env
-		if (discord !== undefined || agent !== undefined) {
-			await this.updateEnvVars(projectId, {
-				...(discord?.token !== undefined && { DISCORD_TOKEN: discord.token || "" }),
-				...(discord?.defaultChannelId !== undefined && { DISCORD_DEFAULT_CHANNEL_ID: discord.defaultChannelId || "" }),
-				...(agent?.anthropicApiKey !== undefined && { ANTHROPIC_API_KEY: agent.anthropicApiKey || "" }),
-				...(agent?.anthropicBaseUrl !== undefined && { ANTHROPIC_BASE_URL: agent.anthropicBaseUrl || "" }),
-				...(agent?.model !== undefined && { ANTHROPIC_MODEL: agent.model || "" }),
-			});
-		}
-
+		await this.generateDockerCompose(projectId, merged);
 		return this.getProject(projectId);
 	}
 
@@ -296,17 +267,13 @@ export class ProjectManager {
 		return serverPort;
 	}
 
-	private parseEnvFile(projectId: string): Record<string, string> {
-		const envPath = join(this.getProjectDir(projectId), ".env");
-		if (!existsSync(envPath)) return {};
-		const content = readFileSync(envPath, "utf-8");
+	private parseComposeEnvironment(compose: string): Record<string, string> {
 		const vars: Record<string, string> = {};
-		for (const line of content.split("\n")) {
-			const trimmed = line.trim();
-			if (!trimmed || trimmed.startsWith("#")) continue;
-			const idx = trimmed.indexOf("=");
-			if (idx === -1) continue;
-			vars[trimmed.slice(0, idx)] = trimmed.slice(idx + 1);
+		const envBlock = compose.match(/^\s+environment:\n((?:\s+.+\n)*)/m);
+		if (!envBlock) return vars;
+		for (const line of envBlock[1].split("\n")) {
+			const match = line.match(/^\s+([A-Z_]+):\s*"?([^"]*)"?\s*$/);
+			if (match) vars[match[1]] = match[2];
 		}
 		return vars;
 	}
@@ -316,6 +283,26 @@ export class ProjectManager {
 	private async generateDockerCompose(projectId: string, config: ProjectConfig): Promise<void> {
 		const projectName = this.dockerProjectName(projectId);
 		const networkName = `${projectName}_network`;
+
+		const envLines = [
+			`      DATABASE_PATH: /data/agent.db`,
+			`      WORKSPACE_PATH: /workspace`,
+			`      HOST_API_URL: http://host.docker.internal:${process.env.HOST_PORT ?? 3100}`,
+			`      PORT: "${config.ports.server}"`,
+			`      PROJECT_ID: "${projectId}"`,
+			`      PROJECT_NAME: "${config.name}"`,
+		];
+
+		if (config.agent?.anthropicApiKey) {
+			envLines.push(`      ANTHROPIC_API_KEY: "${config.agent.anthropicApiKey}"`);
+		}
+		if (config.agent?.anthropicBaseUrl) {
+			envLines.push(`      ANTHROPIC_BASE_URL: "${config.agent.anthropicBaseUrl}"`);
+		}
+		if (config.agent?.model) {
+			envLines.push(`      ANTHROPIC_MODEL: "${config.agent.model}"`);
+		}
+
 		const dockerCompose = `# Project: ${config.name}
 # Created: ${config.createdAt}
 
@@ -326,15 +313,8 @@ services:
     build:
       context: ../../project-template
       dockerfile: Dockerfile
-    env_file:
-      - .env
     environment:
-      DATABASE_PATH: /data/agent.db
-      WORKSPACE_PATH: /workspace
-      HOST_API_URL: http://host.docker.internal:${process.env.HOST_PORT ?? 3100}
-      PORT: "${config.ports.server}"
-      PROJECT_ID: "${projectId}"
-      PROJECT_NAME: "${config.name}"
+${envLines.join("\n")}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -353,86 +333,5 @@ networks:
 
 		const composePath = join(this.getProjectDir(projectId), "docker-compose.yml");
 		await writeFile(composePath, dockerCompose);
-	}
-
-	private async generateEnvFile(projectId: string, config: ProjectConfig): Promise<void> {
-		const lines: string[] = [
-			`# Project: ${config.name}`,
-			`# Created: ${config.createdAt}`,
-			"",
-			`PROJECT_ID=${projectId}`,
-			`PROJECT_NAME=${config.name}`,
-			`PORT=${config.ports.server}`,
-			"DATABASE_PATH=/data/agent.db",
-			"WORKSPACE_PATH=/workspace",
-			`HOST_API_URL=http://host.docker.internal:${process.env.HOST_PORT ?? 3100}`,
-			"",
-			`# Workspace: ${config.workspace.type === "external" ? config.workspace.path : "internal"}`,
-			"",
-			"# Discord (per-project bot)",
-		];
-
-		if (config.discord?.token) {
-			lines.push(`DISCORD_TOKEN=${config.discord.token}`);
-		} else {
-			lines.push("# DISCORD_TOKEN=");
-		}
-		if (config.discord?.defaultChannelId) {
-			lines.push(`DISCORD_DEFAULT_CHANNEL_ID=${config.discord.defaultChannelId}`);
-		} else {
-			lines.push("# DISCORD_DEFAULT_CHANNEL_ID=");
-		}
-
-		lines.push("", "# Anthropic (per-project agent)");
-		if (config.agent?.anthropicApiKey) {
-			lines.push(`ANTHROPIC_API_KEY=${config.agent.anthropicApiKey}`);
-		} else {
-			lines.push("# ANTHROPIC_API_KEY=");
-		}
-		if (config.agent?.anthropicBaseUrl) {
-			lines.push(`ANTHROPIC_BASE_URL=${config.agent.anthropicBaseUrl}`);
-		} else {
-			lines.push("# ANTHROPIC_BASE_URL=");
-		}
-		if (config.agent?.model) {
-			lines.push(`ANTHROPIC_MODEL=${config.agent.model}`);
-		} else {
-			lines.push("# ANTHROPIC_MODEL=");
-		}
-
-		lines.push("");
-
-		const envPath = join(this.getProjectDir(projectId), ".env");
-		await writeFile(envPath, lines.join("\n"));
-	}
-
-	/**
-	 * Update specific variables in a project's .env file in-place.
-	 */
-	private async updateEnvVars(projectId: string, vars: Record<string, string>): Promise<void> {
-		const envPath = join(this.getProjectDir(projectId), ".env");
-		if (!existsSync(envPath)) return;
-
-		const content = readFileSync(envPath, "utf-8");
-		const lines = content.split("\n");
-		const remaining = { ...vars };
-
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			const match = line.match(/^(#\s*)?([A-Z_]+)=(.*)/);
-			if (!match) continue;
-			const key = match[2];
-			if (!(key in remaining)) continue;
-
-			const value = remaining[key];
-			lines[i] = value ? `${key}=${value}` : `# ${key}=`;
-			delete remaining[key];
-		}
-
-		for (const [key, value] of Object.entries(remaining)) {
-			lines.push(value ? `${key}=${value}` : `# ${key}=`);
-		}
-
-		await writeFile(envPath, lines.join("\n"));
 	}
 }

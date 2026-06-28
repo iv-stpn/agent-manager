@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { $ } from "bun";
+
 import type { ProjectManager } from "./manager";
 
 export class ProjectDocker {
@@ -17,11 +18,7 @@ export class ProjectDocker {
 			throw new Error(`Project "${projectId}" docker-compose.yml not found`);
 		}
 
-		// Load environment file if exists
-		const envPath = join(projectDir, ".env");
-		const envArgs = existsSync(envPath) ? ["--env-file", envPath] : [];
-
-		await $`docker compose -f ${composePath} ${envArgs} up -d`.cwd(projectDir);
+		await $`docker compose -f ${composePath} up -d`.cwd(projectDir);
 
 		await this.manager.updateProject(projectId, { status: "active" });
 	}
@@ -37,10 +34,7 @@ export class ProjectDocker {
 			throw new Error(`Project "${projectId}" docker-compose.yml not found`);
 		}
 
-		const envPath = join(projectDir, ".env");
-		const envArgs = existsSync(envPath) ? ["--env-file", envPath] : [];
-
-		const proc = Bun.spawn(["docker", "compose", "-f", composePath, ...envArgs, "up", "-d"], {
+		const proc = Bun.spawn(["docker", "compose", "-f", composePath, "up", "-d"], {
 			cwd: projectDir,
 			stdout: "pipe",
 			stderr: "pipe",

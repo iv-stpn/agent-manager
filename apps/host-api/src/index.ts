@@ -2,10 +2,23 @@ import { join } from "node:path";
 import { HostDatabase, ProjectDatabase, ProjectDocker, ProjectManager, resolveWorkspaceRoot } from "@agent-manager/projects";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import {
+	archiveSessionChannel,
+	type ChannelStore,
+	createSessionChannel,
+	type DiscordChannel,
+	ensureProjectCategory,
+	ensureProjectPinnedChannels,
+	setChannelStore,
+	setProjectResolver,
+	startDiscordBot,
+} from "./discord";
+import { env } from "./env";
 import { EventHub } from "./lib/event-hub";
 import { createLogger } from "./lib/logger";
 import { requestLogger, responseLogger } from "./middleware/logging";
 import { checkChromium } from "./render/chromium";
+import { discordRouter, setDiscordRouteChannelStore } from "./routes/discord";
 import { guidelineCategoriesRouter } from "./routes/guideline-categories";
 import { guidelinesRouter } from "./routes/guidelines";
 import { memoryRouter } from "./routes/memory";
@@ -13,8 +26,6 @@ import { projectsRouter } from "./routes/projects";
 import { renderRouter } from "./routes/render";
 import { techStacksRouter } from "./routes/tech-stacks";
 import type { HonoHostEnv } from "./types";
-
-const PORT = Number(process.env.HOST_PORT ?? 3100);
 
 const rootDir = resolveWorkspaceRoot(import.meta.dir);
 
@@ -24,13 +35,17 @@ const projectDatabaseManager = new ProjectDatabase(manager);
 const hub = new EventHub(manager, docker);
 const hostDb = new HostDatabase(rootDir);
 
-const logger = createLogger({ DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL });
+const logger = createLogger({ DISCORD_WEBHOOK_URL: env.DISCORD_WEBHOOK_URL });
 
 const app = new Hono<HonoHostEnv>()
+	.use("*", (c, next) => {
+		c.env = env;
+		return next();
+	})
 	.use(
 		"*",
 		cors({
-			origin: [process.env.HOST_WEB_URL ?? "http://localhost:3101"],
+			origin: [env.HOST_WEB_URL],
 			allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 			allowHeaders: ["Content-Type", "Authorization"],
 			exposeHeaders: ["X-Request-Id"],
@@ -49,6 +64,7 @@ const app = new Hono<HonoHostEnv>()
 	.get("/", (c) => c.text("Hello from Agent Manager API"))
 	.get("/health", (c) => c.json({ ok: true, ts: Date.now(), service: "agent-manager-api" }))
 	.route("/api/projects", projectsRouter)
+	.route("/api/projects", discordRouter)
 	.route("/api/tech-stacks", techStacksRouter)
 	.route("/api/guideline-categories", guidelineCategoriesRouter)
 	.route("/api/guidelines", guidelinesRouter)
@@ -65,8 +81,7 @@ if (chromiumReady) {
 	);
 }
 
-const LANCEDB_URL = process.env.LANCEDB_URL ?? "http://localhost:3200";
-const lanceReady = await fetch(`${LANCEDB_URL}/health`, { signal: AbortSignal.timeout(3000) })
+const lanceReady = await fetch(`${env.LANCEDB_URL}/health`, { signal: AbortSignal.timeout(3000) })
 	.then((r) => r.ok)
 	.catch(() => false);
 if (lanceReady) {
@@ -81,6 +96,78 @@ if (lanceReady) {
 logger.info(`Workspace root: ${rootDir}`);
 logger.info(`Projects dir: ${join(rootDir, ".projects")}`);
 
+// ── Discord bot ──────────────────────────────────────────────────────────────
+
+const discordToken = env.DISCORD_TOKEN;
+const discordClientId = env.DISCORD_CLIENT_ID;
+const discordGuildId = env.DISCORD_GUILD_ID;
+
+if (discordToken && discordClientId && discordGuildId) {
+	// Build a ChannelStore backed by HostDatabase
+	const discordChannelStore: ChannelStore = {
+		get(projectId, type) {
+			return hostDb.getDiscordChannelByProjectAndType(projectId, type) as DiscordChannel | undefined;
+		},
+		getBySession(sessionId) {
+			return hostDb.getDiscordChannelBySession(sessionId) as DiscordChannel | undefined;
+		},
+		save(channel) {
+			hostDb.saveDiscordChannel(channel);
+		},
+		delete(id) {
+			hostDb.deleteDiscordChannel(id);
+		},
+		listByProject(projectId) {
+			return hostDb.listDiscordChannelsByProject(projectId) as DiscordChannel[];
+		},
+	};
+
+	setChannelStore(discordChannelStore);
+	setDiscordRouteChannelStore(discordChannelStore);
+
+	// Project resolver for slash commands: find running project port
+	setProjectResolver(async (projectId: string) => {
+		const project = await manager.getProject(projectId);
+		if (!project) return null;
+		return { port: project.ports.server };
+	});
+
+	// Subscribe to EventHub for channel lifecycle
+	hub.subscribe(async (event) => {
+		try {
+			if (event.type === "session_created") {
+				const data = event.data as { id: string; name?: string; task?: string };
+				const project = await manager.getProject(event.projectId);
+				if (!project) return;
+
+				// Ensure category exists
+				const categoryId = await ensureProjectCategory(event.projectId, project.name);
+				if (!categoryId) return;
+				await ensureProjectPinnedChannels(event.projectId, categoryId);
+
+				// Create session channel
+				const sessionName = data.name || data.task?.slice(0, 40) || data.id.slice(0, 8);
+				await createSessionChannel(event.projectId, data.id, sessionName);
+			}
+
+			if (event.type === "session_updated") {
+				const data = event.data as { id: string; status?: string };
+				if (data.status === "stopped" || data.status === "completed") {
+					await archiveSessionChannel(data.id);
+				}
+			}
+		} catch (err) {
+			logger.error(`[Discord] Channel lifecycle error: ${err}`);
+		}
+	});
+
+	startDiscordBot(discordToken, discordGuildId, discordClientId)
+		.then(() => logger.info("Discord bot started"))
+		.catch((err) => logger.error(`Discord bot failed to start: ${err}`));
+} else {
+	logger.warn("[Discord] DISCORD_TOKEN, DISCORD_CLIENT_ID, or DISCORD_GUILD_ID not set — bot disabled");
+}
+
 // Only the type travels to host-web — no server code is bundled.
 export type AppType = typeof app;
-export default { port: PORT, fetch: app.fetch, idleTimeout: 120 };
+export default { port: env.HOST_PORT, fetch: app.fetch, idleTimeout: 120 };

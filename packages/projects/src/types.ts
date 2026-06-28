@@ -1,12 +1,5 @@
 import { z } from "zod";
 
-export const DiscordConfigSchema = z.object({
-	token: z.string().optional(),
-	defaultChannelId: z.string().optional(),
-});
-
-export type DiscordConfig = z.infer<typeof DiscordConfigSchema>;
-
 export const AgentConfigSchema = z.object({
 	anthropicApiKey: z.string().optional(),
 	anthropicBaseUrl: z.string().optional(),
@@ -28,7 +21,6 @@ export const ProjectConfigSchema = z.object({
 		path: z.string(), // Absolute path to repository/workspace
 		type: z.enum(["external", "internal"]), // external = user path, internal = .projects/<project>/workspace
 	}),
-	discord: DiscordConfigSchema.optional(),
 	agent: AgentConfigSchema.optional(),
 	status: z.enum(["active", "stopped", "error"]).default("stopped"),
 });
@@ -49,7 +41,6 @@ export const UpdateSettingsSchema = z.object({
 			type: z.enum(["external", "internal"]),
 		})
 		.optional(),
-	discord: DiscordConfigSchema.optional(),
 	agent: AgentConfigSchema.optional(),
 });
 
@@ -68,7 +59,6 @@ export const CreateProjectSchema = z.object({
 			server: z.number().min(3000).max(65535).optional(),
 		})
 		.optional(),
-	discord: DiscordConfigSchema.optional(),
 	agent: AgentConfigSchema.optional(),
 });
 

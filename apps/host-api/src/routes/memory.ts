@@ -1,15 +1,14 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { env } from "../env";
 import type { HonoHostEnv } from "../types";
-
-const LANCEDB_URL = process.env.LANCEDB_URL ?? "http://localhost:3200";
 
 function tableName(projectId: string): string {
 	return `project_${projectId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 }
 
 async function lanceRequest(path: string, opts: RequestInit = {}) {
-	const res = await fetch(`${LANCEDB_URL}${path}`, {
+	const res = await fetch(`${env.LANCEDB_URL}${path}`, {
 		...opts,
 		headers: { "Content-Type": "application/json", ...opts.headers },
 	});

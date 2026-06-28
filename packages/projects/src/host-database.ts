@@ -205,6 +205,15 @@ export class HostDatabase {
 				total_cache_write_tokens INTEGER NOT NULL DEFAULT 0, -- Lifetime prompt-cache write tokens.
 				updated_at INTEGER NOT NULL -- Last time the counters changed (epoch ms).
 			);
+
+			-- Discord channel/category mappings for the global bot.
+			CREATE TABLE IF NOT EXISTS discord_channels (
+				id TEXT PRIMARY KEY, -- Discord channel or category ID.
+				project_id TEXT NOT NULL, -- Owning project.
+				session_id TEXT, -- Null for category/pinned channels.
+				type TEXT NOT NULL, -- 'category' | 'summary' | 'todos' | 'session' | 'archive'.
+				created_at INTEGER NOT NULL -- Creation time (epoch ms).
+			);
 		`);
 
 		// Ensure the global stats row exists
@@ -698,6 +707,61 @@ export class HostDatabase {
 				deltas.cacheWriteTokens ?? 0,
 				Date.now()
 			);
+	}
+
+	// ── Discord channels ─────────────────────────────────────────────────────
+
+	getDiscordChannel(
+		id: string
+	): { id: string; projectId: string; sessionId: string | null; type: string; createdAt: number } | undefined {
+		return this.db
+			.query(
+				`SELECT id, project_id AS projectId, session_id AS sessionId, type, created_at AS createdAt FROM discord_channels WHERE id = ?`
+			)
+			.get(id) as { id: string; projectId: string; sessionId: string | null; type: string; createdAt: number } | undefined;
+	}
+
+	getDiscordChannelByProjectAndType(
+		projectId: string,
+		type: string
+	): { id: string; projectId: string; sessionId: string | null; type: string; createdAt: number } | undefined {
+		return this.db
+			.query(
+				`SELECT id, project_id AS projectId, session_id AS sessionId, type, created_at AS createdAt FROM discord_channels WHERE project_id = ? AND type = ?`
+			)
+			.get(projectId, type) as
+			| { id: string; projectId: string; sessionId: string | null; type: string; createdAt: number }
+			| undefined;
+	}
+
+	getDiscordChannelBySession(
+		sessionId: string
+	): { id: string; projectId: string; sessionId: string | null; type: string; createdAt: number } | undefined {
+		return this.db
+			.query(
+				`SELECT id, project_id AS projectId, session_id AS sessionId, type, created_at AS createdAt FROM discord_channels WHERE session_id = ?`
+			)
+			.get(sessionId) as { id: string; projectId: string; sessionId: string | null; type: string; createdAt: number } | undefined;
+	}
+
+	saveDiscordChannel(data: { id: string; projectId: string; sessionId: string | null; type: string; createdAt: number }) {
+		this.db
+			.query(`INSERT OR REPLACE INTO discord_channels (id, project_id, session_id, type, created_at) VALUES (?, ?, ?, ?, ?)`)
+			.run(data.id, data.projectId, data.sessionId, data.type, data.createdAt);
+	}
+
+	deleteDiscordChannel(id: string) {
+		this.db.query(`DELETE FROM discord_channels WHERE id = ?`).run(id);
+	}
+
+	listDiscordChannelsByProject(
+		projectId: string
+	): Array<{ id: string; projectId: string; sessionId: string | null; type: string; createdAt: number }> {
+		return this.db
+			.query(
+				`SELECT id, project_id AS projectId, session_id AS sessionId, type, created_at AS createdAt FROM discord_channels WHERE project_id = ?`
+			)
+			.all(projectId) as Array<{ id: string; projectId: string; sessionId: string | null; type: string; createdAt: number }>;
 	}
 
 	// ── Lifecycle ────────────────────────────────────────────────────────────

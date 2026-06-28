@@ -1,4 +1,6 @@
-const HOST_API_URL = process.env.HOST_API_URL ?? "http://host.docker.internal:3100";
+import { env } from "../env";
+
+const HOST_API_URL = env.HOST_API_URL;
 
 /**
  * Render a Mermaid definition to a PNG. Rendering is delegated to host-api

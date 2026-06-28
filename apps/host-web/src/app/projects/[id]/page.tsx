@@ -21,13 +21,14 @@ import {
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { StartupProgressModal } from "@/components/docker-progress-modal";
 import { NewSessionDialog } from "@/components/new-session-dialog";
 import { SessionCard } from "@/components/session-card";
-import { StartupProgressModal } from "@/components/startup-progress-modal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { API_URL } from "@/constants";
 import type { Report, Session } from "@/lib/agent-api";
 import {
 	deleteProject as apiDeleteProject,
@@ -41,8 +42,6 @@ import {
 import { getCache, mutateCache, setCache, useQuery } from "@/lib/query-cache";
 import type { Project } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3100";
 
 type Tab = "overview" | "sessions" | "logs" | "reports" | "settings";
 
@@ -312,13 +311,13 @@ function ProjectDetailContent() {
 			{/* Tabs */}
 			<div className="bg-white border-b border-gray-200">
 				<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-					<div className="flex gap-1">
+					<div className="flex gap-5">
 						{tabs.map(({ key, label, icon: Icon, count }) => (
 							<button
 								key={key}
 								type="button"
 								onClick={() => setTab(key)}
-								className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition ${
+								className={`flex items-center gap-2 pr-1 py-3 text-sm font-medium border-b-2 transition ${
 									tab === key ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-900"
 								}`}
 							>
@@ -410,10 +409,6 @@ function OverviewTab({ project }: { project: Project }) {
 						>
 							:{project.ports.server}
 						</a>
-					</div>
-					<div>
-						<div className="text-gray-500 mb-1">Discord bot</div>
-						<div className="text-gray-900">{project.discord?.token ? "Configured" : "Not set"}</div>
 					</div>
 					<div className="sm:col-span-2">
 						<div className="text-gray-500 mb-1 flex items-center gap-1">
@@ -626,17 +621,28 @@ function LogsTab({ projectId, running }: { projectId: string; running: boolean }
 	);
 }
 
+type SettingField = {
+	key: string;
+	label: string;
+	value: string;
+	display?: string;
+	placeholder?: string;
+	description?: string;
+	type?: string;
+	buildPayload: (value: string) => Parameters<typeof updateSettings>[1];
+};
+
 function SettingsTab({ projectId }: { projectId: string }) {
 	const [projectName, setProjectName] = useState("");
 	const [serverPort, setServerPort] = useState("");
 	const [workspacePath, setWorkspacePath] = useState("");
-	const [discordToken, setDiscordToken] = useState("");
-	const [discordChannel, setDiscordChannel] = useState("");
 	const [anthropicKey, setAnthropicKey] = useState("");
 	const [anthropicBaseUrl, setAnthropicBaseUrl] = useState("");
 	const [model, setModel] = useState("");
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
+	const [editing, setEditing] = useState<SettingField | null>(null);
+	const [draft, setDraft] = useState("");
 
 	const load = useCallback(async () => {
 		try {
@@ -645,8 +651,6 @@ function SettingsTab({ projectId }: { projectId: string }) {
 			setProjectName(p.name ?? "");
 			setServerPort(String(p.ports?.server ?? ""));
 			setWorkspacePath(p.workspace?.path ?? "");
-			setDiscordToken(p.discord?.token ?? "");
-			setDiscordChannel(p.discord?.defaultChannelId ?? "");
 			setAnthropicKey(p.agent?.anthropicApiKey ?? "");
 			setAnthropicBaseUrl(p.agent?.anthropicBaseUrl ?? "");
 			setModel(p.agent?.model ?? "");
@@ -661,24 +665,18 @@ function SettingsTab({ projectId }: { projectId: string }) {
 		load();
 	}, [load]);
 
+	function openEdit(field: SettingField) {
+		setEditing(field);
+		setDraft(field.value);
+	}
+
 	async function save() {
+		if (!editing) return;
 		setSaving(true);
 		try {
-			await updateSettings(projectId, {
-				name: projectName || undefined,
-				ports: serverPort ? { server: Number(serverPort) } : undefined,
-				workspace: workspacePath ? { path: workspacePath, type: "external" } : undefined,
-				discord: {
-					token: discordToken || undefined,
-					defaultChannelId: discordChannel || undefined,
-				},
-				agent: {
-					anthropicApiKey: anthropicKey || undefined,
-					anthropicBaseUrl: anthropicBaseUrl || undefined,
-					model: model || undefined,
-				},
-			});
+			await updateSettings(projectId, editing.buildPayload(draft));
 			toast.success("Saved. Restart the project for changes to take effect.");
+			setEditing(null);
 			load();
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : "Failed to save settings.");
@@ -686,6 +684,60 @@ function SettingsTab({ projectId }: { projectId: string }) {
 			setSaving(false);
 		}
 	}
+
+	const general: SettingField[] = [
+		{
+			key: "name",
+			label: "Project name",
+			value: projectName,
+			placeholder: "My Project",
+			buildPayload: (v) => ({ name: v || undefined }),
+		},
+		{
+			key: "server-port",
+			label: "Server port",
+			value: serverPort,
+			placeholder: "4000",
+			type: "number",
+			description: "The port the agent server listens on inside Docker and on the host.",
+			buildPayload: (v) => ({ ports: v ? { server: Number(v) } : undefined }),
+		},
+		{
+			key: "workspace-path",
+			label: "Workspace path",
+			value: workspacePath,
+			placeholder: "/path/to/workspace",
+			description: "Absolute host path mounted as /workspace in the container.",
+			buildPayload: (v) => ({ workspace: v ? { path: v, type: "external" } : undefined }),
+		},
+	];
+
+	const anthropic: SettingField[] = [
+		{
+			key: "anthropic-key",
+			label: "API key",
+			value: anthropicKey,
+			display: anthropicKey ? "••••••••" : "",
+			placeholder: "sk-ant-...",
+			type: "password",
+			description: "Required for the agent to run. Leave empty to use no key (agent will fail to start).",
+			buildPayload: (v) => ({ agent: { anthropicApiKey: v || undefined } }),
+		},
+		{
+			key: "anthropic-base-url",
+			label: "Base URL (optional)",
+			value: anthropicBaseUrl,
+			placeholder: "https://api.anthropic.com",
+			buildPayload: (v) => ({ agent: { anthropicBaseUrl: v || undefined } }),
+		},
+		{
+			key: "model",
+			label: "Model (optional)",
+			value: model,
+			placeholder: "e.g. claude-sonnet-4-6",
+			buildPayload: (v) => ({ agent: { model: v || undefined } }),
+		},
+	];
 
 	if (loading) {
 		return <div className="text-gray-500">Loading settings...</div>;
@@ -701,65 +753,10 @@ function SettingsTab({ projectId }: { projectId: string }) {
 				<CardHeader>
 					<CardTitle>General</CardTitle>
 				</CardHeader>
-				<CardContent className="space-y-4">
-					<div className="space-y-2">
-						<Label htmlFor="project-name">Project name</Label>
-						<Input
-							id="project-name"
-							placeholder="My Project"
-							value={projectName}
-							onChange={(e) => setProjectName(e.target.value)}
-						/>
-					</div>
-					<div className="space-y-2">
-						<Label htmlFor="server-port">Server port</Label>
-						<Input
-							id="server-port"
-							type="number"
-							placeholder="4000"
-							value={serverPort}
-							onChange={(e) => setServerPort(e.target.value)}
-						/>
-						<p className="text-xs text-muted-foreground">The port the agent server listens on inside Docker and on the host.</p>
-					</div>
-					<div className="space-y-2">
-						<Label htmlFor="workspace-path">Workspace path</Label>
-						<Input
-							id="workspace-path"
-							placeholder="/path/to/workspace"
-							value={workspacePath}
-							onChange={(e) => setWorkspacePath(e.target.value)}
-						/>
-						<p className="text-xs text-muted-foreground">Absolute host path mounted as /workspace in the container.</p>
-					</div>
-				</CardContent>
-			</Card>
-
-			<Card>
-				<CardHeader>
-					<CardTitle>Discord</CardTitle>
-				</CardHeader>
-				<CardContent className="space-y-4">
-					<div className="space-y-2">
-						<Label htmlFor="discord-token">Bot token</Label>
-						<Input
-							id="discord-token"
-							type="password"
-							placeholder="Bot token for this project"
-							value={discordToken}
-							onChange={(e) => setDiscordToken(e.target.value)}
-						/>
-						<p className="text-xs text-muted-foreground">Leave empty to disable the Discord bot for this project.</p>
-					</div>
-					<div className="space-y-2">
-						<Label htmlFor="discord-channel">Default channel ID</Label>
-						<Input
-							id="discord-channel"
-							placeholder="Default channel for check-ins / reports"
-							value={discordChannel}
-							onChange={(e) => setDiscordChannel(e.target.value)}
-						/>
-					</div>
+				<CardContent className="divide-y">
+					{general.map((f) => (
+						<SettingRow key={f.key} field={f} onEdit={() => openEdit(f)} />
+					))}
 				</CardContent>
 			</Card>
 
@@ -767,38 +764,54 @@ function SettingsTab({ projectId }: { projectId: string }) {
 				<CardHeader>
 					<CardTitle>Anthropic</CardTitle>
 				</CardHeader>
-				<CardContent className="space-y-4">
-					<div className="space-y-2">
-						<Label htmlFor="anthropic-key">API key</Label>
-						<Input
-							id="anthropic-key"
-							type="password"
-							placeholder="sk-ant-..."
-							value={anthropicKey}
-							onChange={(e) => setAnthropicKey(e.target.value)}
-						/>
-						<p className="text-xs text-muted-foreground">
-							Required for the agent to run. Leave empty to use no key (agent will fail to start).
-						</p>
-					</div>
-					<div className="space-y-2">
-						<Label htmlFor="anthropic-base-url">Base URL (optional)</Label>
-						<Input
-							id="anthropic-base-url"
-							placeholder="https://api.anthropic.com"
-							value={anthropicBaseUrl}
-							onChange={(e) => setAnthropicBaseUrl(e.target.value)}
-						/>
-					</div>
-					<div className="space-y-2">
-						<Label htmlFor="model">Model (optional)</Label>
-						<Input id="model" placeholder="e.g. claude-sonnet-4-6" value={model} onChange={(e) => setModel(e.target.value)} />
-					</div>
+				<CardContent className="divide-y">
+					{anthropic.map((f) => (
+						<SettingRow key={f.key} field={f} onEdit={() => openEdit(f)} />
+					))}
 				</CardContent>
 			</Card>
 
-			<Button type="button" onClick={save} disabled={saving}>
-				{saving ? "Saving..." : "Save settings"}
+			<Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
+				<DialogContent open={editing !== null}>
+					<DialogHeader>
+						<DialogTitle>Edit {editing?.label}</DialogTitle>
+						{editing?.description && <DialogDescription>{editing.description}</DialogDescription>}
+					</DialogHeader>
+					<Input
+						type={editing?.type}
+						placeholder={editing?.placeholder}
+						value={draft}
+						onChange={(e) => setDraft(e.target.value)}
+						autoFocus
+						onKeyDown={(e) => {
+							if (e.key === "Enter") save();
+						}}
+					/>
+					<DialogFooter>
+						<Button type="button" variant="outline" onClick={() => setEditing(null)} disabled={saving}>
+							Cancel
+						</Button>
+						<Button type="button" onClick={save} disabled={saving}>
+							{saving ? "Saving..." : "Save"}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+		</div>
+	);
+}
+
+function SettingRow({ field, onEdit }: { field: SettingField; onEdit: () => void }) {
+	const shown = field.display ?? field.value;
+	return (
+		<div className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
+			<div className="min-w-0 space-y-1">
+				<div className="text-sm font-medium">{field.label}</div>
+				<div className="truncate text-sm text-muted-foreground">{shown || <span className="italic">Not set</span>}</div>
+				{field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
+			</div>
+			<Button type="button" variant="outline" size="sm" onClick={onEdit}>
+				Edit
 			</Button>
 		</div>
 	);

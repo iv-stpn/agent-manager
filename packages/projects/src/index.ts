@@ -27,14 +27,12 @@ export type {
 export type {
 	AgentConfig,
 	CreateProjectInput,
-	DiscordConfig,
 	ProjectConfig,
 	UpdateSettingsInput,
 } from "./types";
 export {
 	AgentConfigSchema,
 	CreateProjectSchema,
-	DiscordConfigSchema,
 	ProjectConfigSchema,
 	UpdateSettingsSchema,
 } from "./types";

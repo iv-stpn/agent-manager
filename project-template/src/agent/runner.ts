@@ -21,11 +21,10 @@ import {
 	updateQuestionCheckin,
 	updateSession,
 } from "../db";
-import { getChannel } from "../discord/bot";
-import { sendChecklistForm } from "../discord/forms";
-import { type ReportData, sendDiscordReport } from "../discord/report";
 import { sessionEmitter } from "../emitter";
+import { env } from "../env";
 import { compactMessages, estimateTokens, UsageAnchor } from "./context";
+import { type ChecklistItem, type ReportData, sendChecklist, sendReport } from "./discord-client";
 import type { AgentError } from "./errors";
 import { classifyApiError, withRetry } from "./errors";
 import { commitChanges, getCurrentCommit } from "./git";
@@ -62,7 +61,7 @@ import { addTask, getCurrentTask, listTasks, setCurrentTask, updateTask } from "
 import { webFetch, webSearch } from "./tools/implementations/web";
 import { bootstrapWorkspace, buildStartupContext, MEMORY_SYSTEM_DESCRIPTION } from "./workspace";
 
-const WORKSPACE = process.env.WORKSPACE_PATH ?? "/workspace";
+const WORKSPACE = env.WORKSPACE_PATH;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -75,7 +74,6 @@ export interface RunnerConfig {
 	sessionId: string;
 	reportIntervalMins: number;
 	totalTimeoutMins: number;
-	discordChannelId: string | null;
 	freezeReportMode: FreezeReportMode;
 	freezeReportCustomRule: string | null;
 	freezeAskMode: FreezeAskMode;
@@ -179,17 +177,15 @@ export class AgentRunner {
 
 	private readonly db: Db;
 	private readonly sessionId: string;
-	private readonly discordChannelId: string | null;
 	private readonly systemPrompt: string;
 
 	constructor(config: RunnerConfig) {
 		this.client = new Anthropic({
-			apiKey: process.env.ANTHROPIC_API_KEY,
-			baseURL: process.env.ANTHROPIC_BASE_URL,
+			apiKey: env.ANTHROPIC_API_KEY,
+			baseURL: env.ANTHROPIC_BASE_URL,
 		});
 		this.db = config.db;
 		this.sessionId = config.sessionId;
-		this.discordChannelId = config.discordChannelId;
 		this.reportIntervalMs = config.reportIntervalMins * 60_000;
 		this.totalTimeoutMs = config.totalTimeoutMins * 60_000;
 		this.freezeReportMode = config.freezeReportMode;
@@ -210,6 +206,45 @@ export class AgentRunner {
 	interject(text: string) {
 		this.injectedMessage = text;
 		this.abortController.abort("interject");
+	}
+
+	// ── Public setters for runtime config (used by Discord commands) ──────────
+
+	setCompactThreshold(tokens: number) {
+		this.compactThresholdTokens = tokens;
+		updateSession(this.db, this.sessionId, { compactThresholdTokens: tokens });
+	}
+
+	setStopThreshold(tokens: number) {
+		this.stopThresholdTokens = tokens;
+		updateSession(this.db, this.sessionId, { stopThresholdTokens: tokens });
+	}
+
+	setAlwaysImproveMode(mode: AlwaysImproveMode, scope: string | null) {
+		this.alwaysImproveMode = mode;
+		this.alwaysImproveScope = scope;
+		updateSession(this.db, this.sessionId, { alwaysImproveMode: mode, alwaysImproveScope: scope });
+	}
+
+	setTimeout(mins: number) {
+		this.totalTimeoutMs = mins * 60_000;
+		updateSession(this.db, this.sessionId, { totalTimeoutMins: mins });
+	}
+
+	setReportInterval(mins: number) {
+		this.reportIntervalMs = mins * 60_000;
+		updateSession(this.db, this.sessionId, { reportIntervalMins: mins });
+	}
+
+	setFreezeReportMode(mode: FreezeReportMode, customRule: string | null) {
+		this.freezeReportMode = mode;
+		this.freezeReportCustomRule = customRule;
+		updateSession(this.db, this.sessionId, { freezeReportMode: mode, freezeReportCustomRule: customRule });
+	}
+
+	setFreezeAskMode(mode: FreezeAskMode) {
+		this.freezeAskMode = mode;
+		updateSession(this.db, this.sessionId, { freezeAskMode: mode });
 	}
 
 	// ── Main loop ──────────────────────────────────────────────────────────────
@@ -335,7 +370,7 @@ export class AgentRunner {
 				}
 
 				// Auto-compact context if too large (using circuit breaker)
-				const model = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+				const model = env.ANTHROPIC_MODEL;
 				const estTokens = this.usageAnchor.estimate(this.messages);
 
 				// Emit token warning state changes
@@ -715,31 +750,11 @@ export class AgentRunner {
 				content: JSON.stringify(report),
 			});
 
-			const channel = this.discordChannelId ? await getChannel(this.discordChannelId) : null;
+			const result = await sendReport(this.sessionId, report, trigger, freeze, questionsToAsk, this.abortController.signal);
 
-			if (channel) {
-				const result = await sendDiscordReport(
-					channel,
-					report,
-					this.sessionId,
-					trigger,
-					freeze,
-					questionsToAsk,
-					{
-						workspace: WORKSPACE,
-						task: this.currentTask,
-						sinceCommit: this.lastReportCommit,
-					},
-					this.abortController.signal
-				);
-
-				if (result?.confirmed) {
-					confirmed = true;
-					this.injectAnswers(result.answers, pending);
-				}
-			} else {
-				// No Discord channel — nothing to wait on; auto-confirm.
+			if (result?.confirmed) {
 				confirmed = true;
+				this.injectAnswers(result.answers, pending);
 			}
 
 			// Update last-report commit after report
@@ -816,19 +831,15 @@ export class AgentRunner {
 	}
 
 	private async flushQuestionsToDiscord(): Promise<void> {
-		if (!this.discordChannelId || this.pendingQuestions.length === 0) return;
+		if (this.pendingQuestions.length === 0) return;
 		const pending = this.drainPending();
-		const channel = await getChannel(this.discordChannelId);
-		if (!channel) return;
 
-		const result = await sendDiscordReport(
-			channel,
-			{ title: "❓ Questions", sections: [] },
+		const result = await sendReport(
 			this.sessionId,
+			{ title: "❓ Questions", sections: [] },
 			"manual",
 			true,
 			pending,
-			{ workspace: WORKSPACE, task: this.currentTask, sinceCommit: null },
 			this.abortController.signal
 		);
 		if (result?.confirmed) {
@@ -862,7 +873,7 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 		const makeRequest = async (maxTokens: number): Promise<Anthropic.Message> => {
 			const stream = this.client.messages.stream(
 				{
-					model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6",
+					model: env.ANTHROPIC_MODEL,
 					max_tokens: maxTokens,
 					system: this.systemPrompt,
 					tools: AGENT_TOOLS,
@@ -920,7 +931,7 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 				.join("\n\n");
 
 			const resp = await this.client.messages.create({
-				model: process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001",
+				model: env.ANTHROPIC_SMALL_MODEL,
 				max_tokens: 512,
 				messages: [
 					{
@@ -1243,69 +1254,13 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 				this.messages = messages;
 				return `Context compacted: ${before} → ${messages.length} messages.`;
 			}
-			case "change_compact_threshold": {
-				const tokens = Math.max(0, Number(input.tokens));
-				this.compactThresholdTokens = tokens;
-				updateSession(this.db, this.sessionId, { compactThresholdTokens: tokens });
-				return tokens === 0 ? "Auto-compaction disabled." : `Compact threshold set to ${tokens.toLocaleString()} tokens.`;
-			}
-			case "change_stop_threshold": {
-				const tokens = Math.max(0, Number(input.tokens));
-				this.stopThresholdTokens = tokens;
-				updateSession(this.db, this.sessionId, { stopThresholdTokens: tokens });
-				return tokens === 0 ? "Token stop threshold disabled." : `Stop threshold set to ${tokens.toLocaleString()} tokens.`;
-			}
-			case "change_always_improve_mode": {
-				const mode = input.mode as AlwaysImproveMode;
-				const scope = (input.scope as string) ?? null;
-				this.alwaysImproveMode = mode;
-				this.alwaysImproveScope = scope;
-				updateSession(this.db, this.sessionId, {
-					alwaysImproveMode: mode,
-					alwaysImproveScope: scope,
-				});
-				return `always_improve set to '${mode}'${scope ? ` (scope: "${scope}")` : ""}.`;
-			}
-			case "change_freeze_report_mode": {
-				const mode = input.mode as FreezeReportMode;
-				this.freezeReportMode = mode;
-				this.freezeReportCustomRule = (input.custom_rule as string) ?? null;
-				updateSession(this.db, this.sessionId, {
-					freezeReportMode: mode,
-					freezeReportCustomRule: this.freezeReportCustomRule,
-				});
-				return `freeze_report_mode set to '${mode}'.`;
-			}
-			case "change_freeze_ask_mode": {
-				const mode = input.mode as FreezeAskMode;
-				this.freezeAskMode = mode;
-				updateSession(this.db, this.sessionId, { freezeAskMode: mode });
-				return `freeze_ask_mode set to '${mode}'.`;
-			}
-
-			// ── Session management ──────────────────────────────────────────────────────
-			case "set_session_name": {
-				const name = input.name as string;
-				updateSession(this.db, this.sessionId, { name });
-				sessionEmitter.emit(this.sessionId, {
-					type: "session_updated",
-					data: { id: this.sessionId, name },
-				});
-				return `Session named: "${name}"`;
-			}
 
 			// ── Checklist ───────────────────────────────────────────────────────────────
 			case "ask_checklist": {
-				if (!this.discordChannelId) {
-					return "No Discord channel configured — skipping checklist. Proceed with best judgment.";
-				}
-				const channel = await getChannel(this.discordChannelId);
-				if (!channel) return "Discord channel unavailable — proceeding with best judgment.";
-				const result = await sendChecklistForm(
-					channel,
-					(input.title as string) ?? "Implementation Checklist",
-					input.items as import("../discord/forms").ChecklistItem[],
+				const result = await sendChecklist(
 					this.sessionId,
+					(input.title as string) ?? "Implementation Checklist",
+					input.items as ChecklistItem[],
 					this.abortController.signal
 				);
 				if (result.completed) {
@@ -1347,21 +1302,6 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 				return await webSearch(input.query as string, (input.limit as number) ?? 8);
 			case "web_fetch":
 				return await webFetch(input.url as string, (input.max_chars as number) ?? 20_000);
-
-			// ── Timeout/interval changes ────────────────────────────────────────────────
-			case "change_timeout": {
-				const mins = Math.max(1, Math.min(1440, Number(input.minutes)));
-				this.totalTimeoutMs = mins * 60_000;
-				updateSession(this.db, this.sessionId, { totalTimeoutMins: mins });
-				return `Total timeout set to ${mins} minutes.`;
-			}
-
-			case "change_report_time_interval": {
-				const mins = Math.max(0, Number(input.minutes));
-				this.reportIntervalMs = mins * 60_000;
-				updateSession(this.db, this.sessionId, { reportIntervalMins: mins });
-				return mins === 0 ? "Automatic reports disabled." : `Report interval set to ${mins} minutes.`;
-			}
 
 			default:
 				return `Unknown tool: ${name}`;
@@ -1439,50 +1379,34 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 		const pending = this.drainPending();
 		const questionsToAsk = freeze ? pending : [];
 
-		if (this.discordChannelId) {
-			const channel = await getChannel(this.discordChannelId);
-			if (!channel) return "Report failed: Discord channel unavailable.";
+		updateSession(this.db, this.sessionId, { status: "paused" });
+		sessionEmitter.emit(this.sessionId, {
+			type: "session_updated",
+			data: { id: this.sessionId, status: "paused" },
+		});
 
-			updateSession(this.db, this.sessionId, { status: "paused" });
-			sessionEmitter.emit(this.sessionId, {
-				type: "session_updated",
-				data: { id: this.sessionId, status: "paused" },
+		try {
+			const result = await sendReport(this.sessionId, report, "manual", freeze, questionsToAsk, this.abortController.signal);
+
+			insertReport(this.db, {
+				id: nanoid(),
+				sessionId: this.sessionId,
+				trigger: "manual",
+				title: report.title,
+				content: JSON.stringify(report),
 			});
 
-			try {
-				const result = await sendDiscordReport(
-					channel,
-					report,
-					this.sessionId,
-					"manual",
-					freeze,
-					questionsToAsk,
-					{ workspace: WORKSPACE, task: this.currentTask, sinceCommit: null },
-					this.abortController.signal
-				);
+			// Record in vector memory for semantic recall
+			remember("report", report.title, report.sections.map((s) => `${s.title ?? ""}\n${s.content}`).join("\n\n")).catch(() => {});
 
-				insertReport(this.db, {
-					id: nanoid(),
-					sessionId: this.sessionId,
-					trigger: "manual",
-					title: report.title,
-					content: JSON.stringify(report),
-				});
-
-				// Record in vector memory for semantic recall
-				remember("report", report.title, report.sections.map((s) => `${s.title ?? ""}\n${s.content}`).join("\n\n")).catch(
-					() => {}
-				);
-
-				this.lastReportCommit = await getCurrentCommit(WORKSPACE);
-				if (result?.confirmed) this.injectAnswers(result.answers, pending);
-			} finally {
-				updateSession(this.db, this.sessionId, { status: "running" });
-				sessionEmitter.emit(this.sessionId, {
-					type: "session_updated",
-					data: { id: this.sessionId, status: "running" },
-				});
-			}
+			this.lastReportCommit = await getCurrentCommit(WORKSPACE);
+			if (result?.confirmed) this.injectAnswers(result.answers, pending);
+		} finally {
+			updateSession(this.db, this.sessionId, { status: "running" });
+			sessionEmitter.emit(this.sessionId, {
+				type: "session_updated",
+				data: { id: this.sessionId, status: "running" },
+			});
 		}
 
 		return freeze ? "Report sent and user acknowledged." : "Report sent (continuing).";

@@ -4,6 +4,8 @@
  * tool result truncation, and output token tiers.
  */
 
+import { env } from "../env";
+
 // ── Model Context Windows ────────────────────────────────────────────────────
 
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
@@ -18,7 +20,7 @@ const DEFAULT_CONTEXT_WINDOW = 200_000;
 const MAX_OUTPUT_TOKENS_FOR_SUMMARY = 20_000;
 
 export function getContextWindowForModel(model: string): number {
-	const envOverride = process.env.AGENT_MAX_CONTEXT_TOKENS;
+	const envOverride = env.AGENT_MAX_CONTEXT_TOKENS;
 	if (envOverride) {
 		const parsed = Number.parseInt(envOverride, 10);
 		if (!Number.isNaN(parsed) && parsed > 0) return parsed;

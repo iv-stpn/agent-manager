@@ -1,5 +1,7 @@
-const HOST_API_URL = process.env.HOST_API_URL ?? "http://host.docker.internal:3100";
-const PROJECT_ID = process.env.PROJECT_ID ?? "unknown";
+import { env } from "../../../env";
+
+const HOST_API_URL = env.HOST_API_URL;
+const PROJECT_ID = env.PROJECT_ID;
 
 function memoryUrl(path = ""): string {
 	return `${HOST_API_URL}/api/memory/${PROJECT_ID}${path}`;
@@ -57,10 +59,7 @@ export async function updateMemory(
 	id: string,
 	updates: { title?: string; content?: string; type?: MemoryType; metadata?: Record<string, any> }
 ): Promise<void> {
-	await memoryRequest(`/${id}`, {
-		method: "PUT",
-		body: JSON.stringify(updates),
-	});
+	await memoryRequest(`/${id}`, { method: "PUT", body: JSON.stringify(updates) });
 }
 
 /** Delete a memory entry by ID. */

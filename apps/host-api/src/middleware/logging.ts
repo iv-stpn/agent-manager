@@ -168,7 +168,7 @@ function isWebSocketHandshake(request: Request, response: Response): boolean {
 
 export const requestLogger: MiddlewareHandler<HonoHostEnv> = async (context, next) => {
 	const requestId = generateId();
-	const logger = createLogger({ DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL }).child({
+	const logger = createLogger({ DISCORD_WEBHOOK_URL: context.env.DISCORD_WEBHOOK_URL }).child({
 		requestId,
 		path: context.req.path,
 		method: context.req.method,

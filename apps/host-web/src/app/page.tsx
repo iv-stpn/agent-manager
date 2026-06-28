@@ -2,37 +2,22 @@ import { Activity, Database, ExternalLink, FolderOpen, Play, Plus, RefreshCw, Sq
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import { NewProjectDialog } from "@/components/new-project-dialog";
+import { API_URL } from "@/constants";
 import { containerClassName } from "@/lib/classes";
 import { cn } from "@/lib/utils";
 import {
-	createProject as apiCreateProject,
 	deleteProject as apiDeleteProject,
 	startProject as apiStartProject,
 	stopProject as apiStopProject,
-	checkWorkspacePath,
 	createHostStream,
 	getProjects,
 } from "../lib/agent-api";
 import { mutateCache, setCache, useQuery } from "../lib/query-cache";
 import type { EnrichedProject as Project } from "../lib/types";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3100";
-
 export default function Home() {
 	const [creating, setCreating] = useState(false);
-	const [pathWarning, setPathWarning] = useState<{ status: "not_found" | "not_empty" | "not_directory"; path: string } | null>(
-		null
-	);
-	const [newProject, setNewProject] = useState({
-		name: "",
-		description: "",
-		workspacePath: "",
-		discordToken: "",
-		discordChannel: "",
-		anthropicKey: "",
-		anthropicBaseUrl: "",
-		model: "",
-	});
 
 	const {
 		data: projects = [],
@@ -75,64 +60,6 @@ export default function Home() {
 		);
 		return () => es.close();
 	}, []);
-
-	const createProject = async (skipPathCheck = false) => {
-		if (!newProject.name) return;
-
-		// Validate workspace path if provided
-		if (newProject.workspacePath && !skipPathCheck) {
-			try {
-				const result = await checkWorkspacePath(newProject.workspacePath);
-				if (result.status === "not_found") {
-					setPathWarning({ status: "not_found", path: result.path });
-					return;
-				}
-				if (result.status === "not_empty") {
-					setPathWarning({ status: "not_empty", path: result.path });
-					return;
-				}
-				if (result.status === "not_directory") {
-					setPathWarning({ status: "not_directory", path: result.path });
-					return;
-				}
-			} catch {
-				// If check fails, proceed anyway
-			}
-		}
-
-		try {
-			await apiCreateProject({
-				name: newProject.name,
-				description: newProject.description || undefined,
-				workspacePath: newProject.workspacePath || undefined,
-				discord: {
-					token: newProject.discordToken || undefined,
-					defaultChannelId: newProject.discordChannel || undefined,
-				},
-				agent: {
-					anthropicApiKey: newProject.anthropicKey || undefined,
-					anthropicBaseUrl: newProject.anthropicBaseUrl || undefined,
-					model: newProject.model || undefined,
-				},
-			});
-			setNewProject({
-				name: "",
-				description: "",
-				workspacePath: "",
-				discordToken: "",
-				discordChannel: "",
-				anthropicKey: "",
-				anthropicBaseUrl: "",
-				model: "",
-			});
-			setCreating(false);
-			setPathWarning(null);
-			fetchProjects();
-			toast.success("Project created");
-		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to create project");
-		}
-	};
 
 	const startProject = async (projectId: string) => {
 		try {
@@ -220,197 +147,7 @@ export default function Home() {
 				</div>
 			</header>
 
-			{/* Create Project Modal */}
-			{creating && (
-				<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-					<div className="bg-white rounded-lg p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
-						<h2 className="text-xl font-bold mb-4">Create New Project</h2>
-						<div className="space-y-4">
-							<div>
-								<label className="block text-sm font-medium text-gray-700 mb-1">
-									Project Name *
-									<input
-										type="text"
-										value={newProject.name}
-										onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
-										className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-										placeholder="My Project"
-									/>
-								</label>
-							</div>
-							<div>
-								<label className="block text-sm font-medium text-gray-700 mb-1">
-									Description
-									<input
-										type="text"
-										value={newProject.description}
-										onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
-										className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-										placeholder="Optional description"
-									/>
-								</label>
-							</div>
-							<div>
-								<label className="block text-sm font-medium text-gray-700 mb-1">
-									Workspace Path (optional)
-									<input
-										type="text"
-										value={newProject.workspacePath}
-										onChange={(e) => setNewProject({ ...newProject, workspacePath: e.target.value })}
-										className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-										placeholder="/path/to/repo (leave empty for internal)"
-									/>
-								</label>
-							</div>
-
-							<div className="border-t border-gray-200 pt-4">
-								<p className="text-sm font-semibold text-gray-700 mb-2">Discord</p>
-								<div className="space-y-3">
-									<input
-										type="password"
-										value={newProject.discordToken}
-										onChange={(e) => setNewProject({ ...newProject, discordToken: e.target.value })}
-										className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-										placeholder="Discord bot token (optional)"
-									/>
-									<input
-										type="text"
-										value={newProject.discordChannel}
-										onChange={(e) => setNewProject({ ...newProject, discordChannel: e.target.value })}
-										className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-										placeholder="Default Discord channel ID (optional)"
-									/>
-								</div>
-							</div>
-
-							<div className="border-t border-gray-200 pt-4">
-								<p className="text-sm font-semibold text-gray-700 mb-2">Anthropic</p>
-								<div className="space-y-3">
-									<input
-										type="password"
-										value={newProject.anthropicKey}
-										onChange={(e) => setNewProject({ ...newProject, anthropicKey: e.target.value })}
-										className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-										placeholder="ANTHROPIC_API_KEY (sk-ant-...)"
-									/>
-									<input
-										type="text"
-										value={newProject.anthropicBaseUrl}
-										onChange={(e) => setNewProject({ ...newProject, anthropicBaseUrl: e.target.value })}
-										className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-										placeholder="Base URL (optional, e.g. https://api.anthropic.com)"
-									/>
-									<input
-										type="text"
-										value={newProject.model}
-										onChange={(e) => setNewProject({ ...newProject, model: e.target.value })}
-										className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-										placeholder="Model (optional, e.g. claude-sonnet-4-6)"
-									/>
-								</div>
-							</div>
-						</div>
-						<div className="flex gap-2 mt-6">
-							<button
-								type="button"
-								onClick={() => createProject()}
-								className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-							>
-								Create
-							</button>
-							<button
-								type="button"
-								onClick={() => setCreating(false)}
-								className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-							>
-								Cancel
-							</button>
-						</div>
-					</div>
-				</div>
-			)}
-
-			{/* Workspace Path Warning Modal */}
-			{pathWarning && (
-				<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
-					<div className="bg-white rounded-lg p-6 max-w-md w-full">
-						{pathWarning.status === "not_found" && (
-							<>
-								<h2 className="text-xl font-bold mb-2">Folder does not exist</h2>
-								<p className="text-sm text-gray-600 mb-4">
-									The folder <code className="bg-gray-100 px-1 rounded">{pathWarning.path}</code> does not exist. Would you like
-									to create it?
-								</p>
-								<div className="flex gap-2">
-									<button
-										type="button"
-										onClick={() => {
-											setPathWarning(null);
-											createProject(true);
-										}}
-										className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-									>
-										Create folder
-									</button>
-									<button
-										type="button"
-										onClick={() => setPathWarning(null)}
-										className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-									>
-										Go back
-									</button>
-								</div>
-							</>
-						)}
-						{pathWarning.status === "not_empty" && (
-							<>
-								<h2 className="text-xl font-bold mb-2">Folder is not empty</h2>
-								<p className="text-sm text-gray-600 mb-4">
-									The folder <code className="bg-gray-100 px-1 rounded">{pathWarning.path}</code> already exists and is not empty.
-									Are you sure you want to use it as the workspace?
-								</p>
-								<div className="flex gap-2">
-									<button
-										type="button"
-										onClick={() => {
-											setPathWarning(null);
-											createProject(true);
-										}}
-										className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-									>
-										Continue
-									</button>
-									<button
-										type="button"
-										onClick={() => setPathWarning(null)}
-										className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-									>
-										Go back
-									</button>
-								</div>
-							</>
-						)}
-						{pathWarning.status === "not_directory" && (
-							<>
-								<h2 className="text-xl font-bold mb-2">Path is not a directory</h2>
-								<p className="text-sm text-gray-600 mb-4">
-									The path <code className="bg-gray-100 px-1 rounded">{pathWarning.path}</code> exists but is not a directory.
-									Please choose a different path.
-								</p>
-								<div className="flex gap-2">
-									<button
-										type="button"
-										onClick={() => setPathWarning(null)}
-										className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-									>
-										Go back
-									</button>
-								</div>
-							</>
-						)}
-					</div>
-				</div>
-			)}
+			<NewProjectDialog open={creating} onOpenChange={setCreating} />
 
 			{/* Projects Grid */}
 			<main className={cn(containerClassName, "py-8")}>

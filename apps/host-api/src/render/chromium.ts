@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import puppeteer from "puppeteer-core";
+import { env } from "../env";
 
 /**
  * Centralised browser-rendering for the whole platform. host-api connects to a
@@ -7,7 +8,7 @@ import puppeteer from "puppeteer-core";
  * installation required.
  */
 
-const CHROMIUM_WS_URL = process.env.CHROMIUM_WS_URL ?? "ws://localhost:3201";
+const CHROMIUM_WS_URL = env.CHROMIUM_WS_URL;
 
 /** Check if the remote Chromium is reachable. */
 export async function checkChromium(): Promise<boolean> {

@@ -1,9 +1,11 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { AgentRunner } from "../agent/runner";
 import {
 	createSession,
+	type Db,
 	getCheckins,
 	getCompactions,
 	getMessages,
@@ -14,6 +16,8 @@ import {
 	updateSession,
 } from "../db";
 import { sessionEmitter } from "../emitter";
+import { env } from "../env";
+import { runners } from "../runners";
 import type { HonoProjectEnv } from "../types";
 
 const CreateSessionSchema = z.object({
@@ -21,7 +25,6 @@ const CreateSessionSchema = z.object({
 	name: z.string().optional(),
 	reportIntervalMins: z.number().optional(),
 	totalTimeoutMins: z.number().optional(),
-	discordChannelId: z.string().optional(),
 	freezeReportMode: z.enum(["always", "never", "custom"]).optional(),
 	freezeReportCustomRule: z.string().optional(),
 	freezeAskMode: z.enum(["always", "requiredOnly", "onReportOnly", "never"]).optional(),
@@ -33,7 +36,34 @@ const CreateSessionSchema = z.object({
 
 const MessageSchema = z.object({ message: z.string().min(1) });
 
-const runners = new Map<string, AgentRunner>();
+/** Fire-and-forget: ask the LLM to name the session based on the task. */
+function autoNameSession(db: Db, sessionId: string, task: string) {
+	const client = new Anthropic({
+		apiKey: env.ANTHROPIC_API_KEY,
+		baseURL: env.ANTHROPIC_BASE_URL,
+	});
+	client.messages
+		.create({
+			model: env.ANTHROPIC_MODEL,
+			max_tokens: 30,
+			messages: [
+				{
+					role: "user",
+					content: `Give a short name (2-5 words) for a coding session with this task. Reply with ONLY the name, nothing else.\n\nTask: ${task}`,
+				},
+			],
+		})
+		.then((res) => {
+			const text = res.content[0]?.type === "text" ? res.content[0].text.trim() : null;
+			if (text) {
+				updateSession(db, sessionId, { name: text });
+				sessionEmitter.emit(sessionId, { type: "session_updated", data: { id: sessionId, name: text } });
+			}
+		})
+		.catch((err) => {
+			console.warn("[AutoName] Failed to name session:", err.message ?? err);
+		});
+}
 
 export const sessionsRouter = new Hono<HonoProjectEnv>()
 	.get("/", (c) => c.json(listSessions(c.get("db"))))
@@ -91,7 +121,6 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 		const compactThresholdTokens = body.compactThresholdTokens ?? 80_000;
 		const stopThresholdTokens = body.stopThresholdTokens ?? 400_000;
 		const alwaysImproveMode = body.alwaysImproveMode ?? "no";
-		const discordChannelId = body.discordChannelId ?? process.env.DISCORD_DEFAULT_CHANNEL_ID ?? null;
 
 		const createdAt = Date.now();
 		const d = new Date(createdAt);
@@ -111,7 +140,6 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 			stopThresholdTokens,
 			alwaysImproveMode,
 			alwaysImproveScope: body.alwaysImproveScope ?? null,
-			discordChannelId,
 			status: "running",
 			createdAt,
 			updatedAt: createdAt,
@@ -122,7 +150,6 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 			sessionId: id,
 			reportIntervalMins,
 			totalTimeoutMins,
-			discordChannelId,
 			freezeReportMode,
 			freezeReportCustomRule: body.freezeReportCustomRule ?? null,
 			freezeAskMode,
@@ -134,6 +161,11 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 		runners.set(id, runner);
 
 		sessionEmitter.emit(id, { type: "session_created", data: session });
+
+		// Auto-name the session via a parallel LLM call (fire-and-forget)
+		if (!body.name) {
+			autoNameSession(db, id, body.task);
+		}
 
 		runner.run(body.task).finally(() => {
 			runners.delete(id);
@@ -183,7 +215,6 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 			sessionId: id,
 			reportIntervalMins: session.reportIntervalMins,
 			totalTimeoutMins: session.totalTimeoutMins,
-			discordChannelId: session.discordChannelId,
 			freezeReportMode: session.freezeReportMode,
 			freezeReportCustomRule: session.freezeReportCustomRule,
 			freezeAskMode: session.freezeAskMode,

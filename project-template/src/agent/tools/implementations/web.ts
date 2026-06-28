@@ -80,17 +80,21 @@ function parseDuckDuckGo(html: string, limit: number): SearchResult[] {
 	const linkRe = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
 	const snippetRe = /<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
 	const snippets: string[] = [];
-	let sm: RegExpExecArray | null;
-	while ((sm = snippetRe.exec(html)) !== null) snippets.push(htmlToText(sm[1]));
-	let lm: RegExpExecArray | null;
+	let sm: RegExpExecArray | null = snippetRe.exec(html);
+	while (sm !== null) {
+		snippets.push(htmlToText(sm[1]));
+		sm = snippetRe.exec(html);
+	}
+	let lm: RegExpExecArray | null = linkRe.exec(html);
 	let i = 0;
-	while ((lm = linkRe.exec(html)) !== null && results.length < limit) {
+	while (lm !== null && results.length < limit) {
 		let url = lm[1];
 		// DuckDuckGo wraps targets in a redirect (uddg= param) — unwrap it.
 		const m = /[?&]uddg=([^&]+)/.exec(url);
 		if (m) url = decodeURIComponent(m[1]);
 		results.push({ title: htmlToText(lm[2]), url, snippet: snippets[i] ?? "" });
 		i++;
+		lm = linkRe.exec(html);
 	}
 	return results;
 }

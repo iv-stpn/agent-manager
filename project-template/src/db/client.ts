@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { env } from "../env";
 import * as schema from "./schema";
 
 export type Db = BunSQLiteDatabase<typeof schema>;
@@ -16,7 +17,7 @@ function ensureDir(path: string) {
 	}
 }
 
-export function getDb(path = process.env.DATABASE_PATH ?? "./data/agent.db") {
+export function getDb(path = env.DATABASE_PATH) {
 	if (_db) return _db;
 	ensureDir(path);
 	const sqlite = new Database(path, { create: true });
@@ -26,7 +27,7 @@ export function getDb(path = process.env.DATABASE_PATH ?? "./data/agent.db") {
 	return _db;
 }
 
-export function initDb(path = process.env.DATABASE_PATH ?? "./data/agent.db") {
+export function initDb(path = env.DATABASE_PATH) {
 	ensureDir(path);
 	const sqlite = new Database(path, { create: true });
 	sqlite.exec("PRAGMA journal_mode = WAL;");

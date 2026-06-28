@@ -527,61 +527,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 		},
 	},
 
-	// ── Mode controls ────────────────────────────────────────────────────────────
-	{
-		name: "change_timeout",
-		description: "Change the total agent run timeout (default: 240 minutes). After timeout, agent freezes and awaits user input.",
-		input_schema: {
-			type: "object",
-			properties: {
-				minutes: { type: "number", description: "New total timeout in minutes (1–1440)" },
-			},
-			required: ["minutes"],
-		},
-	},
-	{
-		name: "change_report_time_interval",
-		description: "Change the automatic report interval (default: 15 minutes). Set to 0 to disable automatic reports entirely.",
-		input_schema: {
-			type: "object",
-			properties: {
-				minutes: { type: "number", description: "Minutes between auto-reports (0 to disable)" },
-			},
-			required: ["minutes"],
-		},
-	},
-	{
-		name: "change_freeze_report_mode",
-		description:
-			"Control whether reports cause the agent to freeze and await user input.\n- always: freeze on every report\n- never: reports are async, agent continues immediately\n- custom: agent evaluates custom_rule to decide per-report",
-		input_schema: {
-			type: "object",
-			properties: {
-				mode: { type: "string", enum: ["always", "never", "custom"] },
-				custom_rule: {
-					type: "string",
-					description:
-						"When mode=custom: describe the condition under which the agent should freeze (e.g. 'freeze if the report involves a security concern or major architecture decision')",
-				},
-			},
-			required: ["mode"],
-		},
-	},
-	{
-		name: "change_freeze_ask_mode",
-		description:
-			"Control how questions are sent to the user.\n- always: ask questions at every opportunity, grouped\n- requiredOnly: only urgent questions block; others accumulate for next report\n- onReportOnly: all questions accumulate until the next report cycle; urgent questions trigger an early report\n- never: all questions written to QUESTIONS.md; agent decides autonomously; asks at total timeout\n\nNote: freeze_report_mode takes precedence — if a report freezes, questions are always asked then.",
-		input_schema: {
-			type: "object",
-			properties: {
-				mode: {
-					type: "string",
-					enum: ["always", "requiredOnly", "onReportOnly", "never"],
-				},
-			},
-			required: ["mode"],
-		},
-	},
+	// ── Mode controls (managed via Discord commands, not agent tools) ────────────
 
 	// ── Git ──────────────────────────────────────────────────────────────────────
 	{
@@ -615,49 +561,6 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 			type: "object",
 			properties: {},
 			required: [],
-		},
-	},
-	{
-		name: "change_compact_threshold",
-		description:
-			"Change the estimated context token threshold that triggers automatic context compaction (default: 80 000). Set to 0 to disable automatic compaction.",
-		input_schema: {
-			type: "object",
-			properties: {
-				tokens: { type: "number", description: "Threshold in tokens (0 to disable)" },
-			},
-			required: ["tokens"],
-		},
-	},
-	{
-		name: "change_stop_threshold",
-		description:
-			"Change the cumulative token budget at which the agent auto-stops (default: 400 000 tokens). The agent freezes and surfaces all pending questions when this limit is reached. Set to 0 to disable.",
-		input_schema: {
-			type: "object",
-			properties: {
-				tokens: { type: "number", description: "Cumulative token budget (0 to disable)" },
-			},
-			required: ["tokens"],
-		},
-	},
-
-	// ── Always-improve ────────────────────────────────────────────────────────────
-	{
-		name: "change_always_improve_mode",
-		description:
-			"Control what happens after the original task is complete.\n- no (default): agent completes and reports done\n- yes: agent never stops; always looks for further improvements (code quality, tests, docs, performance, refactoring)\n- custom: agent continues within a specific scope defined by the user",
-		input_schema: {
-			type: "object",
-			properties: {
-				mode: { type: "string", enum: ["yes", "no", "custom"] },
-				scope: {
-					type: "string",
-					description:
-						"When mode=custom: describe exactly what kinds of improvements are in scope (e.g. 'add tests and improve docs only; do not add new features')",
-				},
-			},
-			required: ["mode"],
 		},
 	},
 
@@ -725,23 +628,6 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 				},
 			},
 			required: [],
-		},
-	},
-
-	// ── Session Management ────────────────────────────────────────────────────────
-	{
-		name: "set_session_name",
-		description:
-			"Give this session a short, memorable name that describes what you're working on. This helps the user identify sessions at a glance. Call this early in the session, ideally after understanding the task. Keep names concise (2-5 words) and descriptive (e.g. 'Auth System Refactor', 'Payment API', 'Bug Fix: Login Flow').",
-		input_schema: {
-			type: "object",
-			properties: {
-				name: {
-					type: "string",
-					description: "Short, descriptive name for this session (2-5 words recommended)",
-				},
-			},
-			required: ["name"],
 		},
 	},
 ];

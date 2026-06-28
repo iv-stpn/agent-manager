@@ -2,7 +2,6 @@ import type { ProjectConfig, ProjectStats } from "@agent-manager/projects";
 
 export type {
 	AgentConfig,
-	DiscordConfig,
 	ProjectConfig,
 	ProjectStats,
 	SessionRecord,

@@ -1,8 +1,8 @@
 import { nanoid } from "nanoid";
 import type { Db, Question } from "../db";
 import { answerQuestion, insertCheckin, updateCheckin, updateSession } from "../db";
-import { sendCheckin } from "../discord/bot";
 import { sessionEmitter } from "../emitter";
+import { sendReport } from "./discord-client";
 
 export interface CheckinResult {
 	summary: string;
@@ -15,7 +15,6 @@ export async function performCheckin(
 	sessionId: string,
 	trigger: "timer" | "urgent" | "manual" | "completion",
 	summary: string,
-	discordChannelId: string | null,
 	pendingQuestions: Question[]
 ): Promise<CheckinResult> {
 	const checkinId = nanoid();
@@ -43,22 +42,23 @@ export async function performCheckin(
 	const answers: Array<{ questionId: string; question: string; answer: string }> = [];
 	let confirmed = false;
 
-	if (discordChannelId) {
-		const result = await sendCheckin(discordChannelId, summary, pendingQuestions, sessionId, trigger);
+	const result = await sendReport(
+		sessionId,
+		{ title: summary || "Check-in", sections: [] },
+		trigger,
+		true,
+		pendingQuestions.map((q) => ({ id: q.id, text: q.text, context: q.context, suggestions: q.suggestions }))
+	);
 
-		if (result.confirmed) {
-			confirmed = true;
-			for (const ans of result.answers) {
-				answerQuestion(db, ans.questionId, ans.answer);
-				const q = pendingQuestions.find((q) => q.id === ans.questionId);
-				if (q) {
-					answers.push({ questionId: ans.questionId, question: q.text, answer: ans.answer });
-				}
+	if (result?.confirmed) {
+		confirmed = true;
+		for (const ans of result.answers) {
+			answerQuestion(db, ans.questionId, ans.answer);
+			const q = pendingQuestions.find((q) => q.id === ans.questionId);
+			if (q) {
+				answers.push({ questionId: ans.questionId, question: q.text, answer: ans.answer });
 			}
 		}
-	} else {
-		confirmed = true;
-		console.log(`[Checkin] No Discord channel — auto-confirming check-in for ${sessionId}`);
 	}
 
 	updateCheckin(db, checkinId, {

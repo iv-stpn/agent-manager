@@ -19,7 +19,6 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 	const [task, setTask] = useState("");
 	const [reportIntervalMins, setReportIntervalMins] = useState("15");
 	const [totalTimeoutMins, setTotalTimeoutMins] = useState("240");
-	const [channelId, setChannelId] = useState("");
 	const [freezeReportMode, setFreezeReportMode] = useState<"always" | "never" | "custom">("never");
 	const [freezeReportCustomRule, setFreezeReportCustomRule] = useState("");
 	const [freezeAskMode, setFreezeAskMode] = useState<"always" | "requiredOnly" | "onReportOnly" | "never">("always");
@@ -38,7 +37,6 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 				task,
 				reportIntervalMins: Number(reportIntervalMins) || 15,
 				totalTimeoutMins: Number(totalTimeoutMins) || 240,
-				discordChannelId: channelId || undefined,
 				freezeReportMode,
 				freezeReportCustomRule: freezeReportCustomRule || undefined,
 				freezeAskMode,
@@ -59,7 +57,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
+			<DialogContent open={open} className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>New Agent Session</DialogTitle>
 				</DialogHeader>
@@ -200,16 +198,6 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 							/>
 						</div>
 					)}
-
-					<div className="space-y-2">
-						<Label htmlFor="channel">Discord channel ID (optional)</Label>
-						<Input
-							id="channel"
-							placeholder="Uses DISCORD_DEFAULT_CHANNEL_ID if empty"
-							value={channelId}
-							onChange={(e) => setChannelId(e.target.value)}
-						/>
-					</div>
 
 					<DialogFooter>
 						<Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
