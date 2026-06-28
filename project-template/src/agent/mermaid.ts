@@ -6,7 +6,7 @@ const MASTER_API_URL = process.env.MASTER_API_URL ?? "http://host.docker.interna
  * containers no longer bundle a browser. The `title` argument is accepted for
  * call-site compatibility but is not used by the renderer.
  */
-export async function renderMermaid(definition: string, _title?: string): Promise<Buffer> {
+export async function renderMermaid(definition: string): Promise<Buffer> {
 	const resp = await fetch(`${MASTER_API_URL}/api/render/mermaid`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },

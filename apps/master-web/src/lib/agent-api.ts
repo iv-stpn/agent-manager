@@ -48,7 +48,8 @@ export async function getProjects(signal?: AbortSignal) {
 	return (await res.json()).projects;
 }
 
-export async function getProject(projectId: string, signal?: AbortSignal) {
+export async function getProject(projectId?: string, signal?: AbortSignal) {
+	if (!projectId) return null;
 	const res = await api.api.projects[":projectId"].$get({
 		param: { projectId },
 		...(signal ? { init: { signal } } : {}),
@@ -200,12 +201,7 @@ export async function sendSessionMessage(projectId: string, id: string, message:
 
 // ── SSE streams (direct to agent server, bypass proxy) ───────────────────────
 
-export function createSessionStream(
-	_projectId: string,
-	id: string,
-	onEvent: (event: SessionStreamEvent) => void,
-	port: number
-): EventSource {
+export function createSessionStream(id: string, onEvent: (event: SessionStreamEvent) => void, port: number): EventSource {
 	return createEventStream<SessionStreamEvent>(
 		`http://localhost:${port}/api/sessions/${id}/stream`,
 		SESSION_STREAM_EVENTS,
@@ -214,7 +210,7 @@ export function createSessionStream(
 	);
 }
 
-export function createProjectStream(_projectId: string, onEvent: (event: ProjectStreamEvent) => void, port: number): EventSource {
+export function createProjectStream(onEvent: (event: ProjectStreamEvent) => void, port: number): EventSource {
 	return createEventStream<ProjectStreamEvent>(`http://localhost:${port}/api/stream`, PROJECT_STREAM_EVENTS, onEvent, "project");
 }
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -49,6 +50,8 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 			onOpenChange(false);
 			setTask("");
 			navigate(`/projects/${projectId}/sessions/${session.id}`);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Failed to start session");
 		} finally {
 			setLoading(false);
 		}

@@ -96,7 +96,6 @@ function useStreamText(text: string, streaming: boolean) {
 	const [count, setCount] = useState(() => (streaming ? 0 : text.length));
 
 	// Reset and replay whenever the message text changes (new message assigned)
-	// biome-ignore lint/correctness/useExhaustiveDependencies: intentional re-trigger on text identity change
 	useEffect(() => {
 		if (!streaming) {
 			setCount(text.length);
@@ -175,7 +174,7 @@ function MessageBubble({
 					if (block.type === "text" && block.text) {
 						return (
 							<StreamingTextBlock
-								key={`text-${index}-${block.text.slice(0, 20)}`}
+								key={`text-${block.text.slice(0, 20)}`}
 								text={block.text}
 								streaming={isStreaming && index === lastTextIdx}
 								className={cn(
@@ -202,7 +201,7 @@ function MessageBubble({
 						const tc = block.tool_use_id ? toolCallByUseId.get(block.tool_use_id) : undefined;
 						return (
 							<ToolResultBubble
-								key={`result-${index}-${block.tool_use_id ?? ""}`}
+								key={`result-${block.tool_use_id ?? ""}`}
 								name={tc?.toolName ?? null}
 								content={stringifyResult(block.content)}
 								isError={Boolean(block.is_error) || tc?.status === "error"}
@@ -292,7 +291,6 @@ export function MessageFeed({ messages, toolCalls, sessionStatus, pendingToolCal
 	const prevIdsRef = useRef(new Set(messages.map((m) => m.id)));
 	const [newIds, setNewIds] = useState<Set<string>>(new Set());
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: run when messages array grows
 	useEffect(() => {
 		const incoming = messages.filter((m) => !prevIdsRef.current.has(m.id));
 		if (incoming.length > 0) {

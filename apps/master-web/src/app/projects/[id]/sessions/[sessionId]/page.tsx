@@ -1,6 +1,7 @@
 import { ArrowLeft, RefreshCw, Send, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { toast } from "sonner";
 import { CheckinTimeline } from "@/components/checkin-timeline";
 import { CompactionTimeline } from "@/components/compaction-timeline";
 import { MessageFeed } from "@/components/message-feed";
@@ -29,11 +30,8 @@ import { mutateCache, useQuery } from "@/lib/query-cache";
 import type { Project } from "@/lib/types";
 import { cn, formatTokens, statusBg } from "@/lib/utils";
 
-const _API_URL = import.meta.env.VITE_API_URL || "http://localhost:3100";
-
 export default function SessionPage() {
 	const params = useParams<{ id: string; sessionId: string }>();
-	const _router = useRouter();
 	const projectId = params.id;
 	const sessionId = params.sessionId;
 
@@ -53,18 +51,33 @@ export default function SessionPage() {
 	const xKey = `compactions:${projectId}:${sessionId}`;
 	const rKey = `project:${projectId}`;
 
+	function wrapQueryList<T>(
+		fn: (projectId: string, sessionId: string) => Promise<T[]>,
+		projectId?: string,
+		sessionId?: string
+	): () => Promise<T[]> {
+		return async () => (projectId && sessionId ? await fn(projectId, sessionId) : []);
+	}
+
+	function wrapQueryNull<T>(
+		fn: (projectId: string, sessionId: string) => Promise<T>,
+		projectId?: string,
+		sessionId?: string
+	): () => Promise<T | null> {
+		return async () => (projectId && sessionId ? await fn(projectId, sessionId) : null);
+	}
+
 	// Initial loads only. Every subsequent update arrives over the SSE stream and
 	// is folded into the cache below — these endpoints are never re-queried,
 	// except on an explicit manual refresh (the button in the top bar).
-	const { data: session, error, refetch: refetchSession } = useQuery<Session>(sKey, () => getSession(projectId, sessionId));
-	const { data: messages = [], refetch: refetchMessages } = useQuery<Message[]>(mKey, () => getMessages(projectId, sessionId));
-	const { data: toolCalls = [], refetch: refetchTools } = useQuery<ToolCall[]>(tKey, () => getToolCalls(projectId, sessionId));
-	const { data: checkins = [], refetch: refetchCheckins } = useQuery<Checkin[]>(cKey, () => getCheckins(projectId, sessionId));
-	const { data: questions = [], refetch: refetchQuestions } = useQuery<Question[]>(qKey, () =>
-		getQuestions(projectId, sessionId)
-	);
-	const { data: compactions = [], refetch: refetchCompactions } = useQuery<Compaction[]>(xKey, () =>
-		getCompactions(projectId, sessionId)
+	const { data: session, error, refetch: refetchSession } = useQuery(sKey, wrapQueryNull(getSession, projectId, sessionId));
+	const { data: messages = [], refetch: refetchMessages } = useQuery(mKey, wrapQueryList(getMessages, projectId, sessionId));
+	const { data: toolCalls = [], refetch: refetchTools } = useQuery(tKey, wrapQueryList(getToolCalls, projectId, sessionId));
+	const { data: checkins = [], refetch: refetchCheckins } = useQuery(cKey, wrapQueryList(getCheckins, projectId, sessionId));
+	const { data: questions = [], refetch: refetchQuestions } = useQuery(qKey, wrapQueryList(getQuestions, projectId, sessionId));
+	const { data: compactions = [], refetch: refetchCompactions } = useQuery(
+		xKey,
+		wrapQueryList(getCompactions, projectId, sessionId)
 	);
 
 	const refreshAll = useCallback(() => {
@@ -87,9 +100,8 @@ export default function SessionPage() {
 		// Only open the SSE stream against a running agent server; against a
 		// stopped project the stream endpoint returns 502 and EventSource would
 		// retry forever.
-		if (!running || !serverPort) return;
+		if (!running || !serverPort || !sessionId) return;
 		const es = createSessionStream(
-			projectId,
 			sessionId,
 			(event) => {
 				if (event.type === "text_delta") {
@@ -160,15 +172,24 @@ export default function SessionPage() {
 		};
 
 		return () => es.close();
-	}, [serverPort, projectId, sessionId, running, sKey, mKey, tKey, cKey, qKey, xKey, rKey, refreshAll]);
+	}, [serverPort, sessionId, running, sKey, mKey, tKey, cKey, qKey, xKey, rKey, refreshAll]);
 
 	async function handleStop() {
+		if (!projectId || !sessionId) {
+			toast.info("No session is loaded.");
+			return;
+		}
 		setStopping(true);
 		await stopSession(projectId, sessionId);
 		setStopping(false);
 	}
 
 	async function handleSendMessage() {
+		if (!projectId || !sessionId) {
+			toast.info("No session is loaded.");
+			return;
+		}
+
 		const text = chatInput.trim();
 		if (!text || sending) return;
 		setSending(true);

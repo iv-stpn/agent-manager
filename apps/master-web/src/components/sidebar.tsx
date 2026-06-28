@@ -1,6 +1,10 @@
-import { BarChart2, Home, LayoutTemplate, Plus, X } from "lucide-react";
+import { BarChart2, Home, LayoutTemplate, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import type { EnrichedProject } from "@/lib/agent-api";
 import { createProject as apiCreateProject, createMasterStream, getProjects } from "@/lib/agent-api";
 import { mutateCache, setCache, useQuery } from "@/lib/query-cache";
@@ -11,7 +15,7 @@ export function Sidebar() {
 	const [creating, setCreating] = useState(false);
 	const [name, setName] = useState("");
 
-	const { data: projects = [] } = useQuery<EnrichedProject[]>("projects", () => getProjects());
+	const { data: projects = [] } = useQuery("projects", () => getProjects());
 
 	useEffect(() => {
 		const es = createMasterStream(
@@ -40,8 +44,9 @@ export function Sidebar() {
 			await apiCreateProject({ name: name.trim() });
 			setName("");
 			setCreating(false);
+			toast.success("Project created");
 		} catch (err) {
-			console.error("Failed to create project:", err);
+			toast.error(err instanceof Error ? err.message : "Failed to create project");
 		}
 	}
 
@@ -116,53 +121,34 @@ export function Sidebar() {
 				</div>
 			</aside>
 
-			{/* Create project dialog */}
-			{creating && (
-				<div
-					className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-					onClick={() => setCreating(false)}
-					onKeyDown={(e) => e.key === "Escape" && setCreating(false)}
-					role="dialog"
-					aria-modal="true"
-					aria-label="Create new project"
-				>
-					<div className="bg-white rounded-xl p-6 w-80 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-						<div className="flex items-center justify-between mb-4">
-							<h2 className="text-base font-semibold text-gray-900">New Project</h2>
-							<button type="button" onClick={() => setCreating(false)} className="text-gray-400 hover:text-gray-600">
-								<X className="w-4 h-4" />
-							</button>
-						</div>
-						<input
-							// biome-ignore lint/a11y/noAutofocus: intentional focus for modal
-							autoFocus
-							type="text"
-							value={name}
-							onChange={(e) => setName(e.target.value)}
-							onKeyDown={(e) => e.key === "Enter" && createProject()}
-							className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
-							placeholder="Project name"
-						/>
-						<div className="flex gap-2">
-							<button
-								type="button"
-								onClick={createProject}
-								disabled={!name.trim()}
-								className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-							>
-								Create
-							</button>
-							<button
-								type="button"
-								onClick={() => setCreating(false)}
-								className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
-							>
-								Cancel
-							</button>
-						</div>
+			<Dialog
+				open={creating}
+				onOpenChange={(open) => {
+					setCreating(open);
+					if (!open) setName("");
+				}}
+			>
+				<DialogContent className="max-w-xs">
+					<DialogHeader>
+						<DialogTitle>New Project</DialogTitle>
+					</DialogHeader>
+					<Input
+						autoFocus
+						value={name}
+						onChange={(e) => setName(e.target.value)}
+						onKeyDown={(e) => e.key === "Enter" && createProject()}
+						placeholder="Project name"
+					/>
+					<div className="flex gap-2">
+						<Button className="flex-1" onClick={createProject} disabled={!name.trim()}>
+							Create
+						</Button>
+						<Button className="flex-1" variant="secondary" onClick={() => setCreating(false)}>
+							Cancel
+						</Button>
 					</div>
-				</div>
-			)}
+				</DialogContent>
+			</Dialog>
 		</>
 	);
 }

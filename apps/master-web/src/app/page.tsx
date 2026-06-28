@@ -1,6 +1,7 @@
 import { Activity, Database, ExternalLink, FolderOpen, Play, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 import { containerClassName } from "@/lib/classes";
 import { cn } from "@/lib/utils";
 import {
@@ -34,7 +35,7 @@ export default function Home() {
 		loading,
 		error,
 		refetch: fetchProjects,
-	} = useQuery<Project[]>("projects", async () => {
+	} = useQuery("projects", async () => {
 		try {
 			return await getProjects(AbortSignal.timeout(8000));
 		} catch (err) {
@@ -100,8 +101,9 @@ export default function Home() {
 			});
 			setCreating(false);
 			fetchProjects();
+			toast.success("Project created");
 		} catch (error) {
-			console.error("Failed to create project:", error);
+			toast.error(error instanceof Error ? error.message : "Failed to create project");
 		}
 	};
 
@@ -109,8 +111,9 @@ export default function Home() {
 		try {
 			await apiStartProject(projectId);
 			fetchProjects();
+			toast.success("Project started");
 		} catch (error) {
-			console.error("Failed to start project:", error);
+			toast.error(error instanceof Error ? error.message : "Failed to start project");
 		}
 	};
 
@@ -118,8 +121,9 @@ export default function Home() {
 		try {
 			await apiStopProject(projectId);
 			fetchProjects();
+			toast.success("Project stopped");
 		} catch (error) {
-			console.error("Failed to stop project:", error);
+			toast.error(error instanceof Error ? error.message : "Failed to stop project");
 		}
 	};
 
@@ -128,8 +132,9 @@ export default function Home() {
 		try {
 			await apiDeleteProject(projectId);
 			fetchProjects();
+			toast.success("Project deleted");
 		} catch (error) {
-			console.error("Failed to delete project:", error);
+			toast.error(error instanceof Error ? error.message : "Failed to delete project");
 		}
 	};
 

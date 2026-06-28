@@ -54,7 +54,6 @@ export class ProjectManager {
 	private templatePath: string;
 
 	constructor(rootDir: string = resolveWorkspaceRoot()) {
-		this.rootDir = rootDir;
 		this.projectsRoot = join(rootDir, PROJECTS_DIR);
 		this.templatePath = join(rootDir, "project-template");
 	}

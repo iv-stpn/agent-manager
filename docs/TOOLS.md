@@ -4,428 +4,322 @@ Complete list of tools available to the autonomous agent.
 
 ---
 
-## 📁 File System Operations (15 tools)
+## Commands
 
-### Basic Operations
+### `bash`
 
-#### `read_file`
-Read a file's contents.
-```json
-{
-  "path": "src/index.ts"
-}
-```
-**Returns:** File content (truncated at 20,000 chars)
+Execute a shell command inside the sandboxed workspace. Working directory is always the workspace root. All file operations are relative to the workspace.
 
-#### `write_file`
-Create or overwrite a file.
-```json
-{
-  "path": "src/config.json",
-  "content": "{\"key\": \"value\"}"
-}
-```
-**Returns:** Confirmation message
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `command` | `string` | Yes | Shell command to execute |
+| `timeout_ms` | `number` |  | Max execution time in ms (default: 30000) |
 
-#### `list_directory`
-List files in a directory.
-```json
-{
-  "path": "src"  // optional, defaults to workspace root
-}
-```
-**Returns:** `ls -la` output
+### `grep`
 
-### Advanced File Operations
+Search for a regex pattern in files. Returns matching lines with file paths and line numbers.
 
-#### `search_files` 🆕
-Search for text patterns across files (grep).
-```json
-{
-  "pattern": "function.*hello",
-  "path": "src",              // optional
-  "file_pattern": "*.ts",     // optional glob
-  "case_sensitive": false,    // optional
-  "max_results": 100          // optional
-}
-```
-**Returns:** Matching lines with file:line:content
-**Use cases:** Find function definitions, imports, TODOs, debug logs
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pattern` | `string` | Yes | Regex pattern to search for |
+| `path` | `string` |  | Directory to search in (default: workspace root) |
+| `include` | `string` |  | File glob filter (e.g. '*.ts') |
+| `flags` | `string` |  | Extra grep flags (e.g. '-i' for case-insensitive) |
 
-#### `edit_file` 🆕
-Replace specific content in a file without reading the entire file.
-```json
-{
-  "path": "src/config.ts",
-  "old_string": "const PORT = 3000;",
-  "new_string": "const PORT = 8080;",
-  "replace_all": false  // optional, default: false (first match only)
-}
-```
-**Returns:** Number of replacements made
-**Important:** `old_string` must match exactly (including whitespace)
+### `glob`
 
-#### `read_file_range` 🆕
-Read specific line range from a file (efficient for large files).
-```json
-{
-  "path": "logs/output.log",
-  "start_line": 100,
-  "end_line": 200
-}
-```
-**Returns:** Lines 100-200 (1-indexed, inclusive)
+Find files and directories matching a glob pattern (e.g. '**/*.ts', 'src/**/*.{ts,js}').
 
-#### `get_file_info` 🆕
-Get file metadata (size, modified time, permissions, type).
-```json
-{
-  "path": "build/app.js"
-}
-```
-**Returns:** Size, modification date, type, permissions, line count (for text files)
-**Use cases:** Check if file exists, check size before reading, get last modified time
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pattern` | `string` | Yes | Glob pattern to match |
+| `path` | `string` |  | Base directory (default: workspace root) |
 
-### File Management
+## File system
 
-#### `move_file` 🆕
-Move or rename a file/directory.
-```json
-{
-  "source": "old-name.ts",
-  "destination": "new-name.ts"
-}
-```
-**Returns:** Confirmation message
-**Note:** Creates parent directories automatically
+### `read_file`
 
-#### `delete_file` 🆕
-Delete a file or directory.
-```json
-{
-  "path": "temp/cache",
-  "recursive": true  // required for directories
-}
-```
-**Returns:** Confirmation message
-**Warning:** Use with caution, deletion is permanent
+Read a file from the workspace. Path is relative to workspace root.
 
-#### `create_directory` 🆕
-Create a directory (and parent directories).
-```json
-{
-  "path": "src/components/ui"
-}
-```
-**Returns:** Confirmation message
-**Note:** Equivalent to `mkdir -p`
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | `string` | Yes | File path (relative to workspace) |
 
-### Shell Access
+### `write_file`
 
-#### `bash`
-Execute arbitrary shell commands.
-```json
-{
-  "command": "npm install lodash",
-  "timeout_ms": 60000  // optional, default: 30000
-}
-```
-**Returns:** stdout, stderr, exit code
-**Use cases:** Run build tools, package managers, git commands, system utilities
+Write content to a file in the workspace. Cannot write to .agent/memory/ — use write_memory for that.
 
----
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | `string` | Yes | File path (relative to workspace) |
+| `content` | `string` | Yes | Content to write |
 
-## 🧠 Memory Management (4 tools)
+### `list_directory`
 
-The agent has persistent memory stored in `.agent/` directory. These tools allow reading, writing, and searching across memory files to maintain context between sessions.
+List files in a workspace directory.
 
-#### `read_memory` 🆕
-Read from the agent's persistent memory system.
-```json
-{
-  "file": "MEMORY.md"  // or: "DECISIONS.md", "TODO.md", "memory/architecture.md", etc.
-}
-```
-**Available files:**
-- `MEMORY.md` — Memory index (lists all memory/ files)
-- `DECISIONS.md` — Architectural decisions log
-- `TODO.md` — Task queue
-- `QUESTIONS.md` — Pending questions
-- `plans/CURRENT_PLAN.md` — Active plan
-- `memory/*.md` — Topic-specific memories (architecture, codebase, conventions, etc.)
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | `string` |  | Directory path (default: workspace root) |
 
-**Returns:** File contents (up to 50,000 chars)
+### `search_files`
 
-#### `write_memory` 🆕
-Write to the agent's persistent memory system.
-```json
-{
-  "file": "memory/authentication.md",
-  "content": "---\nname: authentication\ndescription: Auth system design\nmetadata:\n  type: project\n---\n\nWe use JWT tokens...",
-  "append": false  // optional, set true to append instead of overwrite
-}
-```
-**Features:**
-- Creates parent directories automatically
-- Writing to `memory/*.md` auto-updates `MEMORY.md` index
-- Append mode useful for `DECISIONS.md`, `TODO.md`
+Search for patterns in files using grep. Returns matching lines with file paths and line numbers. Useful for finding function definitions, imports, TODOs, or any text pattern across the codebase.
 
-**Returns:** Confirmation message
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pattern` | `string` | Yes | Search pattern (supports regex) |
+| `path` | `string` |  | Directory to search in (default: workspace root) |
+| `file_pattern` | `string` |  | File glob pattern (e.g., '*.ts', '*.py'). Default: all files |
+| `case_sensitive` | `boolean` |  | Case-sensitive search. Default: false |
+| `max_results` | `number` |  | Maximum results to return. Default: 100 |
 
-#### `search_memory` 🆕
-Search across all memory files for patterns.
-```json
-{
-  "pattern": "database.*choice",
-  "case_sensitive": false  // optional
-}
-```
-**Returns:** Matching lines with file names and line numbers
-**Use cases:**
-- Find where you documented something
-- Check if a decision was already made
-- Discover related context across memory files
+### `edit_file`
 
-#### `append_decision` 🆕
-Add a new decision to `DECISIONS.md` (append-only log).
-```json
-{
-  "title": "Use PostgreSQL for persistence",
-  "context": "Need to store user data and relationships",
-  "decision": "Use PostgreSQL with Prisma ORM",
-  "rationale": "Better relational support than MongoDB, mature ecosystem",
-  "consequences": "Need to run migrations, but get strong typing"  // optional
-}
-```
-**Automatically adds:**
-- Current date
-- Proper formatting
-- Never overwrites previous decisions
+Edit a file by replacing specific content. Searches for old_string and replaces with new_string. More efficient than reading entire file, modifying, and writing back. The old_string must match exactly (including whitespace).
 
-**Returns:** Confirmation message
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | `string` | Yes | File path (relative to workspace) |
+| `old_string` | `string` | Yes | Exact string to find and replace (must match exactly) |
+| `new_string` | `string` | Yes | Replacement string |
+| `replace_all` | `boolean` |  | Replace all occurrences (default: false, only first match) |
 
----
+### `move_file`
 
-## 💬 Communication (4 tools)
+Move or rename a file or directory. Creates parent directories if needed.
 
-#### `queue_question`
-Ask a non-urgent question (behavior depends on `freeze_ask_mode`).
-```json
-{
-  "question": "Should I use TypeScript strict mode?",
-  "context": "The codebase currently has strict: false in tsconfig.json"
-}
-```
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `source` | `string` | Yes | Source path (relative to workspace) |
+| `destination` | `string` | Yes | Destination path (relative to workspace) |
 
-#### `urgent_question`
-Ask a critical question that blocks progress.
-```json
-{
-  "question": "Which database should I use?",
-  "context": "Need to choose between PostgreSQL, MySQL, or MongoDB for user data"
-}
-```
+### `delete_file`
 
-#### `ask_checklist`
-Send a multi-question form (Discord modal).
-```json
-{
-  "title": "Implementation Requirements",
-  "items": [
-    {
-      "id": "auth_method",
-      "question": "Which authentication method?",
-      "description": "Options: JWT, Session, OAuth2",
-      "required": true
-    },
-    {
-      "id": "db_choice",
-      "question": "Which database?",
-      "description": "e.g., PostgreSQL, MongoDB",
-      "required": true
-    }
-  ]
-}
-```
-**Best practice:** Call at the start of implementation to surface all ambiguities upfront
+Delete a file or directory. Use with caution. For directories, deletes recursively.
 
-#### `send_report`
-Send a structured progress report (Discord).
-```json
-{
-  "title": "Implementation Progress",
-  "sections": [
-    {
-      "title": "Completed",
-      "content": "- Created API endpoints\n- Added authentication"
-    }
-  ],
-  "mermaid_diagrams": [
-    {
-      "title": "Architecture",
-      "code": "graph LR\nA[Client] --> B[API]\nB --> C[DB]"
-    }
-  ]
-}
-```
-**Features:** Auto-splits long sections, renders Mermaid to PNG, supports screenshots
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | `string` | Yes | Path to delete (relative to workspace) |
+| `recursive` | `boolean` |  | Required true for directories. Default: false |
 
----
+### `create_directory`
 
-## 🔧 Git & Quality (1 tool)
+Create a directory (and any missing parent directories).
 
-#### `commit_changes`
-Stage all changes and create a git commit with quality checks.
-```json
-{
-  "message": "feat(auth): add JWT middleware",
-  "skip_checks": false  // optional, default: false
-}
-```
-**Automatic checks (unless `skip_checks=true`):**
-1. Runs linter (if available)
-2. Runs type checker (if available)
-3. Runs tests (if available)
-4. Blocks commit if any check fails
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | `string` | Yes | Directory path (relative to workspace) |
 
-**Returns:** Commit hash or error details
+### `get_file_info`
 
----
+Get metadata about a file or directory: size, modification time, permissions, type. Useful before reading large files or checking if a path exists.
 
-## ⚙️ Runtime Configuration (7 tools)
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | `string` | Yes | Path to inspect (relative to workspace) |
 
-#### `change_timeout`
-Adjust total session timeout.
-```json
-{
-  "minutes": 60
-}
-```
+### `read_file_range`
 
-#### `change_report_time_interval`
-Adjust automatic report frequency.
-```json
-{
-  "minutes": 15
-}
-```
+Read a specific range of lines from a file. Efficient for large files when you only need a portion.
 
-#### `change_freeze_report_mode`
-Control whether sending reports pauses the agent.
-```json
-{
-  "mode": "always"  // or: "never", "custom"
-}
-```
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | `string` | Yes | File path (relative to workspace) |
+| `start_line` | `number` | Yes | Starting line number (1-indexed, inclusive) |
+| `end_line` | `number` | Yes | Ending line number (1-indexed, inclusive) |
 
-#### `change_freeze_ask_mode`
-Control question handling behavior.
-```json
-{
-  "mode": "requiredOnly"  // or: "always", "onReportOnly", "never"
-}
-```
+## Memory Management
 
-#### `change_always_improve_mode`
-Enable/disable continuous improvement loop.
-```json
-{
-  "mode": "yes",  // or: "no", "custom"
-  "scope": "Focus on performance optimization"  // optional
-}
-```
+### `read_memory`
 
-#### `compact_context`
-Manually trigger context window compression.
-```json
-{}
-```
-**Use cases:** Before starting a large task, when approaching token limits
+Read from the agent's persistent memory system (.agent/ directory). Use this to recall project context, architecture, decisions, TODOs, and conventions stored from previous sessions.
 
-#### `change_compact_threshold`
-Set automatic context compaction trigger.
-```json
-{
-  "tokens": 80000  // 0 to disable
-}
-```
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | `string` | Yes | Memory file to read. Options: 'MEMORY.md' (index), 'DECISIONS.md', 'TODO.md', 'QUESTIONS.md', 'plans/CURRENT_PLAN.md', or any file in memory/ subdirectory like 'memory/architecture.md', 'memory/codebase.md', 'memory/conventions.md', etc. |
 
-#### `change_stop_threshold`
-Set hard token budget limit.
-```json
-{
-  "tokens": 400000  // 0 to disable
-}
-```
+### `write_memory`
+
+Write to the agent's persistent memory system. Updates memory files with new information. If writing to memory/ subdirectory, automatically updates MEMORY.md index. Use this to record architecture decisions, update TODOs, document conventions, etc.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | `string` | Yes | Memory file to write. For topic files use 'memory/filename.md'. For root files use 'DECISIONS.md', 'TODO.md', etc. New memory/ files are auto-registered in MEMORY.md. |
+| `content` | `string` | Yes | Full content to write. For memory/ files, include frontmatter if needed. For DECISIONS.md, append new entries without deleting old ones. |
+| `append` | `boolean` |  | If true, append to file instead of overwriting. Useful for DECISIONS.md and TODO.md. Default: false |
+
+### `search_memory`
+
+Search across all memory files for specific patterns or keywords. Returns matches with file names and context. Useful for finding where you documented something, checking if a decision was made, or discovering related context.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pattern` | `string` | Yes | Search pattern (supports regex). Examples: 'authentication', 'database.*choice', 'TODO.*urgent' |
+| `case_sensitive` | `boolean` |  | Case-sensitive search. Default: false |
+
+### `append_decision`
+
+Append a new architectural or design decision to DECISIONS.md. Automatically formats it with timestamp and proper structure. Never deletes previous decisions (append-only log).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `title` | `string` | Yes | Short decision title (e.g., 'Use PostgreSQL for persistence') |
+| `context` | `string` | Yes | Why this decision was needed |
+| `decision` | `string` | Yes | What was decided |
+| `rationale` | `string` | Yes | Why this option over alternatives |
+| `consequences` | `string` |  | Trade-offs, implications, or follow-up actions |
+
+## Questions
+
+### `queue_question`
+
+Add a question to the pending queue. Whether it blocks or is deferred depends on freeze_ask_mode. Use for non-urgent questions. Provide suggestions when possible to make answering easier.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `question` | `string` | Yes |  |
+| `context` | `string` |  | Background info to help the user answer |
+| `suggestions` | `array` |  | Premade answer suggestions rendered as clickable buttons in Discord. The user can pick one or type a custom free-form answer. |
+
+### `urgent_question`
+
+Ask a critical question that blocks progress. In requiredOnly/always modes this sends immediately and waits. In onReportOnly mode it triggers an early report. In never mode it writes to QUESTIONS.md. Provide suggestions when possible.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `question` | `string` | Yes |  |
+| `context` | `string` |  | Why this is blocking your progress |
+| `suggestions` | `array` |  | Premade answer suggestions rendered as clickable buttons in Discord. The user can pick one or type a custom free-form answer. |
+
+## Reports
+
+### `send_report`
+
+Send a structured progress report via Discord and save it as an immutable record in the database. Supports text sections (auto-split at 1800 chars), Mermaid diagrams (rendered to PNG), and web page / HTML screenshots. Whether the agent freezes after sending depends on freeze_report_mode.
+
+IMPORTANT: This is the ONLY correct way to record reports. Do NOT use write_file to save reports — file-based reports are mutable and can be accidentally overwritten. Reports saved via send_report are permanent database records that cannot be modified.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `title` | `string` | Yes | Report title |
+| `sections` | `array` | Yes | Text sections. Each section is split into ≤1800-char chunks automatically. |
+| `mermaid_diagrams` | `array` |  | Mermaid diagrams to render as PNG images and attach to the report. |
+| `screenshot_targets` | `array` |  | Pages to screenshot. Each target can be: a URL (https://...), a workspace-relative file path (.html), or a raw HTML string (starts with '<'). |
+| `freeze_override` | `freeze` \| `continue` |  | Override the current freeze_report_mode for this specific report. 'freeze' = pause agent until user confirms; 'continue' = send report and keep working. |
+
+## Mode controls
+
+### `change_timeout`
+
+Change the total agent run timeout (default: 240 minutes). After timeout, agent freezes and awaits user input.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `minutes` | `number` | Yes | New total timeout in minutes (1–1440) |
+
+### `change_report_time_interval`
+
+Change the automatic report interval (default: 15 minutes). Set to 0 to disable automatic reports entirely.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `minutes` | `number` | Yes | Minutes between auto-reports (0 to disable) |
+
+### `change_freeze_report_mode`
+
+Control whether reports cause the agent to freeze and await user input.
+- always: freeze on every report
+- never: reports are async, agent continues immediately
+- custom: agent evaluates custom_rule to decide per-report
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `mode` | `always` \| `never` \| `custom` | Yes |  |
+| `custom_rule` | `string` |  | When mode=custom: describe the condition under which the agent should freeze (e.g. 'freeze if the report involves a security concern or major architecture decision') |
+
+### `change_freeze_ask_mode`
+
+Control how questions are sent to the user.
+- always: ask questions at every opportunity, grouped
+- requiredOnly: only urgent questions block; others accumulate for next report
+- onReportOnly: all questions accumulate until the next report cycle; urgent questions trigger an early report
+- never: all questions written to QUESTIONS.md; agent decides autonomously; asks at total timeout
+
+Note: freeze_report_mode takes precedence — if a report freezes, questions are always asked then.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `mode` | `always` \| `requiredOnly` \| `onReportOnly` \| `never` | Yes |  |
+
+## Git
+
+### `commit_changes`
+
+Stage all workspace changes, run quality checks (lint, typecheck, tests), and create a git commit with a conventional commit message. Commit is aborted if any quality check fails. Use this regularly after completing meaningful units of work.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `message` | `string` | Yes | Conventional commit message (e.g. 'feat(auth): add JWT middleware', 'fix(login): handle token expiry', 'chore: update dependencies'). Be descriptive and specific. |
+| `skip_checks` | `boolean` |  | Skip lint/typecheck/test before committing. Only use when checks are known to be unavailable. Default: false. |
+
+## Context management
+
+### `compact_context`
+
+Summarise the older portion of the conversation into a concise context block, freeing up context window space. Call this proactively when the conversation grows long or before an intensive multi-step operation.
+
+### `change_compact_threshold`
+
+Change the estimated context token threshold that triggers automatic context compaction (default: 80 000). Set to 0 to disable automatic compaction.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `tokens` | `number` | Yes | Threshold in tokens (0 to disable) |
+
+### `change_stop_threshold`
+
+Change the cumulative token budget at which the agent auto-stops (default: 400 000 tokens). The agent freezes and surfaces all pending questions when this limit is reached. Set to 0 to disable.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `tokens` | `number` | Yes | Cumulative token budget (0 to disable) |
+
+## Always-improve
+
+### `change_always_improve_mode`
+
+Control what happens after the original task is complete.
+- no (default): agent completes and reports done
+- yes: agent never stops; always looks for further improvements (code quality, tests, docs, performance, refactoring)
+- custom: agent continues within a specific scope defined by the user
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `mode` | `yes` \| `no` \| `custom` | Yes |  |
+| `scope` | `string` |  | When mode=custom: describe exactly what kinds of improvements are in scope (e.g. 'add tests and improve docs only; do not add new features') |
+
+## Implementation checklist
+
+### `ask_checklist`
+
+Present a structured implementation checklist to the user via Discord BEFORE starting coding. Use this at the very start of a new implementation to surface ambiguities, confirm constraints, and avoid asking questions later. Group related questions into the same checklist call.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `title` | `string` | Yes | Checklist title (e.g. 'Implementation Requirements') |
+| `items` | `array` | Yes | Questions to ask the user. All unanswered questions block implementation until Discord response. |
+
+## Session Management
+
+### `set_session_name`
+
+Give this session a short, memorable name that describes what you're working on. This helps the user identify sessions at a glance. Call this early in the session, ideally after understanding the task. Keep names concise (2-5 words) and descriptive (e.g. 'Auth System Refactor', 'Payment API', 'Bug Fix: Login Flow').
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | `string` | Yes | Short, descriptive name for this session (2-5 words recommended) |
 
 ---
 
-## 📊 Tool Statistics
-
-| Category | Count |
-|----------|-------|
-| File system | 11 |
-| Memory management | 4 |
-| Communication | 4 |
-| Git & Quality | 1 |
-| Configuration | 7 |
-| Context management | 1 |
-| **Total** | **28** |
-
----
-
-## 🆕 Recently Added
-
-### File Operations
-- `search_files` — Grep across codebase
-- `edit_file` — Targeted content replacement
-- `read_file_range` — Read specific line ranges
-- `get_file_info` — File metadata inspection
-- `move_file` — File/directory moving
-- `delete_file` — File/directory deletion
-- `create_directory` — Directory creation
-
-### Memory Management
-- `read_memory` — Read from .agent/ memory system
-- `write_memory` — Write to memory with auto-indexing
-- `search_memory` — Search across all memory files
-- `append_decision` — Add architectural decisions
-
----
-
-## 💡 Best Practices
-
-### Memory Management
-- **Start each session** by reading `MEMORY.md` to load context
-- Use `search_memory` to check if something was already documented
-- Use `append_decision` instead of manually writing to `DECISIONS.md`
-- Store architectural knowledge in `memory/architecture.md`
-- Store coding conventions in `memory/conventions.md`
-- Use `write_memory` with `append: true` for `TODO.md` and `DECISIONS.md`
-
-### File Operations
-- Use `get_file_info` before reading large files
-- Use `read_file_range` for logs or large files when you only need a portion
-- Use `edit_file` instead of read → modify → write for small changes
-- Use `search_files` to locate code patterns before editing
-
-### Questions
-- Call `ask_checklist` at the start of implementations to batch all questions
-- Use `urgent_question` only when truly blocked
-- Use `queue_question` for nice-to-know information
-
-### Git
-- Always use `commit_changes` instead of `bash git commit` (it runs quality checks)
-- Write conventional commit messages: `type(scope): description`
-
-### Context Management
-- Call `compact_context` proactively when starting multi-step operations
-- Monitor token usage via session API
-
----
-
-## 🔍 Tool Discovery
-
-To see the exact schema for any tool, check:
-- **Code:** `project-template/src/agent/tools.ts`
-- **Runtime:** Tool definitions are sent to Claude in the system prompt
+*Generated from `project-template/src/agent/tools/definitions.ts`*

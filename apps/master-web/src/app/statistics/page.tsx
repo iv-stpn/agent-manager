@@ -1,5 +1,4 @@
 import { Activity, Database, Play } from "lucide-react";
-import type { EnrichedProject } from "@/lib/agent-api";
 import { getProjects } from "@/lib/agent-api";
 import { useQuery } from "@/lib/query-cache";
 
@@ -29,7 +28,7 @@ function StatCard({
 }
 
 export default function StatisticsPage() {
-	const { data: projects = [], loading } = useQuery<EnrichedProject[]>("projects", () => getProjects());
+	const { data: projects = [], loading } = useQuery("projects", () => getProjects());
 
 	const running = projects.filter((p) => p.dockerStatus.running).length;
 	const stopped = projects.length - running;

@@ -123,7 +123,7 @@ export async function sendDiscordReport(
 	// ── 4. Mermaid diagrams ────────────────────────────────────────────────────
 	for (const diagram of report.mermaid_diagrams ?? []) {
 		try {
-			const png = await renderMermaid(diagram.definition, diagram.title);
+			const png = await renderMermaid(diagram.definition);
 			const attachment = new AttachmentBuilder(png, { name: "diagram.png" });
 			const embed = new EmbedBuilder()
 				.setColor(color)

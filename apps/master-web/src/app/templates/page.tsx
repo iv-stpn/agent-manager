@@ -25,7 +25,7 @@ export default function TemplatesPage() {
 	const [creating, setCreating] = useState(false);
 	const [form, setForm] = useState(EMPTY_FORM);
 
-	const { data: templates = [], loading, refetch } = useQuery<Template[]>("templates", getTemplates);
+	const { data: templates = [], loading } = useQuery<Template[]>("templates", getTemplates);
 
 	const visible = filter === "all" ? templates : templates.filter((t) => t.category === filter);
 
@@ -179,15 +179,12 @@ export default function TemplatesPage() {
 			{dialogOpen && (
 				<div
 					className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-					onClick={closeDialog}
+					onClick={(e) => e.target === e.currentTarget && closeDialog()}
 					onKeyDown={(e) => e.key === "Escape" && closeDialog()}
 					role="dialog"
 					aria-modal="true"
 				>
-					<div
-						className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]"
-						onClick={(e) => e.stopPropagation()}
-					>
+					<div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
 						<div className="flex items-center justify-between px-6 py-4 border-b">
 							<h2 className="text-base font-semibold text-gray-900">{editing ? "Edit Template" : "New Template"}</h2>
 							<button type="button" onClick={closeDialog} className="text-gray-400 hover:text-gray-600">

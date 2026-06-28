@@ -34,7 +34,7 @@ export const renderRouter = new Hono<HonoMasterEnv>()
 			const { target, html, projectId } = ScreenshotSchema.parse(await c.req.json());
 
 			if (html || target?.trimStart().startsWith("<")) {
-				return png(await screenshotHtml(html ?? target!));
+				return png(await screenshotHtml(html ?? (target as string)));
 			}
 
 			if (!target?.trim()) {

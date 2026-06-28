@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 import { NewSessionDialog } from "@/components/new-session-dialog";
 import { SessionCard } from "@/components/session-card";
 import { Button } from "@/components/ui/button";
@@ -86,8 +87,9 @@ function ProjectDetailContent() {
 		loading,
 		error,
 		refetch: fetchProject,
-	} = useQuery<Project | null>(`project:${projectId}`, async () => {
+	} = useQuery(`project:${projectId}`, async () => {
 		try {
+			if (!projectId) return null;
 			return await getProject(projectId, AbortSignal.timeout(8000));
 		} catch (err) {
 			if (err instanceof DOMException && err.name === "TimeoutError") {
@@ -115,51 +117,45 @@ function ProjectDetailContent() {
 
 		if (!isRunning || !project?.ports?.server) return;
 
-		const es = createProjectStream(
-			projectId,
-			(event) => {
-				if (event.type === "sessions") {
-					setCache(sessKey, event.data);
-				} else if (event.type === "session_created") {
-					mutateCache<Session[]>(sessKey, (prev) => (prev.some((x) => x.id === event.data.id) ? prev : [event.data, ...prev]));
-					mutateCache<Project>(projKey, (p) => ({
-						...p,
-						stats: { ...p.stats, sessions: p.stats.sessions + 1 },
-					}));
-				} else if (event.type === "session_updated" || event.type === "token_update") {
-					mutateCache<Session[]>(sessKey, (prev) =>
-						prev.map((x) => (x.id === event.data.sessionId ? { ...x, ...event.data } : x))
-					);
-				} else if (event.type === "message") {
-					mutateCache<Project>(projKey, (p) => ({
-						...p,
-						stats: { ...p.stats, messages: p.stats.messages + 1 },
-					}));
-				} else if (event.type === "checkin_started" || event.type === "checkin_completed") {
-					const d = event.data;
-					const session = (getCache<Session[]>(sessKey) ?? []).find((s) => s.id === d.sessionId);
-					const confirmed = event.type === "checkin_completed";
-					const report: Report = {
-						id: d.id,
-						sessionId: d.sessionId,
-						trigger: d.trigger,
-						summary: d.summary ?? "",
-						discordMessageId: d.discordMessageId ?? null,
-						status: confirmed ? "answered" : "pending",
-						createdAt: d.createdAt,
-						completedAt: confirmed ? Date.now() : null,
-						sessionName: session?.name ?? null,
-						sessionTask: session?.task ?? "",
-					};
-					mutateCache<Report[]>(repKey, (prev) => {
-						const next = prev.filter((r) => r.id !== report.id);
-						next.push(report);
-						return next.sort((a, b) => b.createdAt - a.createdAt);
-					});
-				}
-			},
-			project.ports.server
-		);
+		const es = createProjectStream((event) => {
+			if (event.type === "sessions") {
+				setCache(sessKey, event.data);
+			} else if (event.type === "session_created") {
+				mutateCache<Session[]>(sessKey, (prev) => (prev.some((x) => x.id === event.data.id) ? prev : [event.data, ...prev]));
+				mutateCache<Project>(projKey, (p) => ({
+					...p,
+					stats: { ...p.stats, sessions: p.stats.sessions + 1 },
+				}));
+			} else if (event.type === "session_updated" || event.type === "token_update") {
+				mutateCache<Session[]>(sessKey, (prev) => prev.map((x) => (x.id === event.data.sessionId ? { ...x, ...event.data } : x)));
+			} else if (event.type === "message") {
+				mutateCache<Project>(projKey, (p) => ({
+					...p,
+					stats: { ...p.stats, messages: p.stats.messages + 1 },
+				}));
+			} else if (event.type === "checkin_started" || event.type === "checkin_completed") {
+				const d = event.data;
+				const session = (getCache<Session[]>(sessKey) ?? []).find((s) => s.id === d.sessionId);
+				const confirmed = event.type === "checkin_completed";
+				const report: Report = {
+					id: d.id,
+					sessionId: d.sessionId,
+					trigger: d.trigger,
+					summary: d.summary ?? "",
+					discordMessageId: d.discordMessageId ?? null,
+					status: confirmed ? "answered" : "pending",
+					createdAt: d.createdAt,
+					completedAt: confirmed ? Date.now() : null,
+					sessionName: session?.name ?? null,
+					sessionTask: session?.task ?? "",
+				};
+				mutateCache<Report[]>(repKey, (prev) => {
+					const next = prev.filter((r) => r.id !== report.id);
+					next.push(report);
+					return next.sort((a, b) => b.createdAt - a.createdAt);
+				});
+			}
+		}, project.ports.server);
 
 		let opened = false;
 		es.onopen = () => {
@@ -176,28 +172,34 @@ function ProjectDetailContent() {
 
 	const startProject = async () => {
 		try {
+			if (!projectId) return;
 			await apiStartProject(projectId);
 			fetchProject();
+			toast.success("Project started");
 		} catch (error) {
-			console.error("Failed to start project:", error);
+			toast.error(error instanceof Error ? error.message : "Failed to start project");
 		}
 	};
 
 	const stopProject = async () => {
 		try {
+			if (!projectId) return;
 			await apiStopProject(projectId);
 			fetchProject();
+			toast.success("Project stopped");
 		} catch (error) {
-			console.error("Failed to stop project:", error);
+			toast.error(error instanceof Error ? error.message : "Failed to stop project");
 		}
 	};
 
 	const restartProject = async () => {
 		try {
+			if (!projectId) return;
 			await apiRestartProject(projectId);
 			fetchProject();
+			toast.success("Project restarted");
 		} catch (error) {
-			console.error("Failed to restart project:", error);
+			toast.error(error instanceof Error ? error.message : "Failed to restart project");
 		}
 	};
 
@@ -205,10 +207,11 @@ function ProjectDetailContent() {
 		if (!project) return;
 		if (!confirm(`Delete project "${project.name}"? This cannot be undone.`)) return;
 		try {
+			if (!projectId) return;
 			await apiDeleteProject(projectId);
 			navigate("/");
 		} catch (error) {
-			console.error("Failed to delete project:", error);
+			toast.error(error instanceof Error ? error.message : "Failed to delete project");
 		}
 	};
 
@@ -470,7 +473,7 @@ function SessionsTab({
 		loading,
 		error,
 		refetch: fetchSessions,
-	} = useQuery<Session[]>(`sessions:${projectId}`, async () => {
+	} = useQuery(`sessions:${projectId}`, async () => {
 		const data = await getSessions(projectId);
 		mutateCache<Project>(`project:${projectId}`, (p) => ({ ...p, stats: { ...p.stats, sessions: data.length } }));
 		return data;
@@ -575,7 +578,7 @@ function LogsTab({ projectId, running }: { projectId: string; running: boolean }
 		loading,
 		error,
 		refetch: fetchLogs,
-	} = useQuery<string>(`logs:${projectId}:${service}`, async () => {
+	} = useQuery(`logs:${projectId}:${service}`, async () => {
 		try {
 			const text = await getLogs(projectId, service);
 			mutateCache<Project>(`project:${projectId}`, (p) => ({
@@ -643,11 +646,11 @@ function SettingsTab({ projectId }: { projectId: string }) {
 	const [model, setModel] = useState("");
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
-	const [message, setMessage] = useState<string | null>(null);
 
 	const load = useCallback(async () => {
 		try {
 			const p = await getProject(projectId);
+			if (!p) return;
 			setDiscordToken(p.discord?.token ?? "");
 			setDiscordChannel(p.discord?.defaultChannelId ?? "");
 			setAnthropicKey(p.agent?.anthropicApiKey ?? "");
@@ -666,7 +669,6 @@ function SettingsTab({ projectId }: { projectId: string }) {
 
 	async function save() {
 		setSaving(true);
-		setMessage(null);
 		try {
 			await updateSettings(projectId, {
 				discord: {
@@ -679,10 +681,10 @@ function SettingsTab({ projectId }: { projectId: string }) {
 					model: model || undefined,
 				},
 			});
-			setMessage("Saved. Restart the project for changes to take effect.");
+			toast.success("Saved. Restart the project for changes to take effect.");
 			load();
 		} catch (err) {
-			setMessage(err instanceof Error ? err.message : "Failed to save settings.");
+			toast.error(err instanceof Error ? err.message : "Failed to save settings.");
 		} finally {
 			setSaving(false);
 		}
@@ -760,17 +762,6 @@ function SettingsTab({ projectId }: { projectId: string }) {
 					</div>
 				</CardContent>
 			</Card>
-
-			{message && (
-				<div
-					className={cn(
-						"text-sm rounded-lg p-3 border",
-						message.startsWith("Saved") ? "text-blue-700 bg-blue-50 border-blue-200" : "text-red-700 bg-red-50 border-red-200"
-					)}
-				>
-					{message}
-				</div>
-			)}
 
 			<Button type="button" onClick={save} disabled={saving}>
 				{saving ? "Saving..." : "Save settings"}
