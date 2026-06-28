@@ -47,7 +47,7 @@ Read a file from the workspace. Path is relative to workspace root.
 
 ### `write_file`
 
-Write content to a file in the workspace. Cannot write to .agent/memory/ — use write_memory for that.
+Write content to a file in the workspace.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -258,7 +258,7 @@ Add a question to the pending queue. Whether it blocks or is deferred depends on
 
 ### `urgent_question`
 
-Ask a critical question that blocks progress. In requiredOnly/always modes this sends immediately and waits. In onReportOnly mode it triggers an early report. In never mode it writes to QUESTIONS.md. Provide suggestions when possible.
+Ask a critical question that blocks progress. In requiredOnly/always modes this sends immediately and waits. In onReportOnly mode it triggers an early report. In never mode it logs to memory and proceeds autonomously. Provide suggestions when possible.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
