@@ -116,7 +116,11 @@ export class ProjectDocker {
 	/**
 	 * Stop with captured output
 	 */
-	async stopProjectWithOutput(projectId: string, options: { removeImages?: boolean } = {}, onLine?: (line: string) => void | Promise<void>): Promise<string> {
+	async stopProjectWithOutput(
+		projectId: string,
+		options: { removeImages?: boolean } = {},
+		onLine?: (line: string) => void | Promise<void>
+	): Promise<string> {
 		const projectDir = this.manager.getProjectDir(projectId);
 		const composePath = join(projectDir, "docker-compose.yml");
 
@@ -316,10 +320,11 @@ export class ProjectDocker {
 		const composePath = join(projectDir, "docker-compose.yml");
 
 		const serviceArgs = service ? [service] : [];
-		const proc = Bun.spawn(
-			["docker", "compose", "-f", composePath, "logs", "-f", "--tail=0", ...serviceArgs],
-			{ cwd: projectDir, stdout: "pipe", stderr: "pipe" }
-		);
+		const proc = Bun.spawn(["docker", "compose", "-f", composePath, "logs", "-f", "--tail=0", ...serviceArgs], {
+			cwd: projectDir,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
 
 		const readStream = async (stream: ReadableStream<Uint8Array>) => {
 			const reader = stream.getReader();

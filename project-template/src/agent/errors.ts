@@ -134,10 +134,7 @@ export interface RetryOptions {
 	onRetry?: (error: AgentError, attempt: number, nextDelayMs: number) => void;
 }
 
-export async function withRetry<T>(
-	fn: () => Promise<T>,
-	opts: RetryOptions
-): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions): Promise<T> {
 	const { maxAttempts, baseDelayMs, maxDelayMs, signal, onRetry } = opts;
 
 	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -169,10 +166,14 @@ export async function withRetry<T>(
 			// Wait, respecting abort signal
 			await new Promise<void>((resolve, reject) => {
 				const timeout = setTimeout(resolve, delay);
-				signal?.addEventListener("abort", () => {
-					clearTimeout(timeout);
-					reject(new Error("AbortError"));
-				}, { once: true });
+				signal?.addEventListener(
+					"abort",
+					() => {
+						clearTimeout(timeout);
+						reject(new Error("AbortError"));
+					},
+					{ once: true }
+				);
 			});
 		}
 	}

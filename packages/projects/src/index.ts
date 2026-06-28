@@ -1,6 +1,5 @@
 export { ProjectDatabase } from "./database";
 export { ProjectDocker } from "./docker";
-export { ProjectManager, resolveWorkspaceRoot } from "./manager";
 export type {
 	ArchivedProject,
 	ArchivedSession,
@@ -14,6 +13,7 @@ export type {
 	TemplateCategory,
 } from "./host-database";
 export { HostDatabase } from "./host-database";
+export { ProjectManager, resolveWorkspaceRoot } from "./manager";
 export type {
 	CheckinRecord,
 	CompactionRecord,

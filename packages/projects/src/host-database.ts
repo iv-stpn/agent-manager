@@ -262,7 +262,8 @@ export class HostDatabase {
 					name: "Accessible color contrast",
 					description: "Ensure text meets WCAG AA contrast ratios.",
 					category: "UI design",
-					content: "All text must meet WCAG AA contrast (4.5:1 for normal text, 3:1 for large text). Test with browser dev tools.",
+					content:
+						"All text must meet WCAG AA contrast (4.5:1 for normal text, 3:1 for large text). Test with browser dev tools.",
 				},
 				{
 					name: "Error handling",
@@ -280,13 +281,15 @@ export class HostDatabase {
 					name: "Explain before coding",
 					description: "Explain your plan before writing code.",
 					category: "Behavior",
-					content: "Before implementing, briefly describe your approach and which files you'll change. Ask for confirmation on non-trivial changes.",
+					content:
+						"Before implementing, briefly describe your approach and which files you'll change. Ask for confirmation on non-trivial changes.",
 				},
 				{
 					name: "No unrelated changes",
 					description: "Don't modify files unrelated to the task.",
 					category: "Rule",
-					content: "Only touch files directly related to the current task. Do not refactor, reformat, or 'improve' unrelated code.",
+					content:
+						"Only touch files directly related to the current task. Do not refactor, reformat, or 'improve' unrelated code.",
 				},
 			];
 			const insertGuideline = this.db.query(

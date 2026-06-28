@@ -5,7 +5,7 @@
 
 ## Host
 
-The orchestrator's own database (`host.db`): templates, archived projects/sessions, and global statistics. Defined in `packages/projects/src/host-database.ts`. On first open, the constructor runs `seedDefaults()`, which populates default rows for `guideline_categories` and `tech_stacks` when those tables are empty.
+The orchestrator's own database (`host.db`): templates, archived projects/sessions, and global statistics. Defined in `packages/projects/src/host-database.ts`. On first open, the constructor runs `seedDefaults()`, which populates default rows for `guideline_categories` and `guidelines` and `tech_stacks` when those tables are empty.
 
 ### `archived_projects`
 
@@ -52,6 +52,7 @@ Categories used to classify guidelines (e.g. "UI design", "Best practice").
 | `id` | `TEXT` | PK | — |
 | `name` | `TEXT` | not null | Unique category name. |
 | `description` | `TEXT` | not null, default `''` | Short description of what the category covers. |
+| `color` | `TEXT` | not null, default `'#6b7280'` | Hex color for UI badges/chips. |
 | `created_at` | `INTEGER` | not null | Creation time (epoch ms). |
 | `updated_at` | `INTEGER` | not null | Last update time (epoch ms). |
 
@@ -223,16 +224,17 @@ An autonomous agent run within a project. Holds the task, its runtime configurat
 | `created_at` | `integer` | not null, default `expression` | Creation time (epoch ms). |
 | `updated_at` | `integer` | not null, default `expression` | Last update time (epoch ms). |
 
-### `todos`
+### `tasks`
 
-The agent's working to-do list for a session, mirroring the in-context todo tracker so it survives restarts and is visible in the UI.
+A unit of work the agent coordinates. Tasks are project-wide (not bound to a single session) so they survive restarts and are accessible across sessions, mirroring how Claude Code Tasks coordinate many pieces of work. Dependencies on other tasks are stored in `metadata`, so a task can be blocked until the tasks it depends on are done.
 
 | Column | Type | Constraints | Description |
 | --- | --- | --- | --- |
 | `id` | `text` | PK | — |
-| `session_id` | `text` | not null, → `sessions.id` | Owning session. |
-| `text` | `text` | not null | The to-do item text. |
-| `status` | `text` | not null, default `pending` | Progress state of the item. One of: `pending`, `in_progress`, `done` |
+| `session_id` | `text` | → `sessions.id` | Session currently working the task, if any (null = unassigned / cross-session). |
+| `text` | `text` | not null | The task description. |
+| `status` | `text` | not null, default `pending` | Progress state of the task. One of: `pending`, `in_progress`, `done`, `cancelled` |
+| `metadata` | `text` | — | JSON: { dependsOn?: string[] } plus arbitrary fields. Null when empty. |
 | `created_at` | `integer` | not null, default `expression` | Creation time (epoch ms). |
 | `updated_at` | `integer` | not null, default `expression` | Last update time (epoch ms). |
 

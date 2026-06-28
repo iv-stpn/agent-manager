@@ -1,9 +1,9 @@
+import { createProgressStream, PROGRESS_STEP_LABELS, type ProgressStep, type ProgressStreamAction } from "@agent-manager/utils";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { createProgressStream, PROGRESS_STEP_LABELS, type ProgressStep, type ProgressStreamAction } from "@agent-manager/utils";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3100";
 
@@ -33,9 +33,7 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 				setSteps((prev) => {
 					const existing = prev.find((s) => s.id === step);
 					if (existing) {
-						return prev.map((s) =>
-							s.id === step ? { ...s, status, ...(log != null ? { log } : {}) } : s
-						);
+						return prev.map((s) => (s.id === step ? { ...s, status, ...(log != null ? { log } : {}) } : s));
 					}
 					return [...prev, { id: step, label: PROGRESS_STEP_LABELS[step] || step, status, log }];
 				});
@@ -44,9 +42,7 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 				setSteps((prev) => {
 					const existing = prev.find((s) => s.id === step);
 					if (existing) {
-						return prev.map((s) =>
-							s.id === step ? { ...s, log: (s.log ? s.log + "\n" : "") + line } : s
-						);
+						return prev.map((s) => (s.id === step ? { ...s, log: (s.log ? `${s.log}\n` : "") + line } : s));
 					}
 					return [...prev, { id: step, label: PROGRESS_STEP_LABELS[step] || step, status: "running", log: line }];
 				});
@@ -61,13 +57,13 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 				setSuccess(false);
 			},
 		});
-	}, [open, projectId, action]);
+	}, [open, projectId, action, onComplete]);
 
 	useEffect(() => {
 		if (logRef.current) {
 			logRef.current.scrollTop = logRef.current.scrollHeight;
 		}
-	}, [steps]);
+	}, []);
 
 	const canClose = done;
 	const title = action === "restart" ? "Restarting Project" : action === "stop" ? "Stopping Project" : "Starting Project";

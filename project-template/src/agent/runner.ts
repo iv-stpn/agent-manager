@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import { nanoid } from "nanoid";
@@ -26,11 +25,24 @@ import { getChannel } from "../discord/bot";
 import { sendChecklistForm } from "../discord/forms";
 import { type ReportData, sendDiscordReport } from "../discord/report";
 import { sessionEmitter } from "../emitter";
-import { UsageAnchor, compactMessages, estimateTokens } from "./context";
-import { classifyApiError, CompactionError, withRetry } from "./errors";
+import { compactMessages, estimateTokens, UsageAnchor } from "./context";
 import type { AgentError } from "./errors";
+import { classifyApiError, withRetry } from "./errors";
 import { commitChanges, getCurrentCommit } from "./git";
-import { isBashCommandReadOnly, isPlanModeToolAllowed, PLAN_MODE_BASH_BLOCKED_MESSAGE, PLAN_MODE_BLOCKED_MESSAGE } from "./plan-mode";
+import {
+	isBashCommandReadOnly,
+	isPlanModeToolAllowed,
+	PLAN_MODE_BASH_BLOCKED_MESSAGE,
+	PLAN_MODE_BLOCKED_MESSAGE,
+} from "./plan-mode";
+import {
+	BASE_MAX_TOKENS,
+	CompactionCircuitBreaker,
+	calculateTokenWarningState,
+	ESCALATED_MAX_TOKENS,
+	type TokenWarningState,
+	truncateToolResult,
+} from "./token-budget";
 import { AGENT_TOOLS } from "./tools/definitions";
 import { executeBash, glob, grep } from "./tools/implementations/commands";
 import {
@@ -45,17 +57,10 @@ import {
 	searchFiles,
 	writeFile,
 } from "./tools/implementations/filesystem";
-import { readMemory, searchMemory, writeMemory } from "./tools/implementations/memory";
-import { addTodo, listTodos, updateTodo } from "./tools/implementations/todo";
-import {
-	BASE_MAX_TOKENS,
-	CompactionCircuitBreaker,
-	calculateTokenWarningState,
-	ESCALATED_MAX_TOKENS,
-	truncateToolResult,
-	type TokenWarningState,
-} from "./token-budget";
-import { AGENT_DIR_STRUCTURE, bootstrapWorkspace, buildStartupContext } from "./workspace";
+import { deleteMemory, listMemories, recall, remember, updateMemory } from "./tools/implementations/memory";
+import { addTask, getCurrentTask, listTasks, setCurrentTask, updateTask } from "./tools/implementations/task";
+import { webFetch, webSearch } from "./tools/implementations/web";
+import { bootstrapWorkspace, buildStartupContext, MEMORY_SYSTEM_DESCRIPTION } from "./workspace";
 
 const WORKSPACE = process.env.WORKSPACE_PATH ?? "/workspace";
 
@@ -103,7 +108,7 @@ Commit only completed units of work via \`commit_changes\` (it runs quality chec
 Prefer the dedicated tools over shell equivalents so your work stays observable: \`read_file\` over \`cat\`, \`edit_file\` over \`sed\`, \`grep\`/\`glob\`/\`search_files\` over raw shell search. Reserve \`bash\` for things that genuinely need it.
 Make independent tool calls in the same turn so they run in parallel. Call \`compact_context\` before long operations or when the conversation grows large.
 
-Reports are permanent, immutable database records — the only audit trail of your progress. Use \`send_report\` for them; never write reports to files with \`write_file\`. Memory under \`.agent/memory/\` is written only via \`write_memory\`.
+Reports are permanent, immutable database records — the only audit trail of your progress. Use \`send_report\` for them; never write reports to files with \`write_file\`. Use the memory tools (\`remember\`, \`recall\`, \`update_memory\`, \`delete_memory\`, \`list_memories\`) for persistent knowledge.
 
 # Questions and reporting
 Name the session early with \`set_session_name\` (2-5 words). Front-load clarifying questions with \`ask_checklist\` at the start; later, use \`urgent_question\` only when truly blocked. Send a report at each meaningful milestone, not just when the timer fires.
@@ -111,7 +116,7 @@ Name the session early with \`set_session_name\` (2-5 words). Front-load clarify
 # Tone
 You write for an engineer reading reports asynchronously. Be concise and direct — lead with the result, skip preamble. Use markdown; minimal emoji.
 
-${AGENT_DIR_STRUCTURE}
+${MEMORY_SYSTEM_DESCRIPTION}
 
 # Settings (current)
 Report interval: ${cfg.reportIntervalMins} min (0 = disabled) · Total timeout: ${cfg.totalTimeoutMins} min · compact_threshold: ${cfg.compactThresholdTokens} tokens · stop_threshold: ${cfg.stopThresholdTokens} tokens
@@ -874,35 +879,31 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 		};
 
 		// Retry with exponential backoff for transient errors
-		const response = await withRetry(
-			() => makeRequest(BASE_MAX_TOKENS),
-			{
-				maxAttempts: 3,
-				baseDelayMs: 1000,
-				maxDelayMs: 10_000,
-				signal: this.abortController.signal,
-				onRetry: (err: AgentError, attempt: number, nextDelayMs: number) => {
-					console.log(`[Agent ${this.sessionId}] API retry #${attempt}: ${err.category} — waiting ${Math.round(nextDelayMs)}ms`);
-					sessionEmitter.emit(this.sessionId, {
-						type: "error_recovered",
-						data: { attempt, error: err.message, nextRetryMs: Math.round(nextDelayMs) },
-					});
-				},
-			}
-		);
+		const response = await withRetry(() => makeRequest(BASE_MAX_TOKENS), {
+			maxAttempts: 3,
+			baseDelayMs: 1000,
+			maxDelayMs: 10_000,
+			signal: this.abortController.signal,
+			onRetry: (err: AgentError, attempt: number, nextDelayMs: number) => {
+				console.log(`[Agent ${this.sessionId}] API retry #${attempt}: ${err.category} — waiting ${Math.round(nextDelayMs)}ms`);
+				sessionEmitter.emit(this.sessionId, {
+					type: "error_recovered",
+					data: { attempt, error: err.message, nextRetryMs: Math.round(nextDelayMs) },
+				});
+			},
+		});
 
 		// Output token tier escalation: if truncated, retry with higher limit
 		if (response.stop_reason === "max_tokens") {
-			console.log(`[Agent ${this.sessionId}] Response truncated at ${BASE_MAX_TOKENS} tokens, retrying with ${ESCALATED_MAX_TOKENS}`);
-			return withRetry(
-				() => makeRequest(ESCALATED_MAX_TOKENS),
-				{
-					maxAttempts: 2,
-					baseDelayMs: 1000,
-					maxDelayMs: 5000,
-					signal: this.abortController.signal,
-				}
+			console.log(
+				`[Agent ${this.sessionId}] Response truncated at ${BASE_MAX_TOKENS} tokens, retrying with ${ESCALATED_MAX_TOKENS}`
 			);
+			return withRetry(() => makeRequest(ESCALATED_MAX_TOKENS), {
+				maxAttempts: 2,
+				baseDelayMs: 1000,
+				maxDelayMs: 5000,
+				signal: this.abortController.signal,
+			});
 		}
 
 		return response;
@@ -996,16 +997,28 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 			answerQuestion(this.db, a.questionId, a.answer);
 			const q = pending.find((p) => p.id === a.questionId);
 			if (q) q.answer = a.answer;
+			// Append answer to the question's vector memory entry
+			recall(a.questionId, "question", 1)
+				.then((results) => {
+					const entry = results.find((r) => r.metadata?.questionId === a.questionId);
+					if (entry) {
+						updateMemory(entry.id, {
+							content: `${entry.content}\n\n**Answer:** ${a.answer}`,
+							metadata: { ...entry.metadata, status: "answered" },
+						}).catch(() => {});
+					}
+				})
+				.catch(() => {});
 		}
 	}
 
 	private async appendToQuestionsFile(q: Question): Promise<void> {
-		const path = join(WORKSPACE, ".agent", "QUESTIONS.md");
-		const entry = `## ${q.isUrgent ? "🚨 Urgent" : "❓ Question"} (${new Date(q.createdAt).toISOString()})\n${q.text}${q.context ? `\n\nContext: ${q.context}` : ""}\n\n`;
-		const existing = await Bun.file(path)
-			.text()
-			.catch(() => "");
-		await Bun.write(path, existing + entry).catch(() => {});
+		const entry = `${q.isUrgent ? "🚨 Urgent" : "❓ Question"} (${new Date(q.createdAt).toISOString()})\n${q.text}${q.context ? `\n\nContext: ${q.context}` : ""}`;
+		try {
+			await remember("question", q.text.slice(0, 100), entry);
+		} catch {
+			// Non-fatal if memory service is unavailable
+		}
 	}
 
 	private async buildQuestionsFile(): Promise<string> {
@@ -1091,9 +1104,7 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 				this.planMode = false;
 				const summary = (input.plan_summary as string) ?? undefined;
 				sessionEmitter.emit(this.sessionId, { type: "plan_mode", data: { active: false, summary } });
-				return summary
-					? `Exited plan mode. Plan summary recorded:\n${summary}`
-					: "Exited plan mode. Full tool access restored.";
+				return summary ? `Exited plan mode. Plan summary recorded:\n${summary}` : "Exited plan mode. Full tool access restored.";
 			}
 			if (!isPlanModeToolAllowed(name)) {
 				return PLAN_MODE_BLOCKED_MESSAGE;
@@ -1115,9 +1126,7 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 				this.planMode = false;
 				const summary = (input.plan_summary as string) ?? undefined;
 				sessionEmitter.emit(this.sessionId, { type: "plan_mode", data: { active: false, summary } });
-				return summary
-					? `Exited plan mode. Plan summary recorded:\n${summary}`
-					: "Exited plan mode. Full tool access restored.";
+				return summary ? `Exited plan mode. Plan summary recorded:\n${summary}` : "Exited plan mode. Full tool access restored.";
 			}
 
 			// ── File system ──────────────────────────────────────────────────────────────
@@ -1140,8 +1149,8 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 				return await readFile(input.path as string);
 			case "write_file": {
 				const p = input.path as string;
-				if (/^\.?agent\/memory\//i.test(p) || p.includes(".agent/memory/")) {
-					return "Error: Cannot write to .agent/memory/ with write_file. Use the write_memory tool instead.";
+				if (/^\.?agent\//i.test(p) || p.includes(".agent/")) {
+					return "Error: The .agent/ directory is no longer used. Use the memory tools (remember, recall, update_memory, delete_memory, list_memories) instead.";
 				}
 				await writeFile(p, input.content as string);
 				return `Written to ${p}`;
@@ -1158,8 +1167,8 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 				);
 			case "edit_file": {
 				const ep = input.path as string;
-				if (/^\.?agent\/memory\//i.test(ep) || ep.includes(".agent/memory/")) {
-					return "Error: Cannot edit .agent/memory/ with edit_file. Use write_memory instead.";
+				if (/^\.?agent\//i.test(ep) || ep.includes(".agent/")) {
+					return "Error: The .agent/ directory is no longer used. Use the memory tools instead.";
 				}
 				return await editFile(
 					ep,
@@ -1170,8 +1179,8 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 			}
 			case "move_file": {
 				const dest = input.destination as string;
-				if (/^\.?agent\/memory\//i.test(dest) || dest.includes(".agent/memory/")) {
-					return "Error: Cannot move files into .agent/memory/. Use write_memory instead.";
+				if (/^\.?agent\//i.test(dest) || dest.includes(".agent/")) {
+					return "Error: The .agent/ directory is no longer used. Use the memory tools instead.";
 				}
 				return await moveFile(input.source as string, dest);
 			}
@@ -1185,12 +1194,31 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 				return await readFileRange(input.path as string, input.start_line as number, input.end_line as number);
 
 			// ── Memory Management ────────────────────────────────────────────────────────
-			case "read_memory":
-				return await readMemory(input.file as string);
-			case "write_memory":
-				return await writeMemory(input.file as string, input.content as string, (input.append as boolean) ?? false);
-			case "search_memory":
-				return await searchMemory(input.pattern as string, (input.case_sensitive as boolean) ?? false);
+			case "remember":
+				return await remember(input.type as any, input.title as string, input.content as string, input.metadata as any);
+			case "recall": {
+				const results = await recall(input.query as string, input.type as any, (input.limit as number) ?? 10);
+				return results.length > 0
+					? results.map((r) => `[${r.id}] (${r.type}) ${r.title}:\n${r.content}`).join("\n\n---\n\n")
+					: "No matching memories found.";
+			}
+			case "update_memory":
+				await updateMemory(input.id as string, {
+					title: input.title as any,
+					content: input.content as any,
+					type: input.type as any,
+					metadata: input.metadata as any,
+				});
+				return "Memory updated.";
+			case "delete_memory":
+				await deleteMemory(input.id as string);
+				return "Memory deleted.";
+			case "list_memories": {
+				const entries = await listMemories(input.type as any, (input.limit as number) ?? 100);
+				return entries.length > 0
+					? entries.map((e) => `[${e.id}] (${e.type}) ${e.title}: ${e.content.slice(0, 150)}`).join("\n")
+					: "No memories found.";
+			}
 
 			// ── Questions ───────────────────────────────────────────────────────────────
 			case "queue_question":
@@ -1289,19 +1317,36 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 				return "Checklist sent but no response received — proceeding with best judgment.";
 			}
 
-			// ── Todo Management ─────────────────────────────────────────────────────────
-			case "add_todo":
-				return await addTodo(this.db, this.sessionId, input.text as string, input.status as "pending" | "in_progress" | "done" | undefined);
-			case "list_todos":
-				return await listTodos(this.db, this.sessionId, (input.filter as string) ?? "all");
-			case "update_todo":
-				return await updateTodo(
+			// ── Task Management ─────────────────────────────────────────────────────────
+			case "add_task":
+				return await addTask(
+					this.db,
+					this.sessionId,
+					input.text as string,
+					input.status as "pending" | "in_progress" | "done" | "cancelled" | undefined,
+					input.dependsOn as string[] | undefined
+				);
+			case "list_tasks":
+				return await listTasks(this.db, this.sessionId, (input.filter as string) ?? "all");
+			case "update_task":
+				return await updateTask(
 					this.db,
 					this.sessionId,
 					input.id as string,
-					input.status as "pending" | "in_progress" | "done" | undefined,
-					input.text as string | undefined
+					input.status as "pending" | "in_progress" | "done" | "cancelled" | undefined,
+					input.text as string | undefined,
+					input.dependsOn as string[] | undefined
 				);
+			case "set_current_task":
+				return await setCurrentTask(this.db, this.sessionId, input.id as string);
+			case "get_current_task":
+				return await getCurrentTask(this.db, this.sessionId);
+
+			// ── Web ───────────────────────────────────────────────────────────────────────
+			case "web_search":
+				return await webSearch(input.query as string, (input.limit as number) ?? 8);
+			case "web_fetch":
+				return await webFetch(input.url as string, (input.max_chars as number) ?? 20_000);
 
 			// ── Timeout/interval changes ────────────────────────────────────────────────
 			case "change_timeout": {
@@ -1328,6 +1373,10 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 	private async handleQueueQuestion(input: Record<string, unknown>): Promise<string> {
 		const q = this.makeQuestion(input, false);
 		insertQuestion(this.db, q);
+		remember("question", q.text.slice(0, 100), `${q.text}${q.context ? `\n\nContext: ${q.context}` : ""}`, {
+			questionId: q.id,
+			status: "pending",
+		}).catch(() => {});
 
 		switch (this.freezeAskMode) {
 			case "always":
@@ -1339,13 +1388,18 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 				return "Question queued for next report.";
 			case "never":
 				await this.appendToQuestionsFile(q);
-				return "Question logged to QUESTIONS.md.";
+				return "Question logged to memory.";
 		}
 	}
 
 	private async handleUrgentQuestion(input: Record<string, unknown>): Promise<string> {
 		const q = this.makeQuestion(input, true);
 		insertQuestion(this.db, q);
+		remember("question", `🚨 ${q.text.slice(0, 95)}`, `${q.text}${q.context ? `\n\nContext: ${q.context}` : ""}`, {
+			questionId: q.id,
+			status: "pending",
+			urgent: true,
+		}).catch(() => {});
 
 		switch (this.freezeAskMode) {
 			case "always":
@@ -1414,6 +1468,11 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 					title: report.title,
 					content: JSON.stringify(report),
 				});
+
+				// Record in vector memory for semantic recall
+				remember("report", report.title, report.sections.map((s) => `${s.title ?? ""}\n${s.content}`).join("\n\n")).catch(
+					() => {}
+				);
 
 				this.lastReportCommit = await getCurrentCommit(WORKSPACE);
 				if (result?.confirmed) this.injectAnswers(result.answers, pending);

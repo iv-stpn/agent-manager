@@ -92,7 +92,7 @@ export class ProjectManager {
 		const createdMatch = compose.match(/^# Created: (.+)$/m);
 		const portMatch = compose.match(/^\s+- "(\d+):\d+"$/m);
 		const volumeMatch = compose.match(/^\s+- ([^:]+):\/workspace$/m);
-		const workspaceType = volumeMatch?.[1]?.includes("/workspace") ? "internal" as const : "external" as const;
+		const workspaceType = volumeMatch?.[1]?.includes("/workspace") ? ("internal" as const) : ("external" as const);
 
 		const serverPort = portMatch ? Number.parseInt(portMatch[1], 10) : BASE_SERVER_PORT;
 		const workspacePath = volumeMatch?.[1] ?? join(projectDir, "workspace");
@@ -177,9 +177,9 @@ export class ProjectManager {
 
 		// Determine workspace configuration
 		const expandedPath = input.workspacePath
-			? (input.workspacePath.startsWith("~/") || input.workspacePath === "~"
+			? input.workspacePath.startsWith("~/") || input.workspacePath === "~"
 				? input.workspacePath.replace("~", homedir())
-				: input.workspacePath)
+				: input.workspacePath
 			: undefined;
 		const workspace = expandedPath
 			? { path: resolve(expandedPath), type: "external" as const }

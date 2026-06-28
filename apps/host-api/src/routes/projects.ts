@@ -10,7 +10,10 @@ async function enrichProject(
 	project: Awaited<ReturnType<Context<HonoHostEnv>["var"]["manager"]["getProject"]>>
 ) {
 	const { docker, projectDatabaseManager } = ctx.var;
-	const [dockerStatus, stats] = await Promise.all([docker.getProjectStatus(project.id), projectDatabaseManager.getProjectStats(project.id)]);
+	const [dockerStatus, stats] = await Promise.all([
+		docker.getProjectStatus(project.id),
+		projectDatabaseManager.getProjectStats(project.id),
+	]);
 	return { ...project, dockerStatus, stats };
 }
 
@@ -135,9 +138,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			const { stat, readdir } = await import("node:fs/promises");
 			const { homedir } = await import("node:os");
 			// Expand ~ to the user's home directory
-			const expanded = targetPath.startsWith("~/") || targetPath === "~"
-				? targetPath.replace("~", homedir())
-				: targetPath;
+			const expanded = targetPath.startsWith("~/") || targetPath === "~" ? targetPath.replace("~", homedir()) : targetPath;
 			const resolved = resolve(expanded);
 			try {
 				const s = await stat(resolved);
@@ -227,16 +228,23 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			let tail: { kill: () => void } | null = null;
 			try {
 				await send("start", "running", "Starting containers...");
-				await docker.startProjectWithOutput(projectId, async (line) => { await delta("start", line); });
+				await docker.startProjectWithOutput(projectId, async (line) => {
+					await delta("start", line);
+				});
 				await send("start", "done");
 
 				// Tail container logs while waiting for health
-				tail = docker.tailProjectLogs(projectId, async (line) => { await delta("logs", line); });
+				tail = docker.tailProjectLogs(projectId, async (line) => {
+					await delta("logs", line);
+				});
 				await send("health", "running", "Waiting for services to become healthy...");
 				let healthy = false;
 				for (let i = 0; i < 30; i++) {
 					const s = await docker.getProjectStatus(projectId);
-					if (s.running) { healthy = true; break; }
+					if (s.running) {
+						healthy = true;
+						break;
+					}
 					await Bun.sleep(1000);
 				}
 				tail.kill();
@@ -284,7 +292,9 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 
 			try {
 				await send("stop", "running", "Stopping containers...");
-				await docker.stopProjectWithOutput(projectId, {}, async (line) => { await delta("stop", line); });
+				await docker.stopProjectWithOutput(projectId, {}, async (line) => {
+					await delta("stop", line);
+				});
 				hub.projectStopped(projectId);
 				await send("stop", "done", "Containers stopped");
 				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: true }) });
@@ -311,20 +321,29 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			let tail: { kill: () => void } | null = null;
 			try {
 				await send("stop", "running", "Stopping containers...");
-				await docker.stopProjectWithOutput(projectId, {}, async (line) => { await delta("stop", line); });
+				await docker.stopProjectWithOutput(projectId, {}, async (line) => {
+					await delta("stop", line);
+				});
 				await send("stop", "done");
 
 				await send("start", "running", "Starting containers...");
-				await docker.startProjectWithOutput(projectId, async (line) => { await delta("start", line); });
+				await docker.startProjectWithOutput(projectId, async (line) => {
+					await delta("start", line);
+				});
 				await send("start", "done");
 
 				// Tail container logs while waiting for health
-				tail = docker.tailProjectLogs(projectId, async (line) => { await delta("logs", line); });
+				tail = docker.tailProjectLogs(projectId, async (line) => {
+					await delta("logs", line);
+				});
 				await send("health", "running", "Waiting for services to become healthy...");
 				let healthy = false;
 				for (let i = 0; i < 30; i++) {
 					const s = await docker.getProjectStatus(projectId);
-					if (s.running) { healthy = true; break; }
+					if (s.running) {
+						healthy = true;
+						break;
+					}
 					await Bun.sleep(1000);
 				}
 				tail.kill();

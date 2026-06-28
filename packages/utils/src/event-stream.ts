@@ -3,8 +3,8 @@
  * (raw SSE frame parsing for upstream connections).
  */
 
-import type { SessionStreamEvent, ProjectStreamEvent } from "./sse";
-import { SESSION_STREAM_EVENTS, PROJECT_STREAM_EVENTS } from "./sse";
+import type { ProjectStreamEvent, SessionStreamEvent } from "./sse";
+import { PROJECT_STREAM_EVENTS, SESSION_STREAM_EVENTS } from "./sse";
 
 // ── Generic typed EventSource factory ────────────────────────────────────────
 
@@ -37,11 +37,7 @@ export function createEventStream<E extends { type: string; data: unknown }>(
 
 // ── Concrete stream factories (browser) ──────────────────────────────────────
 
-export function createSessionStream(
-	id: string,
-	onEvent: (event: SessionStreamEvent) => void,
-	port: number
-): EventSource {
+export function createSessionStream(id: string, onEvent: (event: SessionStreamEvent) => void, port: number): EventSource {
 	return createEventStream<SessionStreamEvent>(
 		`http://localhost:${port}/api/sessions/${id}/stream`,
 		SESSION_STREAM_EVENTS,
@@ -50,16 +46,8 @@ export function createSessionStream(
 	);
 }
 
-export function createProjectStream(
-	onEvent: (event: ProjectStreamEvent) => void,
-	port: number
-): EventSource {
-	return createEventStream<ProjectStreamEvent>(
-		`http://localhost:${port}/api/stream`,
-		PROJECT_STREAM_EVENTS,
-		onEvent,
-		"project"
-	);
+export function createProjectStream(onEvent: (event: ProjectStreamEvent) => void, port: number): EventSource {
+	return createEventStream<ProjectStreamEvent>(`http://localhost:${port}/api/stream`, PROJECT_STREAM_EVENTS, onEvent, "project");
 }
 
 export function createHostStream(

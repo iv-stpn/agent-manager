@@ -1,71 +1,86 @@
-import { join } from "node:path";
-import { executeBash } from "./commands";
-import { sandboxPath } from "./filesystem";
+const HOST_API_URL = process.env.HOST_API_URL ?? "http://host.docker.internal:3100";
+const PROJECT_ID = process.env.PROJECT_ID ?? "unknown";
 
-export const AGENT_DIR = ".agent";
-export const MEMORY_DIR = join(AGENT_DIR, "memory");
-
-export async function readMemory(file: string): Promise<string> {
-	const memoryPath = file.startsWith(AGENT_DIR) ? file : join(AGENT_DIR, file);
-	const abs = sandboxPath(memoryPath);
-	try {
-		const text = await Bun.file(abs).text();
-		return text.slice(0, 50_000);
-	} catch (err) {
-		throw new Error(`Cannot read memory file ${file}: ${err}`);
-	}
+function memoryUrl(path = ""): string {
+	return `${HOST_API_URL}/api/memory/${PROJECT_ID}${path}`;
 }
 
-export async function writeMemory(file: string, content: string, append = false): Promise<string> {
-	const memoryPath = file.startsWith(AGENT_DIR) ? file : join(AGENT_DIR, file);
-	const abs = sandboxPath(memoryPath);
-
-	try {
-		const dir = abs.substring(0, abs.lastIndexOf("/"));
-		await executeBash(`mkdir -p "${dir}"`);
-
-		if (append) {
-			const existing = await Bun.file(abs)
-				.text()
-				.catch(() => "");
-			await Bun.write(abs, `${existing}\n${content}`);
-		} else {
-			await Bun.write(abs, content);
-		}
-
-		if (file.startsWith("memory/") && !append) await updateMemoryIndex(file);
-
-		return `${append ? "Appended to" : "Written"}: ${file}`;
-	} catch (err) {
-		throw new Error(`Cannot write memory file ${file}: ${err}`);
+async function memoryRequest(path: string, opts: RequestInit = {}): Promise<any> {
+	const res = await fetch(memoryUrl(path), {
+		...opts,
+		headers: { "Content-Type": "application/json", ...opts.headers },
+	});
+	if (!res.ok) {
+		const text = await res.text();
+		throw new Error(`Memory API error ${res.status}: ${text}`);
 	}
+	return res.json();
 }
 
-async function updateMemoryIndex(newFile: string): Promise<void> {
-	const indexPath = sandboxPath(join(AGENT_DIR, "MEMORY.md"));
+export type MemoryType = "decision" | "todo" | "plan" | "question" | "memory" | "report" | "context";
+
+/** Types available for direct use via the remember tool */
+export type UserMemoryType = "decision" | "plan" | "memory" | "context";
+
+export interface MemoryEntry {
+	id: string;
+	type: MemoryType;
+	title: string;
+	content: string;
+	metadata?: Record<string, any>;
+}
+
+/** Store a new memory entry. Returns the generated ID. */
+export async function remember(
+	type: MemoryType,
+	title: string,
+	content: string,
+	metadata?: Record<string, any>
+): Promise<string> {
+	const data = await memoryRequest("", {
+		method: "POST",
+		body: JSON.stringify({ type, title, content, metadata }),
+	});
+	return data.id;
+}
+
+/** Semantic search across project memory. */
+export async function recall(query: string, type?: MemoryType, limit = 10): Promise<MemoryEntry[]> {
+	const params = new URLSearchParams({ q: query, limit: String(limit) });
+	if (type) params.set("type", type);
+	const data = await memoryRequest(`/search?${params}`);
+	return data.results ?? [];
+}
+
+/** Update an existing memory entry by ID. */
+export async function updateMemory(
+	id: string,
+	updates: { title?: string; content?: string; type?: MemoryType; metadata?: Record<string, any> }
+): Promise<void> {
+	await memoryRequest(`/${id}`, {
+		method: "PUT",
+		body: JSON.stringify(updates),
+	});
+}
+
+/** Delete a memory entry by ID. */
+export async function deleteMemory(id: string): Promise<void> {
+	await memoryRequest(`/${id}`, { method: "DELETE" });
+}
+
+/** List all memories, optionally filtered by type. */
+export async function listMemories(type?: MemoryType, limit = 100): Promise<MemoryEntry[]> {
+	const params = new URLSearchParams({ limit: String(limit) });
+	if (type) params.set("type", type);
+	const data = await memoryRequest(`?${params}`);
+	return data.results ?? [];
+}
+
+/** Get a single memory entry by ID. */
+export async function getMemory(id: string): Promise<MemoryEntry | null> {
 	try {
-		const index = await Bun.file(indexPath).text();
-		const fileName = newFile.replace("memory/", "");
-
-		if (index.includes(`[${fileName}]`) || index.includes(`(${newFile})`)) return;
-
-		const tableEnd = index.indexOf("\n_Add rows here");
-		if (tableEnd > 0) {
-			const newRow = `| [${fileName}](${newFile}) | _Add description here_ |\n`;
-			await Bun.write(indexPath, index.substring(0, tableEnd) + newRow + index.substring(tableEnd));
-		}
+		return await memoryRequest(`/${id}`);
 	} catch {
-		// If MEMORY.md doesn't exist or can't be read, skip index update
+		return null;
 	}
-}
-
-export async function searchMemory(pattern: string, caseSensitive = false): Promise<string> {
-	const agentDir = sandboxPath(AGENT_DIR);
-	const caseFlag = caseSensitive ? "" : "-i";
-
-	const cmd = `cd "${agentDir}" && grep -rn ${caseFlag} -E "${pattern.replace(/"/g, '\\"')}" . 2>/dev/null | head -50`;
-	const result = await executeBash(cmd, 10_000);
-
-	if (result.exitCode !== 0 && !result.stdout) return "No matches found in memory.";
-	return result.stdout || "No matches found in memory.";
 }

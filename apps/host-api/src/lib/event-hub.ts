@@ -120,8 +120,12 @@ export class EventHub {
 	}
 
 	private async read(body: ReadableStream<Uint8Array>, projectId: string, signal: AbortSignal): Promise<void> {
-		await readSSEBody(body, (event: string, data: unknown) => {
-			this.broadcast({ projectId, type: event, data });
-		}, signal);
+		await readSSEBody(
+			body,
+			(event: string, data: unknown) => {
+				this.broadcast({ projectId, type: event, data });
+			},
+			signal
+		);
 	}
 }

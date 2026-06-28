@@ -202,93 +202,155 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 		},
 	},
 
+	// ── Web ────────────────────────────────────────────────────────────────────────
+	{
+		name: "web_search",
+		description:
+			"Search the web and return a ranked list of results (title, URL, snippet). Use to find current information, documentation, or sources. Follow up with web_fetch to read a specific result.",
+		input_schema: {
+			type: "object",
+			properties: {
+				query: { type: "string", description: "Search query" },
+				limit: { type: "number", description: "Max number of results to return (default: 8)" },
+			},
+			required: ["query"],
+		},
+	},
+	{
+		name: "web_fetch",
+		description:
+			"Fetch a URL and return its readable text content (HTML is stripped to plain text). Use to read documentation, articles, or any web page. Content is truncated to a character budget.",
+		input_schema: {
+			type: "object",
+			properties: {
+				url: { type: "string", description: "Absolute URL to fetch (must start with http:// or https://)" },
+				max_chars: { type: "number", description: "Max characters of content to return (default: 20000)" },
+			},
+			required: ["url"],
+		},
+	},
+
 	// ── Memory Management ─────────────────────────────────────────────────────────
 	{
-		name: "read_memory",
+		name: "remember",
 		description:
-			"Read from the agent's persistent memory system (.agent/ directory). Use this to recall project context, architecture, decisions, TODOs, and conventions stored from previous sessions.",
+			"Store a new entry in the project's persistent vector memory. Use to record architecture decisions, conventions, context, plans, or any knowledge that should persist across sessions. Entries are semantically searchable. Do NOT use for todos (use task tools), reports (use send_report), or questions (use queue_question/urgent_question).",
 		input_schema: {
 			type: "object",
 			properties: {
-				file: {
+				type: {
 					type: "string",
-					description:
-						"Memory file to read. Options: 'MEMORY.md' (index), 'DECISIONS.md', 'TODO.md', 'QUESTIONS.md', 'plans/CURRENT_PLAN.md', or any file in memory/ subdirectory like 'memory/architecture.md', 'memory/codebase.md', 'memory/conventions.md', etc.",
+					enum: ["decision", "plan", "memory", "context"],
+					description: "Category of the memory entry",
+				},
+				title: { type: "string", description: "Short descriptive title (used for search ranking)" },
+				content: { type: "string", description: "Full content of the memory entry" },
+				metadata: {
+					type: "object",
+					description: "Optional structured metadata (e.g. {priority: 'high', status: 'active'})",
 				},
 			},
-			required: ["file"],
+			required: ["type", "title", "content"],
 		},
 	},
 	{
-		name: "write_memory",
+		name: "recall",
 		description:
-			"Write to the agent's persistent memory system. Updates memory files with new information. If writing to memory/ subdirectory, automatically updates MEMORY.md index. Use this to record architecture decisions, update TODOs, document conventions, etc.",
+			"Semantically search project memory. Returns entries ranked by relevance to your query. Use natural language queries for best results (e.g. 'how is authentication implemented' rather than 'auth'). Searches across all entry types including auto-recorded todos, reports, and questions.",
 		input_schema: {
 			type: "object",
 			properties: {
-				file: {
+				query: { type: "string", description: "Natural language search query" },
+				type: {
 					type: "string",
-					description:
-						"Memory file to write. For topic files use 'memory/filename.md'. For root files use 'DECISIONS.md', 'TODO.md', etc. New memory/ files are auto-registered in MEMORY.md.",
+					enum: ["decision", "todo", "plan", "question", "memory", "report", "context"],
+					description: "Optional: filter results to a specific type",
 				},
-				content: {
-					type: "string",
-					description:
-						"Full content to write. For memory/ files, include frontmatter if needed. For DECISIONS.md, append new entries without deleting old ones.",
-				},
-				append: {
-					type: "boolean",
-					description: "If true, append to file instead of overwriting. Useful for DECISIONS.md and TODO.md. Default: false",
-				},
+				limit: { type: "number", description: "Max results to return (default: 10)" },
 			},
-			required: ["file", "content"],
+			required: ["query"],
 		},
 	},
 	{
-		name: "search_memory",
+		name: "update_memory",
 		description:
-			"Search across all memory files for specific patterns or keywords. Returns matches with file names and context. Useful for finding where you documented something, checking if a decision was made, or discovering related context.",
+			"Update an existing memory entry by its ID. Use to modify content, title, or type of a previously stored entry. Only entries you created directly (decision, plan, memory, context) should be updated this way.",
 		input_schema: {
 			type: "object",
 			properties: {
-				pattern: {
+				id: { type: "string", description: "Memory entry ID (from recall or list_memories)" },
+				title: { type: "string", description: "New title (optional)" },
+				content: { type: "string", description: "New content (optional)" },
+				type: {
 					type: "string",
-					description: "Search pattern (supports regex). Examples: 'authentication', 'database.*choice', 'TODO.*urgent'",
+					enum: ["decision", "plan", "memory", "context"],
+					description: "New type (optional)",
 				},
-				case_sensitive: {
-					type: "boolean",
-					description: "Case-sensitive search. Default: false",
-				},
+				metadata: { type: "object", description: "New metadata (optional)" },
 			},
-			required: ["pattern"],
+			required: ["id"],
 		},
 	},
-	// ── Todo Management ──────────────────────────────────────────────────────────
 	{
-		name: "add_todo",
-		description: "Add a new todo item to the agent's task list.",
+		name: "delete_memory",
+		description: "Delete a memory entry by its ID. Use when information is outdated or incorrect.",
 		input_schema: {
 			type: "object",
 			properties: {
-				text: { type: "string", description: "Todo item text" },
+				id: { type: "string", description: "Memory entry ID (from recall or list_memories)" },
+			},
+			required: ["id"],
+		},
+	},
+	{
+		name: "list_memories",
+		description: "List all memory entries, optionally filtered by type. Use to see everything stored or browse a category.",
+		input_schema: {
+			type: "object",
+			properties: {
+				type: {
+					type: "string",
+					enum: ["decision", "todo", "plan", "question", "memory", "report", "context"],
+					description: "Filter by type (optional, lists all if omitted)",
+				},
+				limit: { type: "number", description: "Max results (default: 100)" },
+			},
+			required: [],
+		},
+	},
+	// ── Task Management ──────────────────────────────────────────────────────────
+	{
+		name: "add_task",
+		description:
+			"Add a new task to the project-wide task list. Tasks persist in the DB and are shared across sessions. Optionally declare dependencies on other tasks that must be done first.",
+		input_schema: {
+			type: "object",
+			properties: {
+				text: { type: "string", description: "Task description" },
 				status: {
 					type: "string",
-					enum: ["pending", "in_progress", "done"],
+					enum: ["pending", "in_progress", "done", "cancelled"],
 					description: "Initial status (default: pending)",
+				},
+				dependsOn: {
+					type: "array",
+					items: { type: "string" },
+					description: "IDs of tasks that must be done before this one can start",
 				},
 			},
 			required: ["text"],
 		},
 	},
 	{
-		name: "list_todos",
-		description: "List todo items. Optionally filter by status.",
+		name: "list_tasks",
+		description:
+			"List tasks across the whole project (all sessions). Each line shows status and any dependencies, flagging tasks blocked by unfinished dependencies. Optionally filter by status.",
 		input_schema: {
 			type: "object",
 			properties: {
 				filter: {
 					type: "string",
-					enum: ["all", "pending", "in_progress", "done"],
+					enum: ["all", "pending", "in_progress", "done", "cancelled"],
 					description: "Status filter (default: all)",
 				},
 			},
@@ -296,18 +358,45 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 		},
 	},
 	{
-		name: "update_todo",
-		description: "Update a todo item's status or text by its ID.",
+		name: "update_task",
+		description: "Update a task's status, text, or dependencies by its ID.",
 		input_schema: {
 			type: "object",
 			properties: {
-				id: { type: "string", description: "Todo ID (from list_todos)" },
+				id: { type: "string", description: "Task ID (from list_tasks)" },
 				status: {
 					type: "string",
-					enum: ["pending", "in_progress", "done"],
+					enum: ["pending", "in_progress", "done", "cancelled"],
 					description: "New status",
 				},
 				text: { type: "string", description: "Updated text" },
+				dependsOn: {
+					type: "array",
+					items: { type: "string" },
+					description: "Replacement list of dependency task IDs",
+				},
+			},
+			required: ["id"],
+		},
+	},
+
+	{
+		name: "get_current_task",
+		description: "Get the task that is currently in progress (the active task), if any.",
+		input_schema: {
+			type: "object",
+			properties: {},
+			required: [],
+		},
+	},
+	{
+		name: "set_current_task",
+		description:
+			"Mark a task as the current task in progress. The given task becomes in_progress and assigned to this session; any other in_progress task is moved back to pending, so exactly one task is active at a time. Warns if the task is still blocked by unfinished dependencies.",
+		input_schema: {
+			type: "object",
+			properties: {
+				id: { type: "string", description: "Task ID (from list_tasks)" },
 			},
 			required: ["id"],
 		},

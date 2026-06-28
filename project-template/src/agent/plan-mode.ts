@@ -13,7 +13,7 @@ export const PLAN_MODE_TOOLS = new Set<string>([
 	"read_file_range",
 	"read_memory",
 	"search_memory",
-	"list_todos",
+	"list_tasks",
 	"compact_context",
 	"exit_plan_mode",
 	"bash", // conditionally allowed — checked separately
@@ -21,40 +21,72 @@ export const PLAN_MODE_TOOLS = new Set<string>([
 
 // Bash commands that are allowed in plan mode (read-only patterns)
 const BASH_READONLY_PREFIXES = [
-	"cat ", "head ", "tail ", "less ", "more ",
-	"ls", "find ", "tree ", "wc ", "du ", "df ",
-	"echo ", "printf ",
-	"git log", "git diff", "git show", "git status", "git branch", "git tag", "git rev-parse",
-	"grep ", "rg ", "ag ", "ack ",
-	"file ", "stat ", "which ", "whereis ", "type ",
-	"env", "printenv", "pwd", "whoami", "id ", "hostname",
-	"ps ", "top ", "uptime",
-	"curl ", "wget ", // allow fetching but not writing
-	"jq ", "yq ",
+	"cat ",
+	"head ",
+	"tail ",
+	"less ",
+	"more ",
+	"ls",
+	"find ",
+	"tree ",
+	"wc ",
+	"du ",
+	"df ",
+	"echo ",
+	"printf ",
+	"git log",
+	"git diff",
+	"git show",
+	"git status",
+	"git branch",
+	"git tag",
+	"git rev-parse",
+	"grep ",
+	"rg ",
+	"ag ",
+	"ack ",
+	"file ",
+	"stat ",
+	"which ",
+	"whereis ",
+	"type ",
+	"env",
+	"printenv",
+	"pwd",
+	"whoami",
+	"id ",
+	"hostname",
+	"ps ",
+	"top ",
+	"uptime",
+	"curl ",
+	"wget ", // allow fetching but not writing
+	"jq ",
+	"yq ",
 ];
 
 // Bash patterns that indicate a write operation
 const BASH_WRITE_PATTERNS = [
-	/\s*>/,          // redirect output
-	/\s*>>/,         // append redirect
-	/\|.*tee\s/,     // pipe to tee
-	/\brm\s/,        // remove
-	/\brmdir\s/,     // remove dir
-	/\bmv\s/,        // move
-	/\bcp\s/,        // copy
-	/\bmkdir\s/,     // create dir
-	/\btouch\s/,     // create file
-	/\bchmod\s/,     // change permissions
-	/\bchown\s/,     // change owner
-	/\bln\s/,        // create link
+	/\s*>/, // redirect output
+	/\s*>>/, // append redirect
+	/\|.*tee\s/, // pipe to tee
+	/\brm\s/, // remove
+	/\brmdir\s/, // remove dir
+	/\bmv\s/, // move
+	/\bcp\s/, // copy
+	/\bmkdir\s/, // create dir
+	/\btouch\s/, // create file
+	/\bchmod\s/, // change permissions
+	/\bchown\s/, // change owner
+	/\bln\s/, // create link
 	/\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|switch|restore|stash|cherry-pick|revert)\b/,
 	/\bnpm\s+(install|uninstall|update|publish|link)\b/,
 	/\bbun\s+(add|remove|install|link|publish)\b/,
 	/\byarn\s+(add|remove|install)\b/,
 	/\bpip\s+(install|uninstall)\b/,
 	/\bapt(-get)?\s+(install|remove|purge)\b/,
-	/\bsed\s+-i/,    // in-place sed
-	/\bdd\s/,        // disk operations
+	/\bsed\s+-i/, // in-place sed
+	/\bdd\s/, // disk operations
 ];
 
 export function isBashCommandReadOnly(command: string): boolean {

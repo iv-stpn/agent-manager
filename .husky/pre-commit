@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+
+# Regenerate generated docs (DATABASE.md, TOOLS.md) before committing. If they
+# change, flag them so post-commit can capture the refresh in its own commit.
+# We can't commit here: git holds index.lock during the pre-commit phase.
+
+ROOT="$(git rev-parse --show-toplevel)"
+DOCS="docs/DATABASE.md docs/TOOLS.md"
+FLAG="$ROOT/.git/docs-refresh-pending"
+
+bun run --cwd "$ROOT" gen:docs
+
+rm -f "$FLAG"
+# shellcheck disable=SC2086
+if ! git -C "$ROOT" diff --quiet -- $DOCS; then
+	echo "husky: generated docs changed — will commit refresh after this commit"
+	touch "$FLAG"
+fi

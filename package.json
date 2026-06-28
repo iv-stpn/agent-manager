@@ -10,6 +10,9 @@
 		"dev": "scripts/dev.sh",
 		"reset:host-db": "bun run scripts/reset-host-db.ts",
 		"gen:db-md": "bun run scripts/gen-db-md.ts",
+		"gen:tools-md": "bun run scripts/gen-tools-md.ts",
+		"gen:docs": "bun run gen:db-md && bun run gen:tools-md",
+		"prepare": "husky",
 		"dev:api": "bun run --elide-lines=0 --filter @agent-manager/host-api dev",
 		"dev:web": "bun run --elide-lines=0 --filter @agent-manager/host-web dev",
 		"build": "bun run --filter '*' build",
@@ -26,6 +29,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.4.16",
+		"husky": "^9.1.7",
 		"typescript": "^5.7.3"
 	},
 	"dependencies": {

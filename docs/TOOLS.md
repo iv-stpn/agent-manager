@@ -129,46 +129,120 @@ Read a specific range of lines from a file. Efficient for large files when you o
 | `start_line` | `number` | Yes | Starting line number (1-indexed, inclusive) |
 | `end_line` | `number` | Yes | Ending line number (1-indexed, inclusive) |
 
+## Web
+
+### `web_search`
+
+Search the web and return a ranked list of results (title, URL, snippet). Use to find current information, documentation, or sources. Follow up with web_fetch to read a specific result.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | `string` | Yes | Search query |
+| `limit` | `number` |  | Max number of results to return (default: 8) |
+
+### `web_fetch`
+
+Fetch a URL and return its readable text content (HTML is stripped to plain text). Use to read documentation, articles, or any web page. Content is truncated to a character budget.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `url` | `string` | Yes | Absolute URL to fetch (must start with http:// or https://) |
+| `max_chars` | `number` |  | Max characters of content to return (default: 20000) |
+
 ## Memory Management
 
-### `read_memory`
+### `remember`
 
-Read from the agent's persistent memory system (.agent/ directory). Use this to recall project context, architecture, decisions, TODOs, and conventions stored from previous sessions.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `file` | `string` | Yes | Memory file to read. Options: 'MEMORY.md' (index), 'DECISIONS.md', 'TODO.md', 'QUESTIONS.md', 'plans/CURRENT_PLAN.md', or any file in memory/ subdirectory like 'memory/architecture.md', 'memory/codebase.md', 'memory/conventions.md', etc. |
-
-### `write_memory`
-
-Write to the agent's persistent memory system. Updates memory files with new information. If writing to memory/ subdirectory, automatically updates MEMORY.md index. Use this to record architecture decisions, update TODOs, document conventions, etc.
+Store a new entry in the project's persistent vector memory. Use to record architecture decisions, conventions, context, plans, or any knowledge that should persist across sessions. Entries are semantically searchable. Do NOT use for todos (use task tools), reports (use send_report), or questions (use queue_question/urgent_question).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `file` | `string` | Yes | Memory file to write. For topic files use 'memory/filename.md'. For root files use 'DECISIONS.md', 'TODO.md', etc. New memory/ files are auto-registered in MEMORY.md. |
-| `content` | `string` | Yes | Full content to write. For memory/ files, include frontmatter if needed. For DECISIONS.md, append new entries without deleting old ones. |
-| `append` | `boolean` |  | If true, append to file instead of overwriting. Useful for DECISIONS.md and TODO.md. Default: false |
+| `type` | `decision` \| `plan` \| `memory` \| `context` | Yes | Category of the memory entry |
+| `title` | `string` | Yes | Short descriptive title (used for search ranking) |
+| `content` | `string` | Yes | Full content of the memory entry |
+| `metadata` | `object` |  | Optional structured metadata (e.g. {priority: 'high', status: 'active'}) |
 
-### `search_memory`
+### `recall`
 
-Search across all memory files for specific patterns or keywords. Returns matches with file names and context. Useful for finding where you documented something, checking if a decision was made, or discovering related context.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `pattern` | `string` | Yes | Search pattern (supports regex). Examples: 'authentication', 'database.*choice', 'TODO.*urgent' |
-| `case_sensitive` | `boolean` |  | Case-sensitive search. Default: false |
-
-### `append_decision`
-
-Append a new architectural or design decision to DECISIONS.md. Automatically formats it with timestamp and proper structure. Never deletes previous decisions (append-only log).
+Semantically search project memory. Returns entries ranked by relevance to your query. Use natural language queries for best results (e.g. 'how is authentication implemented' rather than 'auth'). Searches across all entry types including auto-recorded todos, reports, and questions.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `title` | `string` | Yes | Short decision title (e.g., 'Use PostgreSQL for persistence') |
-| `context` | `string` | Yes | Why this decision was needed |
-| `decision` | `string` | Yes | What was decided |
-| `rationale` | `string` | Yes | Why this option over alternatives |
-| `consequences` | `string` |  | Trade-offs, implications, or follow-up actions |
+| `query` | `string` | Yes | Natural language search query |
+| `type` | `decision` \| `todo` \| `plan` \| `question` \| `memory` \| `report` \| `context` |  | Optional: filter results to a specific type |
+| `limit` | `number` |  | Max results to return (default: 10) |
+
+### `update_memory`
+
+Update an existing memory entry by its ID. Use to modify content, title, or type of a previously stored entry. Only entries you created directly (decision, plan, memory, context) should be updated this way.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | `string` | Yes | Memory entry ID (from recall or list_memories) |
+| `title` | `string` |  | New title (optional) |
+| `content` | `string` |  | New content (optional) |
+| `type` | `decision` \| `plan` \| `memory` \| `context` |  | New type (optional) |
+| `metadata` | `object` |  | New metadata (optional) |
+
+### `delete_memory`
+
+Delete a memory entry by its ID. Use when information is outdated or incorrect.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | `string` | Yes | Memory entry ID (from recall or list_memories) |
+
+### `list_memories`
+
+List all memory entries, optionally filtered by type. Use to see everything stored or browse a category.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `type` | `decision` \| `todo` \| `plan` \| `question` \| `memory` \| `report` \| `context` |  | Filter by type (optional, lists all if omitted) |
+| `limit` | `number` |  | Max results (default: 100) |
+
+## Task Management
+
+### `add_task`
+
+Add a new task to the project-wide task list. Tasks persist in the DB and are shared across sessions. Optionally declare dependencies on other tasks that must be done first.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `text` | `string` | Yes | Task description |
+| `status` | `pending` \| `in_progress` \| `done` \| `cancelled` |  | Initial status (default: pending) |
+| `dependsOn` | `array` |  | IDs of tasks that must be done before this one can start |
+
+### `list_tasks`
+
+List tasks across the whole project (all sessions). Each line shows status and any dependencies, flagging tasks blocked by unfinished dependencies. Optionally filter by status.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `filter` | `all` \| `pending` \| `in_progress` \| `done` \| `cancelled` |  | Status filter (default: all) |
+
+### `update_task`
+
+Update a task's status, text, or dependencies by its ID.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | `string` | Yes | Task ID (from list_tasks) |
+| `status` | `pending` \| `in_progress` \| `done` \| `cancelled` |  | New status |
+| `text` | `string` |  | Updated text |
+| `dependsOn` | `array` |  | Replacement list of dependency task IDs |
+
+### `get_current_task`
+
+Get the task that is currently in progress (the active task), if any.
+
+### `set_current_task`
+
+Mark a task as the current task in progress. The given task becomes in_progress and assigned to this session; any other in_progress task is moved back to pending, so exactly one task is active at a time. Warns if the task is still blocked by unfinished dependencies.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | `string` | Yes | Task ID (from list_tasks) |
 
 ## Questions
 
@@ -309,6 +383,20 @@ Present a structured implementation checklist to the user via Discord BEFORE sta
 |-----------|------|----------|-------------|
 | `title` | `string` | Yes | Checklist title (e.g. 'Implementation Requirements') |
 | `items` | `array` | Yes | Questions to ask the user. All unanswered questions block implementation until Discord response. |
+
+## Plan Mode
+
+### `enter_plan_mode`
+
+Enter plan mode — restricts available tools to read-only operations (grep, glob, read_file, list_directory, search_files, bash read-only commands). Use this when you need to explore the codebase and form a plan before making changes. Call exit_plan_mode when ready to implement.
+
+### `exit_plan_mode`
+
+Exit plan mode and resume full tool access. Optionally provide a plan summary documenting what you learned and intend to do.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `plan_summary` | `string` |  | Summary of what you explored and the implementation plan you've formed |
 
 ## Session Management
 

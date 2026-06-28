@@ -1,7 +1,12 @@
-import { AGENT_TOOLS } from "./project-template/src/agent/tools/definitions";
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { AGENT_TOOLS } from "../project-template/src/agent/tools/definitions";
 
-const source = readFileSync("project-template/src/agent/tools/definitions.ts", "utf8");
+const ROOT = join(import.meta.dir, "..");
+const DEFINITIONS_SRC = join(ROOT, "project-template", "src", "agent", "tools", "definitions.ts");
+const OUT_FILE = join(ROOT, "docs", "TOOLS.md");
+
+const source = readFileSync(DEFINITIONS_SRC, "utf8");
 
 // Map each tool name → its group by scanning comment headers
 const toolGroup = new Map<string, string>();
@@ -57,5 +62,5 @@ for (const group of groupOrder) {
 
 md += `---\n\n*Generated from \`project-template/src/agent/tools/definitions.ts\`*\n`;
 
-writeFileSync("docs/TOOLS.md", md);
+writeFileSync(OUT_FILE, md);
 console.log(`Generated docs/TOOLS.md — ${AGENT_TOOLS.length} tools across ${groupOrder.length} groups`);

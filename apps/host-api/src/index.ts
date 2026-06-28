@@ -5,9 +5,10 @@ import { cors } from "hono/cors";
 import { EventHub } from "./lib/event-hub";
 import { createLogger } from "./lib/logger";
 import { requestLogger, responseLogger } from "./middleware/logging";
-import { resolveChromium } from "./render/chromium";
+import { checkChromium } from "./render/chromium";
 import { guidelineCategoriesRouter } from "./routes/guideline-categories";
 import { guidelinesRouter } from "./routes/guidelines";
+import { memoryRouter } from "./routes/memory";
 import { projectsRouter } from "./routes/projects";
 import { renderRouter } from "./routes/render";
 import { techStacksRouter } from "./routes/tech-stacks";
@@ -51,15 +52,29 @@ const app = new Hono<HonoHostEnv>()
 	.route("/api/tech-stacks", techStacksRouter)
 	.route("/api/guideline-categories", guidelineCategoriesRouter)
 	.route("/api/guidelines", guidelinesRouter)
-	.route("/api/render", renderRouter);
+	.route("/api/render", renderRouter)
+	.route("/api/memory", memoryRouter);
 
-const chromium = resolveChromium();
-if (chromium) {
-	logger.info(`Rendering enabled — Chromium: ${chromium}`);
+const chromiumReady = await checkChromium();
+if (chromiumReady) {
+	logger.info("Rendering enabled — connected to Chromium container");
 } else {
 	logger.warn(
-		"Chromium not found — /api/render (mermaid + screenshots) will fail. " +
-			"Install Chromium on this host or set PUPPETEER_EXECUTABLE_PATH."
+		"Chromium container not reachable — /api/render (mermaid + screenshots) will fail. " +
+			"Start shared services: docker compose -f docker-compose.yml up -d"
+	);
+}
+
+const LANCEDB_URL = process.env.LANCEDB_URL ?? "http://localhost:3200";
+const lanceReady = await fetch(`${LANCEDB_URL}/health`, { signal: AbortSignal.timeout(3000) })
+	.then((r) => r.ok)
+	.catch(() => false);
+if (lanceReady) {
+	logger.info("Memory enabled — connected to LanceDB container");
+} else {
+	logger.warn(
+		"LanceDB container not reachable — /api/memory will fail. " +
+			"Start shared services: docker compose -f docker-compose.yml up -d"
 	);
 }
 

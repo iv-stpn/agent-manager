@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+
+# If pre-commit regenerated the docs, commit the refresh now that the previous
+# commit is done and index.lock is released. --no-verify avoids re-running the
+# hooks (and looping). Only the doc files are committed, nothing else is staged.
+
+ROOT="$(git rev-parse --show-toplevel)"
+DOCS="docs/DATABASE.md docs/TOOLS.md"
+FLAG="$ROOT/.git/docs-refresh-pending"
+
+[ -f "$FLAG" ] || exit 0
+rm -f "$FLAG"
+
+# shellcheck disable=SC2086
+git -C "$ROOT" add $DOCS
+# shellcheck disable=SC2086
+git -C "$ROOT" commit --no-verify -m "chore: regenerate docs" -- $DOCS

@@ -20,8 +20,7 @@ export default function GuidelinesPage() {
 	const { data: categories = [] } = useQuery<GuidelineCategory[]>("guideline-categories", getGuidelineCategories);
 
 	const categoryName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? "Uncategorized";
-	const visible =
-		filter === "all" ? guidelines : guidelines.filter((g) => g.categoryId === filter);
+	const visible = filter === "all" ? guidelines : guidelines.filter((g) => g.categoryId === filter);
 
 	function openCreate() {
 		setForm(EMPTY_FORM);
@@ -226,7 +225,9 @@ export default function GuidelinesPage() {
 									onChange={(e) => setForm({ ...form, categoryId: e.target.value || null })}
 									className={inputCls}
 								>
-									<option value="" disabled>Select a category</option>
+									<option value="" disabled>
+										Select a category
+									</option>
 									{categories.map((c) => (
 										<option key={c.id} value={c.id}>
 											{c.name}

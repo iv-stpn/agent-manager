@@ -128,15 +128,31 @@ export function initDb(path = process.env.DATABASE_PATH ?? "./data/agent.db") {
 	`);
 
 	sqlite.exec(`
-		CREATE TABLE IF NOT EXISTS todos (
+		CREATE TABLE IF NOT EXISTS tasks (
 			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL REFERENCES sessions(id),
+			session_id TEXT REFERENCES sessions(id),
 			text TEXT NOT NULL,
 			status TEXT NOT NULL DEFAULT 'pending',
+			metadata TEXT,
 			created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
 			updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 		);
 	`);
+
+	// Migrate legacy session-scoped `todos` into project-wide `tasks`, then drop
+	// the old table. Wrapped in try/catch so it's a no-op once migrated.
+	try {
+		const hasTodos = sqlite.query("SELECT name FROM sqlite_master WHERE type='table' AND name='todos'").get();
+		if (hasTodos) {
+			sqlite.exec(`
+				INSERT OR IGNORE INTO tasks (id, session_id, text, status, created_at, updated_at)
+				SELECT id, session_id, text, status, created_at, updated_at FROM todos;
+			`);
+			sqlite.exec("DROP TABLE todos;");
+		}
+	} catch (_e) {
+		// Nothing to migrate, ignore.
+	}
 
 	// Migrations for existing databases
 	try {

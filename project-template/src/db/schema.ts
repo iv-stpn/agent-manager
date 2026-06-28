@@ -171,22 +171,30 @@ export type Question = typeof questions.$inferSelect;
 export type NewQuestion = typeof questions.$inferInsert;
 export type Report = typeof reports.$inferSelect;
 export type NewReport = typeof reports.$inferInsert;
-// The agent's working to-do list for a session, mirroring the in-context todo
-// tracker so it survives restarts and is visible in the UI.
-export const todos = sqliteTable("todos", {
+// A unit of work the agent coordinates. Tasks are project-wide (not bound to a
+// single session) so they survive restarts and are accessible across sessions,
+// mirroring how Claude Code Tasks coordinate many pieces of work. Dependencies
+// on other tasks are stored in `metadata`, so a task can be blocked until the
+// tasks it depends on are done.
+export const tasks = sqliteTable("tasks", {
 	id: text("id").primaryKey(),
-	sessionId: text("session_id")
+	sessionId: text("session_id").references(() => sessions.id), // Session currently working the task, if any (null = unassigned / cross-session).
+	text: text("text").notNull(), // The task description.
+	status: text("status", { enum: ["pending", "in_progress", "done", "cancelled"] })
 		.notNull()
-		.references(() => sessions.id), // Owning session.
-	text: text("text").notNull(), // The to-do item text.
-	status: text("status", { enum: ["pending", "in_progress", "done"] })
-		.notNull()
-		.default("pending"), // Progress state of the item.
+		.default("pending"), // Progress state of the task.
+	metadata: text("metadata"), // JSON: { dependsOn?: string[] } plus arbitrary fields. Null when empty.
 	createdAt: integer("created_at").notNull().default(sql`(unixepoch() * 1000)`), // Creation time (epoch ms).
 	updatedAt: integer("updated_at").notNull().default(sql`(unixepoch() * 1000)`), // Last update time (epoch ms).
 });
 
+// Shape of the JSON stored in tasks.metadata.
+export type TaskMetadata = {
+	dependsOn?: string[]; // IDs of tasks that must be done before this one can start.
+	[key: string]: unknown;
+};
+
 export type Compaction = typeof compactions.$inferSelect;
 export type NewCompaction = typeof compactions.$inferInsert;
-export type Todo = typeof todos.$inferSelect;
-export type NewTodo = typeof todos.$inferInsert;
+export type Task = typeof tasks.$inferSelect;
+export type NewTask = typeof tasks.$inferInsert;

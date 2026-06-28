@@ -5,11 +5,11 @@ import { toast } from "sonner";
 import { containerClassName } from "@/lib/classes";
 import { cn } from "@/lib/utils";
 import {
-	checkWorkspacePath,
 	createProject as apiCreateProject,
 	deleteProject as apiDeleteProject,
 	startProject as apiStartProject,
 	stopProject as apiStopProject,
+	checkWorkspacePath,
 	createHostStream,
 	getProjects,
 } from "../lib/agent-api";
@@ -20,7 +20,9 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3100";
 
 export default function Home() {
 	const [creating, setCreating] = useState(false);
-	const [pathWarning, setPathWarning] = useState<{ status: "not_found" | "not_empty" | "not_directory"; path: string } | null>(null);
+	const [pathWarning, setPathWarning] = useState<{ status: "not_found" | "not_empty" | "not_directory"; path: string } | null>(
+		null
+	);
 	const [newProject, setNewProject] = useState({
 		name: "",
 		description: "",
@@ -336,12 +338,16 @@ export default function Home() {
 							<>
 								<h2 className="text-xl font-bold mb-2">Folder does not exist</h2>
 								<p className="text-sm text-gray-600 mb-4">
-									The folder <code className="bg-gray-100 px-1 rounded">{pathWarning.path}</code> does not exist. Would you like to create it?
+									The folder <code className="bg-gray-100 px-1 rounded">{pathWarning.path}</code> does not exist. Would you like
+									to create it?
 								</p>
 								<div className="flex gap-2">
 									<button
 										type="button"
-										onClick={() => { setPathWarning(null); createProject(true); }}
+										onClick={() => {
+											setPathWarning(null);
+											createProject(true);
+										}}
 										className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
 									>
 										Create folder
@@ -360,12 +366,16 @@ export default function Home() {
 							<>
 								<h2 className="text-xl font-bold mb-2">Folder is not empty</h2>
 								<p className="text-sm text-gray-600 mb-4">
-									The folder <code className="bg-gray-100 px-1 rounded">{pathWarning.path}</code> already exists and is not empty. Are you sure you want to use it as the workspace?
+									The folder <code className="bg-gray-100 px-1 rounded">{pathWarning.path}</code> already exists and is not empty.
+									Are you sure you want to use it as the workspace?
 								</p>
 								<div className="flex gap-2">
 									<button
 										type="button"
-										onClick={() => { setPathWarning(null); createProject(true); }}
+										onClick={() => {
+											setPathWarning(null);
+											createProject(true);
+										}}
 										className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
 									>
 										Continue
@@ -384,7 +394,8 @@ export default function Home() {
 							<>
 								<h2 className="text-xl font-bold mb-2">Path is not a directory</h2>
 								<p className="text-sm text-gray-600 mb-4">
-									The path <code className="bg-gray-100 px-1 rounded">{pathWarning.path}</code> exists but is not a directory. Please choose a different path.
+									The path <code className="bg-gray-100 px-1 rounded">{pathWarning.path}</code> exists but is not a directory.
+									Please choose a different path.
 								</p>
 								<div className="flex gap-2">
 									<button

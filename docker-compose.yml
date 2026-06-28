@@ -1,0 +1,48 @@
+# Shared infrastructure services for agent-manager.
+# Start with: docker compose -f docker-compose.yml up -d
+
+name: agent-manager-shared
+
+services:
+  lancedb:
+    build:
+      context: ./infrastructure/lancedb
+      dockerfile: Dockerfile
+    environment:
+      LANCEDB_DATA_DIR: /data/lancedb
+      PORT: "3200"
+    volumes:
+      - ./data/lancedb:/data/lancedb
+    ports:
+      - "3200:3200"
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:3200/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - shared
+
+  chromium:
+    image: ghcr.io/browserless/chromium
+    environment:
+      # Max concurrent sessions
+      MAX_CONCURRENT_SESSIONS: "5"
+      # Timeout for idle sessions
+      TIMEOUT: "60000"
+    ports:
+      - "3201:3000"
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:3000/json/version" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - shared
+
+networks:
+  shared:
+    driver: bridge
+    name: agent-manager-shared
