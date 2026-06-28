@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { executeBash } from "./tools";
 
 const GIT_AUTHOR_NAME = "Claude Agent";
 const GIT_AUTHOR_EMAIL = "agent@agent-manager.local";

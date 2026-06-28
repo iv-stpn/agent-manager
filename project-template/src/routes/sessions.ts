@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
+import { z } from "zod";
 import { AgentRunner } from "../agent/runner";
 import {
 	createSession,
@@ -14,6 +15,23 @@ import {
 } from "../db";
 import { sessionEmitter } from "../emitter";
 import type { HonoProjectEnv } from "../types";
+
+const CreateSessionSchema = z.object({
+	task: z.string().min(1),
+	name: z.string().optional(),
+	reportIntervalMins: z.number().optional(),
+	totalTimeoutMins: z.number().optional(),
+	discordChannelId: z.string().optional(),
+	freezeReportMode: z.enum(["always", "never", "custom"]).optional(),
+	freezeReportCustomRule: z.string().optional(),
+	freezeAskMode: z.enum(["always", "requiredOnly", "onReportOnly", "never"]).optional(),
+	compactThresholdTokens: z.number().optional(),
+	stopThresholdTokens: z.number().optional(),
+	alwaysImproveMode: z.enum(["yes", "no", "custom"]).optional(),
+	alwaysImproveScope: z.string().optional(),
+});
+
+const MessageSchema = z.object({ message: z.string().min(1) });
 
 const runners = new Map<string, AgentRunner>();
 
@@ -57,21 +75,12 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 	})
 
 	.post("/", async (c) => {
-		const body = await c.req.json<{
-			task: string;
-			reportIntervalMins?: number;
-			totalTimeoutMins?: number;
-			discordChannelId?: string;
-			freezeReportMode?: "always" | "never" | "custom";
-			freezeReportCustomRule?: string;
-			freezeAskMode?: "always" | "requiredOnly" | "onReportOnly" | "never";
-			compactThresholdTokens?: number;
-			stopThresholdTokens?: number;
-			alwaysImproveMode?: "yes" | "no" | "custom";
-			alwaysImproveScope?: string;
-		}>();
-
-		if (!body.task?.trim()) return c.json({ error: "task is required" }, 400);
+		let body: z.infer<typeof CreateSessionSchema>;
+		try {
+			body = CreateSessionSchema.parse(await c.req.json());
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : "Invalid request" }, 400);
+		}
 
 		const db = c.get("db");
 		const id = nanoid();
@@ -156,8 +165,12 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 		const session = getSession(db, id);
 		if (!session) return c.json({ error: "Not found" }, 404);
 
-		const { message } = await c.req.json<{ message: string }>();
-		if (!message?.trim()) return c.json({ error: "message is required" }, 400);
+		let message: string;
+		try {
+			({ message } = MessageSchema.parse(await c.req.json()));
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : "Invalid request" }, 400);
+		}
 
 		const existing = runners.get(id);
 		if (existing) {

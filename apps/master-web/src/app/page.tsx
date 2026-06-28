@@ -1,8 +1,8 @@
-"use client";
-
 import { Activity, Database, ExternalLink, FolderOpen, Play, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
-import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { containerClassName } from "@/lib/classes";
+import { cn } from "@/lib/utils";
 import {
 	createProject as apiCreateProject,
 	deleteProject as apiDeleteProject,
@@ -13,10 +13,8 @@ import {
 } from "../lib/agent-api";
 import { mutateCache, setCache, useQuery } from "../lib/query-cache";
 import type { EnrichedProject as Project } from "../lib/types";
-import { containerClassName } from "@/lib/classes";
-import { cn } from "@/lib/utils";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3100";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3100";
 
 export default function Home() {
 	const [creating, setCreating] = useState(false);
@@ -316,7 +314,7 @@ export default function Home() {
 								{/* Status Indicator */}
 								<div className="flex items-center justify-between mb-4">
 									<Link
-										href={`/projects/${project.id}`}
+										to={`/projects/${project.id}`}
 										className="text-lg font-semibold text-gray-900 hover:text-blue-600 hover:underline"
 									>
 										{project.name}
@@ -379,7 +377,7 @@ export default function Home() {
 										</button>
 									)}
 									<Link
-										href={`/projects/${project.id}`}
+										to={`/projects/${project.id}`}
 										className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"
 										title="Open project details"
 									>

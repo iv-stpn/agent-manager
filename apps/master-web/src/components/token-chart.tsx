@@ -1,8 +1,8 @@
 "use client";
 
+import { Area, AreaChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Message } from "@/lib/agent-api";
 import { formatTokens } from "@/lib/utils";
-import { Area, AreaChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 interface Props {
 	messages: Message[];

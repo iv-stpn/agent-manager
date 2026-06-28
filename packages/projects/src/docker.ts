@@ -2,7 +2,6 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { $ } from "bun";
 import type { ProjectManager } from "./manager";
-import type { ProjectConfig } from "./types";
 
 export class ProjectDocker {
 	constructor(private manager: ProjectManager) {}

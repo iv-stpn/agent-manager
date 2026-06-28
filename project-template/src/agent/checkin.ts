@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import type { Db, Question } from "../db";
-import { answerQuestion, getPendingQuestions, insertCheckin, updateCheckin, updateSession } from "../db";
+import { answerQuestion, insertCheckin, updateCheckin, updateSession } from "../db";
 import { sendCheckin } from "../discord/bot";
 import { sessionEmitter } from "../emitter";
 

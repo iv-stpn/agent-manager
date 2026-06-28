@@ -1,6 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import type { Db } from "../client";
-import { type NewMessage, type NewToolCall, messages, toolCalls } from "../schema";
+import { messages, type NewMessage, type NewToolCall, toolCalls } from "../schema";
 
 export function insertMessage(db: Db, data: NewMessage) {
 	db.insert(messages).values(data).run();

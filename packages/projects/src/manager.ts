@@ -51,7 +51,6 @@ export function resolveWorkspaceRoot(startDir: string = process.cwd()): string {
 
 export class ProjectManager {
 	private projectsRoot: string;
-	private rootDir: string;
 	private templatePath: string;
 
 	constructor(rootDir: string = resolveWorkspaceRoot()) {

@@ -1,26 +1,11 @@
-import type { Metadata } from "next";
-import { Funnel_Sans } from "next/font/google";
 import { Sidebar } from "@/components/sidebar";
 import "./globals.css";
 
-const funnelSans = Funnel_Sans({ subsets: ["latin"] });
-
-export const metadata: Metadata = {
-	title: "Agent Manager",
-	description: "Manage multiple agents based on Anthropic API",
-};
-
-export default function RootLayout({
-	children,
-}: Readonly<{
-	children: React.ReactNode;
-}>) {
+export default function Layout({ children }: { children: React.ReactNode }) {
 	return (
-		<html lang="en">
-			<body className={`${funnelSans.className} pl-16`}>
-				<Sidebar />
-				{children}
-			</body>
-		</html>
+		<>
+			<Sidebar />
+			<div className="pl-16">{children}</div>
+		</>
 	);
 }

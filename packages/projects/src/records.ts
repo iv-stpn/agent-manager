@@ -5,6 +5,7 @@ export interface ProjectStats {
 	sessions: number;
 	messages: number;
 	lastActivity: string | null;
+	reports: number;
 }
 
 export interface SessionRecord {

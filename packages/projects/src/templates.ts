@@ -1,6 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 
 export type TemplateCategory = "tech-stack" | "ui-design" | "best-practices" | "system-prompt";
 

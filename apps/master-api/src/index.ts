@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { ProjectDatabase, ProjectDocker, ProjectManager, TemplateManager, resolveWorkspaceRoot } from "@agent-manager/projects";
+import { ProjectDatabase, ProjectDocker, ProjectManager, resolveWorkspaceRoot, TemplateManager } from "@agent-manager/projects";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { EventHub } from "./lib/event-hub";

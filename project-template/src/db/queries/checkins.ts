@@ -1,6 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import type { Db } from "../client";
-import { type NewCheckin, type NewQuestion, checkins, questions } from "../schema";
+import { checkins, type NewCheckin, type NewQuestion, questions } from "../schema";
 
 export function insertCheckin(db: Db, data: NewCheckin) {
 	db.insert(checkins).values(data).run();

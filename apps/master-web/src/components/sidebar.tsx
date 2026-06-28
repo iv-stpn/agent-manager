@@ -1,20 +1,13 @@
-"use client";
-
-import {
-	createProject as apiCreateProject,
-	createMasterStream,
-	getProjects,
-} from "@/lib/agent-api";
+import { BarChart2, Home, LayoutTemplate, Plus, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import type { EnrichedProject } from "@/lib/agent-api";
+import { createProject as apiCreateProject, createMasterStream, getProjects } from "@/lib/agent-api";
 import { mutateCache, setCache, useQuery } from "@/lib/query-cache";
 import { cn } from "@/lib/utils";
-import { BarChart2, Home, LayoutTemplate, Plus, X } from "lucide-react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
 
 export function Sidebar() {
-	const pathname = usePathname();
+	const { pathname } = useLocation();
 	const [creating, setCreating] = useState(false);
 	const [name, setName] = useState("");
 
@@ -62,7 +55,7 @@ export function Sidebar() {
 			<aside className="fixed left-0 top-0 h-screen w-16 bg-gray-950 flex flex-col items-center py-3 z-30 border-r border-gray-800">
 				{/* Logo */}
 				<Link
-					href="/"
+					to="/"
 					title="Agent Manager"
 					className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white mb-4 shrink-0 hover:bg-blue-500 transition-colors"
 				>
@@ -76,7 +69,7 @@ export function Sidebar() {
 						return (
 							<Link
 								key={project.id}
-								href={`/projects/${project.id}`}
+								to={`/projects/${project.id}`}
 								title={project.name}
 								className={cn(
 									"relative w-10 h-10 rounded-xl flex items-center justify-center text-sm font-semibold shrink-0 transition-all",
@@ -110,7 +103,7 @@ export function Sidebar() {
 					{bottomLinks.map(({ href, icon: Icon, label }) => (
 						<Link
 							key={href}
-							href={href}
+							to={href}
 							title={label}
 							className={cn(
 								"w-10 h-10 rounded-xl flex items-center justify-center transition-all",

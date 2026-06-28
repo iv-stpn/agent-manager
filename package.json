@@ -23,7 +23,7 @@
 		"test:integration": "scripts/run-integration.sh"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^1.9.4",
+		"@biomejs/biome": "2.4.16",
 		"typescript": "^5.7.3"
 	},
 	"dependencies": {

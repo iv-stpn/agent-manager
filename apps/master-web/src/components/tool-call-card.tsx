@@ -1,11 +1,11 @@
 "use client";
 
+import { CheckCircle2, ChevronDown, ChevronRight, Clock, XCircle } from "lucide-react";
+import { useState } from "react";
 import { JsonView } from "@/components/json-view";
 import { ToolIconBox } from "@/components/tool-icons";
 import type { ToolCall } from "@/lib/agent-api";
 import { formatRelativeTime } from "@/lib/utils";
-import { CheckCircle2, ChevronDown, ChevronRight, Clock, XCircle } from "lucide-react";
-import { useState } from "react";
 
 // Output may be a JSON string or plain text. Parse it so a `content` key gets
 // the inline-markdown treatment; fall back to rendering the raw string.

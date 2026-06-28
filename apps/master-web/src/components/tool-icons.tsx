@@ -1,7 +1,6 @@
 import {
 	AlertCircle,
 	Archive,
-	BookOpen,
 	Brain,
 	Clock,
 	FileOutput,
@@ -95,13 +94,7 @@ export function toolIcon(name: string): ToolIconSpec {
 }
 
 /** Renders the tool-type icon inside its colored box. */
-export function ToolIconBox({
-	name,
-	className,
-}: {
-	name: string;
-	className?: string;
-}) {
+export function ToolIconBox({ name, className }: { name: string; className?: string }) {
 	const { Icon, box } = toolIcon(name);
 	return (
 		<span className={`inline-flex shrink-0 items-center justify-center rounded ${box} ${className ?? ""}`}>

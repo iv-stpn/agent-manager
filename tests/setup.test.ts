@@ -13,7 +13,6 @@
 
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 
 console.log("🧪 Setup Verification Test\n");
 
@@ -97,7 +96,7 @@ try {
 			fail(`Script missing: ${script}`);
 		}
 	}
-} catch (error) {
+} catch (_error) {
 	fail("Could not read package.json");
 }
 

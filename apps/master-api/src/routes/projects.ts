@@ -1,6 +1,13 @@
-import { AgentConfigSchema, CreateProjectSchema, DiscordConfigSchema, type ProjectConfig } from "@agent-manager/projects";
-import { Hono } from "hono";
+import { AgentConfigSchema, CreateProjectSchema, DiscordConfigSchema } from "@agent-manager/projects";
+import { z } from "zod";
+
+const UpdateSettingsSchema = z.object({
+	discord: DiscordConfigSchema.optional(),
+	agent: AgentConfigSchema.optional(),
+});
+
 import type { Context } from "hono";
+import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { HonoMasterEnv } from "../types";
 
@@ -136,16 +143,20 @@ export const projectsRouter = new Hono<HonoMasterEnv>()
 			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
 		}
 	})
-	// Get project by ID
 	.get("/:projectId", async (c) => {
 		try {
 			const projectId = c.req.param("projectId");
 			const { manager, docker, projectDb } = c.var;
 			const project = await manager.getProject(projectId);
-			const dockerStatus = await docker.getProjectStatus(projectId);
-			const stats = await projectDb.getProjectStats(projectId);
-			const recentSessions = await projectDb.getProjectSessions(projectId, 5);
-			return c.json({ project: { ...project, dockerStatus, stats, recentSessions } });
+			const [dockerStatus, stats, logLines] = await Promise.all([
+				docker.getProjectStatus(projectId),
+				projectDb.getProjectStats(projectId),
+				docker.getProjectLogs(projectId, "agent").then(
+					(text) => (text.trim() ? text.trim().split("\n").length : 0),
+					() => null
+				),
+			]);
+			return c.json({ project: { ...project, dockerStatus, stats, logLines } });
 		} catch (error) {
 			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 404);
 		}
@@ -252,10 +263,7 @@ export const projectsRouter = new Hono<HonoMasterEnv>()
 	.put("/:projectId/settings", async (c) => {
 		try {
 			const projectId = c.req.param("projectId");
-			const body = await c.req.json();
-			const updates: Partial<Omit<ProjectConfig, "id" | "createdAt">> = {};
-			if (body.discord !== undefined) updates.discord = DiscordConfigSchema.parse(body.discord);
-			if (body.agent !== undefined) updates.agent = AgentConfigSchema.parse(body.agent);
+			const updates = UpdateSettingsSchema.parse(await c.req.json());
 			const project = await c.var.manager.updateProject(projectId, updates);
 			return c.json({ project });
 		} catch (error) {

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { initGitRepo, isGitRepo } from "./git";
-import { executeBash } from "./tools";
+import { executeBash } from "./tools/implementations/commands";
 
 // ── Fixed directory & file structure ─────────────────────────────────────────
 

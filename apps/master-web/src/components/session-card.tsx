@@ -1,13 +1,13 @@
+import { ArrowRight, Bot, Clock, Coins } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { Session } from "@/lib/agent-api";
 import { cn, formatRelativeTime, formatTokens, statusBg } from "@/lib/utils";
-import { ArrowRight, Bot, Clock, Coins } from "lucide-react";
-import Link from "next/link";
 
 export function SessionCard({ session, projectId }: { session: Session; projectId: string }) {
 	return (
-		<Link href={`/projects/${projectId}/sessions/${session.id}`}>
+		<Link to={`/projects/${projectId}/sessions/${session.id}`}>
 			<Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer group">
 				<CardHeader className="pb-3">
 					<div className="flex items-start justify-between gap-3">

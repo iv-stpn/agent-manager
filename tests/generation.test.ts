@@ -14,7 +14,6 @@
 
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ProjectManager } from "../packages/projects/src/index.ts";
 

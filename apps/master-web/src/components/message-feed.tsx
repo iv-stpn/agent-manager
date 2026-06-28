@@ -1,12 +1,12 @@
 "use client";
 
+import { AlertCircle, ArrowDownToLine, Bot, ChevronDown, ChevronRight, MessageCircle, Settings, User } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { JsonView } from "@/components/json-view";
 import { Markdown } from "@/components/markdown";
 import { ToolIconBox } from "@/components/tool-icons";
 import type { Message, ToolCall } from "@/lib/agent-api";
 import { cn, formatRelativeTime } from "@/lib/utils";
-import { AlertCircle, ArrowDownToLine, Bot, ChevronDown, ChevronRight, MessageCircle, Settings, User, Wrench, Zap } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
 
 interface ContentBlock {
 	type: string;
@@ -61,15 +61,7 @@ function stringifyResult(content: string | ContentBlock[] | undefined): string {
 	}
 }
 
-function ToolResultBubble({
-	name,
-	content,
-	isError,
-}: {
-	name: string | null;
-	content: string;
-	isError: boolean;
-}) {
+function ToolResultBubble({ name, content, isError }: { name: string | null; content: string; isError: boolean }) {
 	const [open, setOpen] = useState(false);
 	const preview = content.trim().split("\n")[0]?.slice(0, 60) ?? "";
 	return (
@@ -106,11 +98,17 @@ function useStreamText(text: string, streaming: boolean) {
 	// Reset and replay whenever the message text changes (new message assigned)
 	// biome-ignore lint/correctness/useExhaustiveDependencies: intentional re-trigger on text identity change
 	useEffect(() => {
-		if (!streaming) { setCount(text.length); return; }
+		if (!streaming) {
+			setCount(text.length);
+			return;
+		}
 		setCount(0);
 		const id = setInterval(() => {
 			setCount((c) => {
-				if (c >= text.length) { clearInterval(id); return c; }
+				if (c >= text.length) {
+					clearInterval(id);
+					return c;
+				}
 				// ~40 chars per frame ≈ comfortable reading speed at 60 fps
 				return Math.min(c + 40, text.length);
 			});
@@ -121,15 +119,7 @@ function useStreamText(text: string, streaming: boolean) {
 	return streaming ? text.slice(0, count) : text;
 }
 
-function StreamingTextBlock({
-	text,
-	streaming,
-	className,
-}: {
-	text: string;
-	streaming: boolean;
-	className?: string;
-}) {
+function StreamingTextBlock({ text, streaming, className }: { text: string; streaming: boolean; className?: string }) {
 	const visible = useStreamText(text, streaming);
 	const done = visible.length >= text.length;
 	return (
@@ -159,7 +149,13 @@ function MessageBubble({
 	const lastTextIdx = blocks.reduce((acc, b, i) => (b.type === "text" && b.text ? i : acc), -1);
 
 	return (
-		<div className={cn("flex gap-3 group", isNew && "animate-msg-in", isSystem ? "flex-row" : isAssistant ? "flex-row" : "flex-row-reverse")}>
+		<div
+			className={cn(
+				"flex gap-3 group",
+				isNew && "animate-msg-in",
+				isSystem ? "flex-row" : isAssistant ? "flex-row" : "flex-row-reverse"
+			)}
+		>
 			<div
 				className={cn(
 					"shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs mt-1",
@@ -352,9 +348,7 @@ export function MessageFeed({ messages, toolCalls, sessionStatus, pendingToolCal
 			{isRunning && !streamingText && pendingToolCalls > 0 && (
 				<ThinkingBubble label={`Running ${pendingToolCalls} tool${pendingToolCalls > 1 ? "s" : ""}…`} />
 			)}
-			{isRunning && !streamingText && pendingToolCalls === 0 && (
-				<ThinkingBubble label="Thinking…" />
-			)}
+			{isRunning && !streamingText && pendingToolCalls === 0 && <ThinkingBubble label="Thinking…" />}
 			{isPaused && <AwaitingAnswerBubble />}
 			{isCompacting && <ThinkingBubble label="Compacting context…" />}
 

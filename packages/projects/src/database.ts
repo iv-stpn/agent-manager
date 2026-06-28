@@ -11,15 +11,16 @@ import type {
 	SessionRecord,
 	ToolCallRecord,
 } from "./records";
+
 export type {
-	ProjectStats,
-	SessionRecord,
-	MessageRecord,
-	ToolCallRecord,
 	CheckinRecord,
+	CompactionRecord,
+	MessageRecord,
+	ProjectStats,
 	QuestionRecord,
 	ReportRecord,
-	CompactionRecord,
+	SessionRecord,
+	ToolCallRecord,
 } from "./records";
 
 export class ProjectDatabase {
@@ -45,15 +46,10 @@ export class ProjectDatabase {
 		try {
 			const db = this.openDatabase(projectId);
 
-			const sessionsResult = db.query("SELECT COUNT(*) as count FROM sessions").get() as {
-				count: number;
-			};
-			const messagesResult = db.query("SELECT COUNT(*) as count FROM messages").get() as {
-				count: number;
-			};
-			const lastActivityResult = db.query("SELECT MAX(created_at) as last FROM messages").get() as {
-				last: string | null;
-			};
+			const sessionsResult = db.query("SELECT COUNT(*) as count FROM sessions").get() as { count: number };
+			const messagesResult = db.query("SELECT COUNT(*) as count FROM messages").get() as { count: number };
+			const reportsResult = db.query("SELECT COUNT(*) as count FROM checkins").get() as { count: number };
+			const lastActivityResult = db.query("SELECT MAX(created_at) as last FROM messages").get() as { last: string | null };
 
 			db.close();
 
@@ -61,13 +57,15 @@ export class ProjectDatabase {
 				sessions: sessionsResult.count,
 				messages: messagesResult.count,
 				lastActivity: lastActivityResult.last,
+				reports: reportsResult.count,
 			};
-		} catch (error) {
+		} catch (_error) {
 			// If database doesn't exist yet or has no tables, return zeros
 			return {
 				sessions: 0,
 				messages: 0,
 				lastActivity: null,
+				reports: 0,
 			};
 		}
 	}
@@ -94,7 +92,7 @@ export class ProjectDatabase {
 			db.close();
 
 			return sessions;
-		} catch (error) {
+		} catch (_error) {
 			return [];
 		}
 	}

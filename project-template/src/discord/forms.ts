@@ -307,7 +307,7 @@ export async function sendCheckinForm(
 				const parts = interaction.customId.split("_");
 				const questionId = parts[parts.length - 2] ?? "";
 				const stepNum = Number.parseInt(parts[parts.length - 1] ?? "0", 10);
-				const question = questions[stepNum];
+				const _question = questions[stepNum];
 				const modal = new ModalBuilder()
 					.setCustomId(`answer_modal_${sessionId}_${questionId}`)
 					.setTitle(`Question ${stepNum + 1} of ${questions.length}`);

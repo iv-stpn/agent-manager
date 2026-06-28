@@ -1,16 +1,9 @@
-"use client";
-
-import {
-	createTemplate,
-	deleteTemplate,
-	getTemplates,
-	updateTemplate,
-} from "@/lib/agent-api";
-import type { Template } from "@/lib/agent-api";
-import { useQuery, mutateCache } from "@/lib/query-cache";
-import { cn } from "@/lib/utils";
 import { Edit2, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
+import type { Template } from "@/lib/agent-api";
+import { createTemplate, deleteTemplate, getTemplates, updateTemplate } from "@/lib/agent-api";
+import { mutateCache, useQuery } from "@/lib/query-cache";
+import { cn } from "@/lib/utils";
 
 type Category = Template["category"];
 
@@ -138,7 +131,10 @@ export default function TemplatesPage() {
 				) : (
 					<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 						{visible.map((t) => (
-							<div key={t.id} className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3 hover:border-gray-300 transition-colors">
+							<div
+								key={t.id}
+								className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3 hover:border-gray-300 transition-colors"
+							>
 								<div className="flex items-start justify-between gap-3">
 									<div className="min-w-0">
 										<div className="flex items-center gap-2 mb-1">
@@ -201,7 +197,9 @@ export default function TemplatesPage() {
 
 						<div className="p-6 space-y-4 overflow-y-auto flex-1">
 							<div className="space-y-1.5">
-								<label className="text-sm font-medium text-gray-700" htmlFor="tpl-name">Name *</label>
+								<label className="text-sm font-medium text-gray-700" htmlFor="tpl-name">
+									Name *
+								</label>
 								<input
 									id="tpl-name"
 									// biome-ignore lint/a11y/noAutofocus: intentional focus for modal
@@ -215,7 +213,9 @@ export default function TemplatesPage() {
 							</div>
 
 							<div className="space-y-1.5">
-								<label className="text-sm font-medium text-gray-700" htmlFor="tpl-desc">Description</label>
+								<label className="text-sm font-medium text-gray-700" htmlFor="tpl-desc">
+									Description
+								</label>
 								<input
 									id="tpl-desc"
 									type="text"
@@ -248,7 +248,9 @@ export default function TemplatesPage() {
 							</div>
 
 							<div className="space-y-1.5">
-								<label className="text-sm font-medium text-gray-700" htmlFor="tpl-content">Content</label>
+								<label className="text-sm font-medium text-gray-700" htmlFor="tpl-content">
+									Content
+								</label>
 								<textarea
 									id="tpl-content"
 									value={form.content}

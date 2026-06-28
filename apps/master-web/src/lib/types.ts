@@ -1,10 +1,10 @@
-import type { AgentConfig, DiscordConfig, ProjectConfig, ProjectStats, SessionRecord } from "@agent-manager/projects";
+import type { ProjectConfig, ProjectStats } from "@agent-manager/projects";
 
 export type {
+	AgentConfig,
+	DiscordConfig,
 	ProjectConfig,
 	ProjectStats,
-	DiscordConfig,
-	AgentConfig,
 	SessionRecord,
 } from "@agent-manager/projects";
 
@@ -23,6 +23,7 @@ export interface ProjectDockerStatus {
 export type EnrichedProject = ProjectConfig & {
 	dockerStatus: ProjectDockerStatus;
 	stats: ProjectStats;
+	logLines: number | null;
 };
 
 export type Project = EnrichedProject;

@@ -3,12 +3,11 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import { nanoid } from "nanoid";
 import {
-	type Checkin,
-	type Db,
-	type Question,
 	addTokens,
 	answerQuestion,
+	type Checkin,
 	completeToolCall,
+	type Db,
 	getMessages,
 	getPendingQuestions,
 	getSession,
@@ -18,6 +17,7 @@ import {
 	insertQuestion,
 	insertReport,
 	insertToolCall,
+	type Question,
 	updateCheckin,
 	updateQuestionCheckin,
 	updateSession,
@@ -28,25 +28,21 @@ import { type ReportData, sendDiscordReport } from "../discord/report";
 import { sessionEmitter } from "../emitter";
 import { compactMessages, estimateTokens } from "./context";
 import { commitChanges, getCurrentCommit } from "./git";
+import { AGENT_TOOLS } from "./tools/definitions";
+import { executeBash, glob, grep } from "./tools/implementations/commands";
 import {
-	AGENT_TOOLS,
-	appendDecision,
 	createDirectory,
 	deleteFile,
 	editFile,
-	executeBash,
 	getFileInfo,
 	listDirectory,
 	moveFile,
 	readFile,
 	readFileRange,
-	readMemory,
-	sandboxPath,
 	searchFiles,
-	searchMemory,
 	writeFile,
-	writeMemory,
-} from "./tools";
+} from "./tools/implementations/filesystem";
+import { appendDecision, readMemory, searchMemory, writeMemory } from "./tools/implementations/memory";
 import { AGENT_DIR_STRUCTURE, bootstrapWorkspace, buildStartupContext } from "./workspace";
 
 const WORKSPACE = process.env.WORKSPACE_PATH ?? "/workspace";
@@ -581,7 +577,7 @@ export class AgentRunner {
 
 	// ── Report helpers ─────────────────────────────────────────────────────────────
 
-	private shouldFreeze(trigger: string, freezeOverride?: "freeze" | "continue"): boolean {
+	private shouldFreeze(_trigger: string, freezeOverride?: "freeze" | "continue"): boolean {
 		if (freezeOverride === "freeze") return true;
 		if (freezeOverride === "continue") return false;
 		if (this.freezeReportMode === "always") return true;
@@ -1002,6 +998,15 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 					.filter(Boolean)
 					.join("\n");
 			}
+			case "grep":
+				return await grep(
+					input.pattern as string,
+					(input.path as string) ?? ".",
+					input.include as string | undefined,
+					(input.flags as string) ?? ""
+				);
+			case "glob":
+				return await glob(input.pattern as string, (input.path as string) ?? ".");
 			case "read_file":
 				return await readFile(input.path as string);
 			case "write_file": {
@@ -1173,6 +1178,7 @@ Do NOT work outside this scope. Add tasks to \`.agent/TODO.md\` and update \`.ag
 				updateSession(this.db, this.sessionId, { totalTimeoutMins: mins });
 				return `Total timeout set to ${mins} minutes.`;
 			}
+
 			case "change_report_time_interval": {
 				const mins = Math.max(0, Number(input.minutes));
 				this.reportIntervalMs = mins * 60_000;

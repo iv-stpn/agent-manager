@@ -1,27 +1,27 @@
-export { ProjectManager, resolveWorkspaceRoot } from "./manager";
-export { ProjectDocker } from "./docker";
 export { ProjectDatabase } from "./database";
+export { ProjectDocker } from "./docker";
+export { ProjectManager, resolveWorkspaceRoot } from "./manager";
 export type {
-	ProjectConfig,
-	CreateProjectInput,
-	DiscordConfig,
-	AgentConfig,
-} from "./types";
-export {
-	ProjectConfigSchema,
-	CreateProjectSchema,
-	DiscordConfigSchema,
-	AgentConfigSchema,
-} from "./types";
-export { TemplateManager } from "./templates";
-export type { Template, TemplateCategory } from "./templates";
-export type {
-	ProjectStats,
-	SessionRecord,
-	MessageRecord,
-	ToolCallRecord,
 	CheckinRecord,
+	CompactionRecord,
+	MessageRecord,
+	ProjectStats,
 	QuestionRecord,
 	ReportRecord,
-	CompactionRecord,
+	SessionRecord,
+	ToolCallRecord,
 } from "./records";
+export type { Template, TemplateCategory } from "./templates";
+export { TemplateManager } from "./templates";
+export type {
+	AgentConfig,
+	CreateProjectInput,
+	DiscordConfig,
+	ProjectConfig,
+} from "./types";
+export {
+	AgentConfigSchema,
+	CreateProjectSchema,
+	DiscordConfigSchema,
+	ProjectConfigSchema,
+} from "./types";

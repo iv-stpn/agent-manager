@@ -1,8 +1,8 @@
 "use client";
 
+import { Fragment, type ReactNode } from "react";
 import { Markdown } from "@/components/markdown";
 import { cn } from "@/lib/utils";
-import { Fragment, type ReactNode } from "react";
 
 // Pulls renderable markdown text out of a `content` value. It may be a plain
 // string, an array of content blocks (`{ type: "text", text }`), or a single

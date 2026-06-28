@@ -60,16 +60,27 @@
 
 @layer utilities {
 	@keyframes msgIn {
-		from { opacity: 0; transform: translateY(6px); }
-		to   { opacity: 1; transform: translateY(0); }
+		from {
+			opacity: 0;
+			transform: translateY(6px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 	.animate-msg-in {
 		animation: msgIn 0.25s ease-out both;
 	}
 
 	@keyframes blink {
-		0%, 100% { opacity: 1; }
-		50%       { opacity: 0; }
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0;
+		}
 	}
 	.streaming-cursor::after {
 		content: "▋";

@@ -21,7 +21,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { $ } from "bun";
 import type { ProjectDocker as ProjectDockerClass } from "../packages/projects/src/docker";
@@ -56,7 +56,7 @@ try {
 		}
 		console.log("✅ Loaded configuration from .env.test");
 	}
-} catch (error) {
+} catch (_error) {
 	console.log("⚠️  No .env.test file found, using environment variables");
 }
 

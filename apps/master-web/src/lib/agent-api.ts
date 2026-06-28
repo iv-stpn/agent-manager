@@ -3,32 +3,41 @@
 // SSE streams connect directly to the agent server port to avoid proxy buffering.
 
 import type { AppType } from "@agent-manager/master-api";
-import type { CheckinRecord, CompactionRecord, CreateProjectInput, MessageRecord, QuestionRecord, SessionRecord, Template, ToolCallRecord } from "@agent-manager/projects";
-import { PROJECT_STREAM_EVENTS, SESSION_STREAM_EVENTS, createEventStream } from "@agent-manager/utils";
+import type {
+	CheckinRecord,
+	CompactionRecord,
+	CreateProjectInput,
+	MessageRecord,
+	QuestionRecord,
+	SessionRecord,
+	Template,
+	ToolCallRecord,
+} from "@agent-manager/projects";
 import type { ProjectStreamEvent, SessionStreamEvent } from "@agent-manager/utils";
+import { createEventStream, PROJECT_STREAM_EVENTS, SESSION_STREAM_EVENTS } from "@agent-manager/utils";
 import { hc } from "hono/client";
 
 export type {
-	EnrichedProject,
-	ProjectDockerStatus,
-	ProjectDockerContainer,
-	ProjectStats,
-	ProjectConfig,
-	DiscordConfig,
-	AgentConfig,
-} from "./types";
-export type {
-	SessionRecord as Session,
-	MessageRecord as Message,
-	ToolCallRecord as ToolCall,
 	CheckinRecord as Checkin,
+	CompactionRecord as Compaction,
+	MessageRecord as Message,
 	QuestionRecord as Question,
 	ReportRecord as Report,
-	CompactionRecord as Compaction,
+	SessionRecord as Session,
 	Template,
+	ToolCallRecord as ToolCall,
 } from "@agent-manager/projects";
+export type {
+	AgentConfig,
+	DiscordConfig,
+	EnrichedProject,
+	ProjectConfig,
+	ProjectDockerContainer,
+	ProjectDockerStatus,
+	ProjectStats,
+} from "./types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3100";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3100";
 const api = hc<AppType>(API_URL);
 
 // ── Project endpoints ─────────────────────────────────────────────────────────
@@ -192,7 +201,7 @@ export async function sendSessionMessage(projectId: string, id: string, message:
 // ── SSE streams (direct to agent server, bypass proxy) ───────────────────────
 
 export function createSessionStream(
-	projectId: string,
+	_projectId: string,
 	id: string,
 	onEvent: (event: SessionStreamEvent) => void,
 	port: number
@@ -205,7 +214,7 @@ export function createSessionStream(
 	);
 }
 
-export function createProjectStream(projectId: string, onEvent: (event: ProjectStreamEvent) => void, port: number): EventSource {
+export function createProjectStream(_projectId: string, onEvent: (event: ProjectStreamEvent) => void, port: number): EventSource {
 	return createEventStream<ProjectStreamEvent>(`http://localhost:${port}/api/stream`, PROJECT_STREAM_EVENTS, onEvent, "project");
 }
 
@@ -215,7 +224,7 @@ export function createMasterStream(
 ): EventSource {
 	// Use a relative URL so the request goes through Next.js's rewrite proxy,
 	// avoiding cross-origin issues with the SSE streaming response.
-	const es = new EventSource(`/api/projects/events`);
+	const es = new EventSource("/api/projects/events");
 
 	es.addEventListener("projects", (e) => {
 		try {
@@ -252,13 +261,21 @@ export async function getTemplates(): Promise<Template[]> {
 }
 
 export async function createTemplate(data: Omit<Template, "id" | "createdAt" | "updatedAt">): Promise<Template> {
-	const res = await fetch(`${API_URL}/api/templates`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+	const res = await fetch(`${API_URL}/api/templates`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(data),
+	});
 	if (!res.ok) throw new Error(`API ${res.status}`);
 	return res.json();
 }
 
 export async function updateTemplate(id: string, data: Partial<Omit<Template, "id" | "createdAt">>): Promise<Template> {
-	const res = await fetch(`${API_URL}/api/templates/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+	const res = await fetch(`${API_URL}/api/templates/${id}`, {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(data),
+	});
 	if (!res.ok) throw new Error(`API ${res.status}`);
 	return res.json();
 }

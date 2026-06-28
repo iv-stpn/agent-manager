@@ -1,13 +1,11 @@
-"use client";
-
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { createSession } from "@/lib/agent-api";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
 
 interface Props {
 	open: boolean;
@@ -16,7 +14,7 @@ interface Props {
 }
 
 export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
-	const router = useRouter();
+	const navigate = useNavigate();
 	const [task, setTask] = useState("");
 	const [reportIntervalMins, setReportIntervalMins] = useState("15");
 	const [totalTimeoutMins, setTotalTimeoutMins] = useState("240");
@@ -50,7 +48,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 			});
 			onOpenChange(false);
 			setTask("");
-			router.push(`/projects/${projectId}/sessions/${session.id}`);
+			navigate(`/projects/${projectId}/sessions/${session.id}`);
 		} finally {
 			setLoading(false);
 		}

@@ -1,7 +1,7 @@
 "use client";
 
-import { cn } from "@/lib/utils";
 import { Fragment, type ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 // Lightweight, dependency-free markdown renderer for agent output. Handles the
 // subset that shows up in agent messages and reports: fenced code blocks,

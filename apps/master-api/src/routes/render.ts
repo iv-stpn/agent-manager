@@ -1,6 +1,14 @@
 import { Hono } from "hono";
+import { z } from "zod";
 import { renderMermaid, resolveWorkspacePath, screenshotHtml, screenshotTarget } from "../render/chromium";
 import type { HonoMasterEnv } from "../types";
+
+const MermaidSchema = z.object({ definition: z.string().min(1) });
+const ScreenshotSchema = z.object({
+	target: z.string().optional(),
+	html: z.string().optional(),
+	projectId: z.string().optional(),
+});
 
 const png = (buf: Buffer) => new Response(new Uint8Array(buf), { headers: { "content-type": "image/png" } });
 
@@ -15,10 +23,7 @@ const png = (buf: Buffer) => new Response(new Uint8Array(buf), { headers: { "con
 export const renderRouter = new Hono<HonoMasterEnv>()
 	.post("/mermaid", async (c) => {
 		try {
-			const { definition } = await c.req.json();
-			if (typeof definition !== "string" || !definition.trim()) {
-				return c.json({ error: "definition is required" }, 400);
-			}
+			const { definition } = MermaidSchema.parse(await c.req.json());
 			return png(await renderMermaid(definition));
 		} catch (error) {
 			return c.json({ error: error instanceof Error ? error.message : "render failed" }, 500);
@@ -26,13 +31,13 @@ export const renderRouter = new Hono<HonoMasterEnv>()
 	})
 	.post("/screenshot", async (c) => {
 		try {
-			const { target, html, projectId } = await c.req.json();
+			const { target, html, projectId } = ScreenshotSchema.parse(await c.req.json());
 
-			if (typeof html === "string" || (typeof target === "string" && target.trimStart().startsWith("<"))) {
-				return png(await screenshotHtml(html ?? target));
+			if (html || target?.trimStart().startsWith("<")) {
+				return png(await screenshotHtml(html ?? target!));
 			}
 
-			if (typeof target !== "string" || !target.trim()) {
+			if (!target?.trim()) {
 				return c.json({ error: "target or html is required" }, 400);
 			}
 
@@ -41,7 +46,7 @@ export const renderRouter = new Hono<HonoMasterEnv>()
 			}
 
 			// Workspace-relative file path — resolve against the project's real workspace.
-			if (typeof projectId !== "string") {
+			if (!projectId) {
 				return c.json({ error: "projectId is required for workspace file targets" }, 400);
 			}
 			const project = await c.var.manager.getProject(projectId);

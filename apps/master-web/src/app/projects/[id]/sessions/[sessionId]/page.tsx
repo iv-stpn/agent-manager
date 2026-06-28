@@ -1,5 +1,6 @@
-"use client";
-
+import { ArrowLeft, RefreshCw, Send, Square } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import { CheckinTimeline } from "@/components/checkin-timeline";
 import { CompactionTimeline } from "@/components/compaction-timeline";
 import { MessageFeed } from "@/components/message-feed";
@@ -10,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { Checkin, Compaction, Message, Question, Session, ToolCall } from "@/lib/agent-api";
 import {
 	createSessionStream,
 	getCheckins,
@@ -22,21 +24,16 @@ import {
 	sendSessionMessage,
 	stopSession,
 } from "@/lib/agent-api";
-import type { Checkin, Compaction, Message, Question, Session, ToolCall } from "@/lib/agent-api";
-import { getCache, mutateCache, setCache, useQuery } from "@/lib/query-cache";
+import { containerClassName } from "@/lib/classes";
+import { mutateCache, useQuery } from "@/lib/query-cache";
 import type { Project } from "@/lib/types";
 import { cn, formatTokens, statusBg } from "@/lib/utils";
-import { ArrowLeft, RefreshCw, Send, Square } from "lucide-react";
-import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { containerClassName } from "@/lib/classes";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3100";
+const _API_URL = import.meta.env.VITE_API_URL || "http://localhost:3100";
 
 export default function SessionPage() {
 	const params = useParams<{ id: string; sessionId: string }>();
-	const router = useRouter();
+	const _router = useRouter();
 	const projectId = params.id;
 	const sessionId = params.sessionId;
 
@@ -192,7 +189,7 @@ export default function SessionPage() {
 					Could not load this session. It may not exist, or the project database is unavailable.
 				</p>
 				<Link
-					href={`/projects/${projectId}`}
+					to={`/projects/${projectId}`}
 					className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
 				>
 					<ArrowLeft className="h-4 w-4" />
@@ -219,7 +216,7 @@ export default function SessionPage() {
 			{/* Top bar */}
 			<div className="border-b shrink-0 py-4 h-[110px]">
 				<div className={containerClassName}>
-<div className="flex items-center gap-4">
+					<div className="flex items-center gap-4">
 						<div className="flex-1 min-w-0">
 							{session.name && <p className="text-lg font-semibold truncate mb-1">{session.name}</p>}
 						</div>

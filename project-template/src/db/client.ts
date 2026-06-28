@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "./schema";
 
 export type Db = BunSQLiteDatabase<typeof schema>;
@@ -131,7 +131,7 @@ export function initDb(path = process.env.DATABASE_PATH ?? "./data/agent.db") {
 	try {
 		// Add name column to sessions if it doesn't exist
 		sqlite.exec("ALTER TABLE sessions ADD COLUMN name TEXT");
-	} catch (e) {
+	} catch (_e) {
 		// Column already exists, ignore
 	}
 
@@ -139,7 +139,7 @@ export function initDb(path = process.env.DATABASE_PATH ?? "./data/agent.db") {
 		// Add error columns to messages if they don't exist
 		sqlite.exec("ALTER TABLE messages ADD COLUMN error TEXT");
 		sqlite.exec("ALTER TABLE messages ADD COLUMN error_details TEXT");
-	} catch (e) {
+	} catch (_e) {
 		// Columns already exist, ignore
 	}
 
@@ -147,7 +147,7 @@ export function initDb(path = process.env.DATABASE_PATH ?? "./data/agent.db") {
 		// Add cache token columns to sessions if they don't exist
 		sqlite.exec("ALTER TABLE sessions ADD COLUMN total_cache_read_tokens INTEGER NOT NULL DEFAULT 0");
 		sqlite.exec("ALTER TABLE sessions ADD COLUMN total_cache_write_tokens INTEGER NOT NULL DEFAULT 0");
-	} catch (e) {
+	} catch (_e) {
 		// Columns already exist, ignore
 	}
 
@@ -155,7 +155,7 @@ export function initDb(path = process.env.DATABASE_PATH ?? "./data/agent.db") {
 		// Add cache token columns to messages if they don't exist
 		sqlite.exec("ALTER TABLE messages ADD COLUMN cache_read_tokens INTEGER DEFAULT 0");
 		sqlite.exec("ALTER TABLE messages ADD COLUMN cache_write_tokens INTEGER DEFAULT 0");
-	} catch (e) {
+	} catch (_e) {
 		// Columns already exist, ignore
 	}
 

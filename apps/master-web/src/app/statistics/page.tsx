@@ -1,11 +1,19 @@
-"use client";
-
-import { getProjects } from "@/lib/agent-api";
+import { Activity, Database, Play } from "lucide-react";
 import type { EnrichedProject } from "@/lib/agent-api";
+import { getProjects } from "@/lib/agent-api";
 import { useQuery } from "@/lib/query-cache";
-import { Activity, Database, Play, Square } from "lucide-react";
 
-function StatCard({ icon: Icon, label, value, sub }: { icon: typeof Database; label: string; value: string | number; sub?: string }) {
+function StatCard({
+	icon: Icon,
+	label,
+	value,
+	sub,
+}: {
+	icon: typeof Database;
+	label: string;
+	value: string | number;
+	sub?: string;
+}) {
 	return (
 		<div className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
 			<div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">

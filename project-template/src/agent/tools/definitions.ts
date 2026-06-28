@@ -1,20 +1,7 @@
-import { join } from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 
-const WORKSPACE = process.env.WORKSPACE_PATH ?? "/workspace";
-
-/** Resolve a path to an absolute path within the workspace sandbox */
-function sandboxPath(p: string): string {
-	if (p.startsWith("/")) {
-		// Absolute path — only allow if it's already inside the workspace
-		if (!p.startsWith(WORKSPACE)) return join(WORKSPACE, p.replace(/^\/+/, ""));
-		return p;
-	}
-	return join(WORKSPACE, p);
-}
-
 export const AGENT_TOOLS: Anthropic.Tool[] = [
-	// ── File system ──────────────────────────────────────────────────────────────
+	// ── Commands ─────────────────────────────────────────────────────────────────
 	{
 		name: "bash",
 		description:
@@ -31,6 +18,34 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 			required: ["command"],
 		},
 	},
+	{
+		name: "grep",
+		description: "Search for a regex pattern in files. Returns matching lines with file paths and line numbers.",
+		input_schema: {
+			type: "object",
+			properties: {
+				pattern: { type: "string", description: "Regex pattern to search for" },
+				path: { type: "string", description: "Directory to search in (default: workspace root)" },
+				include: { type: "string", description: "File glob filter (e.g. '*.ts')" },
+				flags: { type: "string", description: "Extra grep flags (e.g. '-i' for case-insensitive)" },
+			},
+			required: ["pattern"],
+		},
+	},
+	{
+		name: "glob",
+		description: "Find files and directories matching a glob pattern (e.g. '**/*.ts', 'src/**/*.{ts,js}').",
+		input_schema: {
+			type: "object",
+			properties: {
+				pattern: { type: "string", description: "Glob pattern to match" },
+				path: { type: "string", description: "Base directory (default: workspace root)" },
+			},
+			required: ["pattern"],
+		},
+	},
+
+	// ── File system ──────────────────────────────────────────────────────────────
 	{
 		name: "read_file",
 		description: "Read a file from the workspace. Path is relative to workspace root.",
@@ -596,294 +611,3 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 		},
 	},
 ];
-
-// ── Tool executors ────────────────────────────────────────────────────────────
-
-export async function executeBash(
-	command: string,
-	timeoutMs = 30_000
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-	try {
-		const proc = Bun.spawn(["bash", "-c", command], {
-			cwd: WORKSPACE,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-
-		const timer = setTimeout(() => proc.kill(), timeoutMs);
-		const exitCode = await proc.exited;
-		clearTimeout(timer);
-
-		const stdout = await new Response(proc.stdout).text();
-		const stderr = await new Response(proc.stderr).text();
-
-		return { stdout: stdout.slice(0, 8000), stderr: stderr.slice(0, 2000), exitCode };
-	} catch (err) {
-		return { stdout: "", stderr: String(err), exitCode: 1 };
-	}
-}
-
-export async function readFile(path: string): Promise<string> {
-	const abs = sandboxPath(path);
-	try {
-		const text = await Bun.file(abs).text();
-		return text.slice(0, 20_000);
-	} catch (err) {
-		throw new Error(`Cannot read ${path}: ${err}`);
-	}
-}
-
-export async function writeFile(path: string, content: string): Promise<void> {
-	const abs = sandboxPath(path);
-	await Bun.write(abs, content);
-}
-
-export async function listDirectory(path = ""): Promise<string> {
-	const abs = sandboxPath(path || ".");
-	const result = await executeBash(`ls -la "${abs}"`);
-	return result.stdout || result.stderr;
-}
-
-export async function searchFiles(
-	pattern: string,
-	path = ".",
-	filePattern = "*",
-	caseSensitive = false,
-	maxResults = 100
-): Promise<string> {
-	const abs = sandboxPath(path);
-	const caseFlag = caseSensitive ? "" : "-i";
-	const includeFlag = filePattern === "*" ? "" : `--include="${filePattern}"`;
-
-	// Use grep with line numbers and file names
-	const cmd = `cd "${abs}" && grep -rn ${caseFlag} ${includeFlag} -E "${pattern.replace(/"/g, '\\"')}" . 2>/dev/null | head -${maxResults}`;
-	const result = await executeBash(cmd, 15_000);
-
-	if (result.exitCode !== 0 && !result.stdout) {
-		return "No matches found.";
-	}
-
-	return result.stdout || "No matches found.";
-}
-
-export async function editFile(path: string, oldString: string, newString: string, replaceAll = false): Promise<string> {
-	const abs = sandboxPath(path);
-
-	try {
-		const content = await Bun.file(abs).text();
-
-		if (!content.includes(oldString)) {
-			throw new Error(`String not found in file: ${path}`);
-		}
-
-		const occurrences = content.split(oldString).length - 1;
-		if (occurrences > 1 && !replaceAll) {
-			throw new Error(`Found ${occurrences} occurrences. Set replace_all=true to replace all, or make old_string more specific.`);
-		}
-
-		const newContent = replaceAll ? content.replaceAll(oldString, newString) : content.replace(oldString, newString);
-
-		await Bun.write(abs, newContent);
-		return `Replaced ${replaceAll ? occurrences : 1} occurrence(s) in ${path}`;
-	} catch (err) {
-		throw new Error(`Cannot edit ${path}: ${err}`);
-	}
-}
-
-export async function moveFile(source: string, destination: string): Promise<string> {
-	const absSrc = sandboxPath(source);
-	const absDest = sandboxPath(destination);
-
-	// Create parent directory if needed
-	const destDir = absDest.substring(0, absDest.lastIndexOf("/"));
-	if (destDir) {
-		await executeBash(`mkdir -p "${destDir}"`);
-	}
-
-	const result = await executeBash(`mv "${absSrc}" "${absDest}"`);
-
-	if (result.exitCode !== 0) {
-		throw new Error(`Cannot move ${source} to ${destination}: ${result.stderr}`);
-	}
-
-	return `Moved ${source} → ${destination}`;
-}
-
-export async function deleteFile(path: string, recursive = false): Promise<string> {
-	const abs = sandboxPath(path);
-
-	// Check if it's a directory
-	const statResult = await executeBash(`test -d "${abs}" && echo "dir" || echo "file"`);
-	const isDir = statResult.stdout.trim() === "dir";
-
-	if (isDir && !recursive) {
-		throw new Error(`${path} is a directory. Set recursive=true to delete directories.`);
-	}
-
-	const flag = recursive ? "-rf" : "-f";
-	const result = await executeBash(`rm ${flag} "${abs}"`);
-
-	if (result.exitCode !== 0) {
-		throw new Error(`Cannot delete ${path}: ${result.stderr}`);
-	}
-
-	return `Deleted ${path}`;
-}
-
-export async function createDirectory(path: string): Promise<string> {
-	const abs = sandboxPath(path);
-	const result = await executeBash(`mkdir -p "${abs}"`);
-
-	if (result.exitCode !== 0) {
-		throw new Error(`Cannot create directory ${path}: ${result.stderr}`);
-	}
-
-	return `Created directory ${path}`;
-}
-
-export async function getFileInfo(path: string): Promise<string> {
-	const abs = sandboxPath(path);
-
-	// Get detailed file info
-	const result = await executeBash(
-		`stat -f "Size: %z bytes\nModified: %Sm\nType: %HT\nPermissions: %Sp" "${abs}" 2>/dev/null || stat --format="Size: %s bytes\nModified: %y\nType: %F\nPermissions: %A" "${abs}" 2>/dev/null`
-	);
-
-	if (result.exitCode !== 0) {
-		throw new Error(`Cannot get info for ${path}: file not found`);
-	}
-
-	// Also count lines if it's a text file
-	const wcResult = await executeBash(`wc -l "${abs}" 2>/dev/null`);
-	const lines = wcResult.exitCode === 0 ? `\nLines: ${wcResult.stdout.trim().split(/\s+/)[0]}` : "";
-
-	return result.stdout + lines;
-}
-
-export async function readFileRange(path: string, startLine: number, endLine: number): Promise<string> {
-	const abs = sandboxPath(path);
-
-	if (startLine < 1 || endLine < startLine) {
-		throw new Error("Invalid line range. start_line must be ≥1 and ≤end_line");
-	}
-
-	const result = await executeBash(`sed -n '${startLine},${endLine}p' "${abs}" | head -1000`);
-
-	if (result.exitCode !== 0) {
-		throw new Error(`Cannot read ${path}: ${result.stderr}`);
-	}
-
-	if (!result.stdout) {
-		return `Lines ${startLine}-${endLine} are empty or beyond end of file.`;
-	}
-
-	return result.stdout;
-}
-
-// ── Memory Management ─────────────────────────────────────────────────────────
-
-const AGENT_DIR = ".agent";
-const MEMORY_DIR = join(AGENT_DIR, "memory");
-
-export async function readMemory(file: string): Promise<string> {
-	// Normalize path - if it doesn't start with .agent, prepend it
-	const memoryPath = file.startsWith(AGENT_DIR) ? file : join(AGENT_DIR, file);
-	const abs = sandboxPath(memoryPath);
-
-	try {
-		const text = await Bun.file(abs).text();
-		return text.slice(0, 50_000); // Memory files can be larger
-	} catch (err) {
-		throw new Error(`Cannot read memory file ${file}: ${err}`);
-	}
-}
-
-export async function writeMemory(file: string, content: string, append = false): Promise<string> {
-	const memoryPath = file.startsWith(AGENT_DIR) ? file : join(AGENT_DIR, file);
-	const abs = sandboxPath(memoryPath);
-
-	try {
-		// Ensure parent directory exists
-		const dir = abs.substring(0, abs.lastIndexOf("/"));
-		await executeBash(`mkdir -p "${dir}"`);
-
-		if (append) {
-			const existing = await Bun.file(abs)
-				.text()
-				.catch(() => "");
-			await Bun.write(abs, `${existing}\n${content}`);
-		} else {
-			await Bun.write(abs, content);
-		}
-
-		// If writing to memory/ subdirectory, check if MEMORY.md needs updating
-		if (file.startsWith("memory/") && !append) {
-			await updateMemoryIndex(file);
-		}
-
-		return `${append ? "Appended to" : "Written"}: ${file}`;
-	} catch (err) {
-		throw new Error(`Cannot write memory file ${file}: ${err}`);
-	}
-}
-
-async function updateMemoryIndex(newFile: string): Promise<void> {
-	// Check if the file is already registered in MEMORY.md
-	const indexPath = sandboxPath(join(AGENT_DIR, "MEMORY.md"));
-	try {
-		const index = await Bun.file(indexPath).text();
-		const fileName = newFile.replace("memory/", "");
-
-		// Check if already listed
-		if (index.includes(`[${fileName}]`) || index.includes(`(${newFile})`)) {
-			return; // Already registered
-		}
-
-		// Add to the memory files table
-		const tableEnd = index.indexOf("\n_Add rows here");
-		if (tableEnd > 0) {
-			const beforeTable = index.substring(0, tableEnd);
-			const afterTable = index.substring(tableEnd);
-			const newRow = `| [${fileName}](${newFile}) | _Add description here_ |\n`;
-			await Bun.write(indexPath, beforeTable + newRow + afterTable);
-		}
-	} catch {
-		// If MEMORY.md doesn't exist or can't be read, skip index update
-	}
-}
-
-export async function searchMemory(pattern: string, caseSensitive = false): Promise<string> {
-	const agentDir = sandboxPath(AGENT_DIR);
-	const caseFlag = caseSensitive ? "" : "-i";
-
-	// Search all files in .agent directory
-	const cmd = `cd "${agentDir}" && grep -rn ${caseFlag} -E "${pattern.replace(/"/g, '\\"')}" . 2>/dev/null | head -50`;
-	const result = await executeBash(cmd, 10_000);
-
-	if (result.exitCode !== 0 && !result.stdout) {
-		return "No matches found in memory.";
-	}
-
-	return result.stdout || "No matches found in memory.";
-}
-
-export async function appendDecision(
-	title: string,
-	context: string,
-	decision: string,
-	rationale: string,
-	consequences?: string
-): Promise<string> {
-	const date = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-	const entry = `
-## ${title} — ${date}
-**Context:** ${context}
-**Decision:** ${decision}
-**Rationale:** ${rationale}
-${consequences ? `**Consequences:** ${consequences}` : ""}
-`;
-
-	return await writeMemory("DECISIONS.md", entry, true);
-}
-
-export { sandboxPath };

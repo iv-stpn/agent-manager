@@ -1,9 +1,9 @@
 "use client";
 
+import { Scissors } from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import type { Compaction } from "@/lib/agent-api";
 import { formatRelativeTime, formatTokens } from "@/lib/utils";
-import { Scissors } from "lucide-react";
 
 interface Props {
 	compactions: Compaction[];

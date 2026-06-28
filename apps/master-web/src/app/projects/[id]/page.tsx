@@ -1,27 +1,3 @@
-"use client";
-
-import { NewSessionDialog } from "@/components/new-session-dialog";
-import { SessionCard } from "@/components/session-card";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-	deleteProject as apiDeleteProject,
-	restartProject as apiRestartProject,
-	startProject as apiStartProject,
-	stopProject as apiStopProject,
-	createProjectStream,
-	getLogs,
-	getProject,
-	getReports,
-	getSessions,
-	updateSettings,
-} from "@/lib/agent-api";
-import type { Report, Session } from "@/lib/agent-api";
-import { getCache, mutateCache, setCache, useQuery } from "@/lib/query-cache";
-import type { Project } from "@/lib/types";
-import { cn, formatRelativeTime } from "@/lib/utils";
 import {
 	Activity,
 	AlertTriangle,
@@ -35,18 +11,39 @@ import {
 	List,
 	Play,
 	PlayCircle,
+	Power,
 	RefreshCw,
 	Settings as SettingsIcon,
 	Square,
 	Terminal,
 	Trash2,
-	Power,
 } from "lucide-react";
-import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { NewSessionDialog } from "@/components/new-session-dialog";
+import { SessionCard } from "@/components/session-card";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import type { Report, Session } from "@/lib/agent-api";
+import {
+	deleteProject as apiDeleteProject,
+	restartProject as apiRestartProject,
+	startProject as apiStartProject,
+	stopProject as apiStopProject,
+	createProjectStream,
+	getLogs,
+	getProject,
+	getReports,
+	getSessions,
+	updateSettings,
+} from "@/lib/agent-api";
+import { getCache, mutateCache, setCache, useQuery } from "@/lib/query-cache";
+import type { Project } from "@/lib/types";
+import { cn, formatRelativeTime } from "@/lib/utils";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3100";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3100";
 
 type Tab = "overview" | "sessions" | "logs" | "reports" | "settings";
 
@@ -66,8 +63,8 @@ export default function ProjectDetailPage() {
 
 function ProjectDetailContent() {
 	const params = useParams<{ id: string }>();
-	const router = useRouter();
-	const searchParams = useSearchParams();
+	const navigate = useNavigate();
+	const [searchParams, setSearchParams] = useSearchParams();
 	const projectId = params.id;
 
 	const validTabs: Tab[] = ["overview", "sessions", "logs", "reports", "settings"];
@@ -75,19 +72,12 @@ function ProjectDetailContent() {
 	const tab: Tab = tabParam && validTabs.includes(tabParam) ? tabParam : "sessions";
 
 	const setTab = (newTab: Tab) => {
-		const params = new URLSearchParams(searchParams.toString());
-		if (newTab === "overview") {
-			params.delete("tab");
-		} else {
-			params.set("tab", newTab);
-		}
-		const query = params.toString();
-		router.replace(`?${query}`, { scroll: false });
+		const urlParams = new URLSearchParams(searchParams.toString());
+		urlParams.set("tab", newTab);
+		setSearchParams(urlParams, { replace: true });
 	};
 
 	const [dialogOpen, setDialogOpen] = useState(false);
-	const [logCount, setLogCount] = useState<number | null>(null);
-	const [reportCount, setReportCount] = useState<number | null>(null);
 
 	// Project + docker status: one initial fetch, then the project SSE stream
 	// (below) keeps it live. No polling.
@@ -216,7 +206,7 @@ function ProjectDetailContent() {
 		if (!confirm(`Delete project "${project.name}"? This cannot be undone.`)) return;
 		try {
 			await apiDeleteProject(projectId);
-			router.push("/");
+			navigate("/");
 		} catch (error) {
 			console.error("Failed to delete project:", error);
 		}
@@ -245,7 +235,7 @@ function ProjectDetailContent() {
 							Retry
 						</button>
 						<Link
-							href="/"
+							to="/"
 							className="inline-flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
 						>
 							<ArrowLeft className="w-4 h-4" />
@@ -267,10 +257,12 @@ function ProjectDetailContent() {
 
 	const running = project.dockerStatus.running;
 	const sessionCount = project.stats.sessions;
+	const reportCount = project.stats.reports;
+	const logCount = project.logLines;
 
 	const tabs: Array<{ key: Tab; label: string; icon: typeof List; count?: number | null }> = [
-		{ key: "overview", label: "Overview", icon: LayoutGrid },
 		{ key: "sessions", label: "Sessions", icon: List, count: sessionCount },
+		{ key: "overview", label: "Overview", icon: LayoutGrid },
 		{ key: "logs", label: "Logs", icon: Terminal, count: logCount },
 		{ key: "reports", label: "Reports", icon: ClipboardList, count: reportCount },
 		{ key: "settings", label: "Settings", icon: SettingsIcon },
@@ -282,7 +274,7 @@ function ProjectDetailContent() {
 			<header className="border-b h-[110px]">
 				<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
 					<div className="flex items-center gap-3 mb-3">
-						<Link href="/" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900">
+						<Link to="/" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900">
 							<ArrowLeft className="w-4 h-4" />
 							Projects
 						</Link>
@@ -371,8 +363,8 @@ function ProjectDetailContent() {
 					{tab === "sessions" && (
 						<SessionsTab projectId={project.id} running={running} dialogOpen={dialogOpen} setDialogOpen={setDialogOpen} />
 					)}
-					{tab === "logs" && <LogsTab projectId={project.id} running={running} onLogCount={setLogCount} />}
-					{tab === "reports" && <ReportsTab projectId={project.id} onReportCount={setReportCount} />}
+					{tab === "logs" && <LogsTab projectId={project.id} running={running} />}
+					{tab === "reports" && <ReportsTab projectId={project.id} />}
 					{tab === "settings" && <SettingsTab projectId={project.id} />}
 				</div>
 			</main>
@@ -380,15 +372,7 @@ function ProjectDetailContent() {
 	);
 }
 
-function StatCard({
-	icon: Icon,
-	label,
-	value,
-}: {
-	icon: typeof Database;
-	label: string;
-	value: string;
-}) {
+function StatCard({ icon: Icon, label, value }: { icon: typeof Database; label: string; value: string }) {
 	return (
 		<div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-3">
 			<Icon className="w-5 h-5 text-gray-400" />
@@ -486,7 +470,11 @@ function SessionsTab({
 		loading,
 		error,
 		refetch: fetchSessions,
-	} = useQuery<Session[]>(`sessions:${projectId}`, () => getSessions(projectId));
+	} = useQuery<Session[]>(`sessions:${projectId}`, async () => {
+		const data = await getSessions(projectId);
+		mutateCache<Project>(`project:${projectId}`, (p) => ({ ...p, stats: { ...p.stats, sessions: data.length } }));
+		return data;
+	});
 
 	if (loading && sessions.length === 0) {
 		return <div className="text-gray-500">Loading sessions...</div>;
@@ -579,15 +567,7 @@ function SessionsTab({
 	);
 }
 
-function LogsTab({
-	projectId,
-	running,
-	onLogCount,
-}: {
-	projectId: string;
-	running: boolean;
-	onLogCount: (n: number | null) => void;
-}) {
+function LogsTab({ projectId, running }: { projectId: string; running: boolean }) {
 	const [service, setService] = useState<"agent" | "web">("agent");
 
 	const {
@@ -598,10 +578,12 @@ function LogsTab({
 	} = useQuery<string>(`logs:${projectId}:${service}`, async () => {
 		try {
 			const text = await getLogs(projectId, service);
-			onLogCount(text.trim() ? text.trim().split("\n").length : 0);
+			mutateCache<Project>(`project:${projectId}`, (p) => ({
+				...p,
+				logLines: text.trim() ? text.trim().split("\n").length : 0,
+			}));
 			return text;
 		} catch (err) {
-			onLogCount(null);
 			console.error("Failed to fetch logs:", err);
 			throw new Error("Failed to load logs. Is the project running?");
 		}
@@ -811,7 +793,7 @@ const reportStatusStyle = {
 	timeout: "border-red-300 bg-red-50",
 };
 
-function ReportsTab({ projectId, onReportCount }: { projectId: string; onReportCount: (n: number | null) => void }) {
+function ReportsTab({ projectId }: { projectId: string }) {
 	const {
 		data: reports = [],
 		loading,
@@ -819,7 +801,7 @@ function ReportsTab({ projectId, onReportCount }: { projectId: string; onReportC
 		refetch: fetchReports,
 	} = useQuery<Report[]>(`reports:${projectId}`, async () => {
 		const data = await getReports(projectId);
-		onReportCount(data.length);
+		mutateCache<Project>(`project:${projectId}`, (p) => ({ ...p, stats: { ...p.stats, reports: data.length } }));
 		return data;
 	});
 
@@ -865,7 +847,7 @@ function ReportsTab({ projectId, onReportCount }: { projectId: string; onReportC
 					const Icon = reportTriggerIcon[r.trigger] ?? Clock;
 					return (
 						<li key={r.id}>
-							<Link href={`/projects/${projectId}/sessions/${r.sessionId}`} className="block hover:border-blue-400 transition">
+							<Link to={`/projects/${projectId}/sessions/${r.sessionId}`} className="block hover:border-blue-400 transition">
 								<div className={cn("rounded-lg border p-4 text-sm", reportStatusStyle[r.status] ?? "")}>
 									<div className="flex items-center justify-between mb-2 gap-3">
 										<div className="flex items-center gap-2 min-w-0">

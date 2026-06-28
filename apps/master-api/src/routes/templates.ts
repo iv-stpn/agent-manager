@@ -1,6 +1,17 @@
 import { Hono } from "hono";
+import { z } from "zod";
 import type { HonoMasterEnv } from "../types";
-import type { TemplateCategory } from "@agent-manager/projects";
+
+const CATEGORIES = ["tech-stack", "ui-design", "best-practices", "system-prompt"] as const;
+
+const CreateTemplateSchema = z.object({
+	name: z.string().min(1),
+	description: z.string().default(""),
+	category: z.enum(CATEGORIES),
+	content: z.string().default(""),
+});
+
+const UpdateTemplateSchema = CreateTemplateSchema.partial();
 
 export const templatesRouter = new Hono<HonoMasterEnv>()
 	.get("/", (c) => {
@@ -8,10 +19,8 @@ export const templatesRouter = new Hono<HonoMasterEnv>()
 	})
 	.post("/", async (c) => {
 		try {
-			const body = await c.req.json();
-			const { name, description = "", category, content = "" } = body;
-			if (!name || !category) return c.json({ error: "name and category are required" }, 400);
-			const template = c.var.templateManager.create({ name, description, category: category as TemplateCategory, content });
+			const input = CreateTemplateSchema.parse(await c.req.json());
+			const template = c.var.templateManager.create(input);
 			return c.json(template, 201);
 		} catch (error) {
 			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
@@ -20,8 +29,8 @@ export const templatesRouter = new Hono<HonoMasterEnv>()
 	.put("/:id", async (c) => {
 		try {
 			const id = c.req.param("id");
-			const body = await c.req.json();
-			const template = c.var.templateManager.update(id, body);
+			const input = UpdateTemplateSchema.parse(await c.req.json());
+			const template = c.var.templateManager.update(id, input);
 			return c.json(template);
 		} catch (error) {
 			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 404);
