@@ -1,8 +1,19 @@
 export { ProjectDatabase } from "./database";
 export { ProjectDocker } from "./docker";
-export { MasterDatabase } from "./master-database";
-export type { ArchivedProject, ArchivedSession, GlobalStats, Template, TemplateCategory } from "./master-database";
 export { ProjectManager, resolveWorkspaceRoot } from "./manager";
+export type {
+	ArchivedProject,
+	ArchivedSession,
+	GlobalStats,
+	Guideline,
+	GuidelineCategory,
+	StackEntry,
+	StackLibrary,
+	TechStack,
+	Template,
+	TemplateCategory,
+} from "./master-database";
+export { MasterDatabase } from "./master-database";
 export type {
 	CheckinRecord,
 	CompactionRecord,

@@ -7,9 +7,12 @@ import type {
 	CheckinRecord,
 	CompactionRecord,
 	CreateProjectInput,
+	Guideline,
+	GuidelineCategory,
 	MessageRecord,
 	QuestionRecord,
 	SessionRecord,
+	TechStack,
 	Template,
 	ToolCallRecord,
 } from "@agent-manager/projects";
@@ -18,10 +21,15 @@ import { hc } from "hono/client";
 export type {
 	CheckinRecord as Checkin,
 	CompactionRecord as Compaction,
+	Guideline,
+	GuidelineCategory,
 	MessageRecord as Message,
 	QuestionRecord as Question,
 	ReportRecord as Report,
 	SessionRecord as Session,
+	StackEntry,
+	StackLibrary,
+	TechStack,
 	Template,
 	ToolCallRecord as ToolCall,
 } from "@agent-manager/projects";
@@ -56,7 +64,9 @@ export async function getProject(projectId?: string, signal?: AbortSignal) {
 	return (await res.json()).project;
 }
 
-export async function checkWorkspacePath(path: string): Promise<{ status: "not_found" | "empty" | "not_empty" | "not_directory"; path: string }> {
+export async function checkWorkspacePath(
+	path: string
+): Promise<{ status: "not_found" | "empty" | "not_empty" | "not_directory"; path: string }> {
 	const res = await api.api.projects["check-path"].$post({ json: { path } });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
 	return (await res.json()) as any;
@@ -209,7 +219,7 @@ export async function sendSessionMessage(projectId: string, id: string, message:
 
 // ── SSE streams — re-exported from @agent-manager/utils ─────────────────────
 
-export { createSessionStream, createProjectStream, createMasterStream } from "@agent-manager/utils";
+export { createMasterStream, createProjectStream, createSessionStream } from "@agent-manager/utils";
 
 // ── Template endpoints ────────────────────────────────────────────────────────
 
@@ -233,5 +243,85 @@ export async function updateTemplate(id: string, data: Partial<Omit<Template, "i
 
 export async function deleteTemplate(id: string): Promise<void> {
 	const res = await api.api.templates[":id"].$delete({ param: { id } });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+}
+
+// ── Tech stack endpoints ────────────────────────────────────────────────────
+
+export async function getTechStacks(): Promise<TechStack[]> {
+	const res = await api.api["tech-stacks"].$get();
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as TechStack[];
+}
+
+export async function createTechStack(data: Omit<TechStack, "id" | "createdAt" | "updatedAt">): Promise<TechStack> {
+	const res = await api.api["tech-stacks"].$post({ json: data });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as TechStack;
+}
+
+export async function updateTechStack(id: string, data: Partial<Omit<TechStack, "id" | "createdAt">>): Promise<TechStack> {
+	const res = await api.api["tech-stacks"][":id"].$put({ param: { id }, json: data });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as TechStack;
+}
+
+export async function deleteTechStack(id: string): Promise<void> {
+	const res = await api.api["tech-stacks"][":id"].$delete({ param: { id } });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+}
+
+// ── Guideline category endpoints ────────────────────────────────────────────
+
+export async function getGuidelineCategories(): Promise<GuidelineCategory[]> {
+	const res = await api.api["guideline-categories"].$get();
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as GuidelineCategory[];
+}
+
+export async function createGuidelineCategory(
+	data: Omit<GuidelineCategory, "id" | "createdAt" | "updatedAt">
+): Promise<GuidelineCategory> {
+	const res = await api.api["guideline-categories"].$post({ json: data });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as GuidelineCategory;
+}
+
+export async function updateGuidelineCategory(
+	id: string,
+	data: Partial<Omit<GuidelineCategory, "id" | "createdAt">>
+): Promise<GuidelineCategory> {
+	const res = await api.api["guideline-categories"][":id"].$put({ param: { id }, json: data });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as GuidelineCategory;
+}
+
+export async function deleteGuidelineCategory(id: string): Promise<void> {
+	const res = await api.api["guideline-categories"][":id"].$delete({ param: { id } });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+}
+
+// ── Guideline endpoints ─────────────────────────────────────────────────────
+
+export async function getGuidelines(): Promise<Guideline[]> {
+	const res = await api.api.guidelines.$get();
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as Guideline[];
+}
+
+export async function createGuideline(data: Omit<Guideline, "id" | "createdAt" | "updatedAt">): Promise<Guideline> {
+	const res = await api.api.guidelines.$post({ json: data });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as Guideline;
+}
+
+export async function updateGuideline(id: string, data: Partial<Omit<Guideline, "id" | "createdAt">>): Promise<Guideline> {
+	const res = await api.api.guidelines[":id"].$put({ param: { id }, json: data });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as Guideline;
+}
+
+export async function deleteGuideline(id: string): Promise<void> {
+	const res = await api.api.guidelines[":id"].$delete({ param: { id } });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
 }

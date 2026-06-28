@@ -5,7 +5,7 @@
 
 ## Master
 
-The orchestrator's own database (`master.db`): templates, archived projects/sessions, and global statistics. Defined in `packages/projects/src/master-database.ts`.
+The orchestrator's own database (`master.db`): templates, archived projects/sessions, and global statistics. Defined in `packages/projects/src/master-database.ts`. On first open, the constructor runs `seedDefaults()`, which populates default rows for `guideline_categories` and `tech_stacks` when those tables are empty.
 
 ### `archived_projects`
 
@@ -43,6 +43,32 @@ Per-session snapshot belonging to an archived project.
 | `created_at` | `INTEGER` | not null | Session creation time (epoch ms). |
 | `updated_at` | `INTEGER` | not null | Session last update time (epoch ms). |
 
+### `guideline_categories`
+
+Categories used to classify guidelines (e.g. "UI design", "Best practice").
+
+| Column | Type | Constraints | Description |
+| --- | --- | --- | --- |
+| `id` | `TEXT` | PK | — |
+| `name` | `TEXT` | not null | Unique category name. |
+| `description` | `TEXT` | not null, default `''` | Short description of what the category covers. |
+| `created_at` | `INTEGER` | not null | Creation time (epoch ms). |
+| `updated_at` | `INTEGER` | not null | Last update time (epoch ms). |
+
+### `guidelines`
+
+Reusable guidelines, optionally classified under a guideline category.
+
+| Column | Type | Constraints | Description |
+| --- | --- | --- | --- |
+| `id` | `TEXT` | PK | — |
+| `name` | `TEXT` | not null | Display name of the guideline. |
+| `description` | `TEXT` | not null, default `''` | Short description shown in the picker. |
+| `category_id` | `TEXT` | → `guideline_categories.id` | Owning guideline category, if any. |
+| `content` | `TEXT` | not null, default `''` | The guideline body injected into a project. |
+| `created_at` | `INTEGER` | not null | Creation time (epoch ms). |
+| `updated_at` | `INTEGER` | not null | Last update time (epoch ms). |
+
 ### `statistics`
 
 Single-row ('global') lifetime counters across the whole orchestrator.
@@ -58,6 +84,20 @@ Single-row ('global') lifetime counters across the whole orchestrator.
 | `total_cache_read_tokens` | `INTEGER` | not null, default `0` | Lifetime prompt-cache read tokens. |
 | `total_cache_write_tokens` | `INTEGER` | not null, default `0` | Lifetime prompt-cache write tokens. |
 | `updated_at` | `INTEGER` | not null | Last time the counters changed (epoch ms). |
+
+### `tech_stacks`
+
+Reusable tech stacks scoped to a programming language. The stack column holds a JSON array of { label, libraries: [{ name, version? }], usagePatterns: string[] }.
+
+| Column | Type | Constraints | Description |
+| --- | --- | --- | --- |
+| `id` | `TEXT` | PK | — |
+| `language` | `TEXT` | not null | Programming language the stack targets (e.g. "TypeScript"). |
+| `name` | `TEXT` | not null | Display name of the stack. |
+| `description` | `TEXT` | not null, default `''` | Short description shown in the picker. |
+| `stack` | `TEXT` | not null, default `'[]'` | JSON array of labelled library/usage-pattern groups. |
+| `created_at` | `INTEGER` | not null | Creation time (epoch ms). |
+| `updated_at` | `INTEGER` | not null | Last update time (epoch ms). |
 
 ### `templates`
 

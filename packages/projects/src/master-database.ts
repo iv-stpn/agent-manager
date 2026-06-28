@@ -16,6 +16,49 @@ export interface Template {
 	updatedAt: number;
 }
 
+// ── Tech stack types ─────────────────────────────────────────────────────────
+
+export interface StackLibrary {
+	name: string;
+	version?: string;
+}
+
+export interface StackEntry {
+	label: string;
+	libraries: StackLibrary[];
+	usagePatterns: string[];
+}
+
+export interface TechStack {
+	id: string;
+	language: string;
+	name: string;
+	description: string;
+	stack: StackEntry[];
+	createdAt: number;
+	updatedAt: number;
+}
+
+// ── Guideline types ──────────────────────────────────────────────────────────
+
+export interface GuidelineCategory {
+	id: string;
+	name: string;
+	description: string;
+	createdAt: number;
+	updatedAt: number;
+}
+
+export interface Guideline {
+	id: string;
+	name: string;
+	description: string;
+	categoryId: string | null;
+	content: string;
+	createdAt: number;
+	updatedAt: number;
+}
+
 // ── Archive types ────────────────────────────────────────────────────────────
 
 export interface ArchivedProject {
@@ -67,6 +110,7 @@ export class MasterDatabase {
 	constructor(rootDir: string) {
 		this.db = new Database(join(rootDir, "master.db"));
 		this.db.exec("PRAGMA journal_mode = WAL");
+		this.db.exec("PRAGMA foreign_keys = ON");
 		this.migrate();
 	}
 
@@ -81,6 +125,39 @@ export class MasterDatabase {
 				content TEXT NOT NULL DEFAULT '', -- The template body injected into a project.
 				created_at INTEGER NOT NULL, -- Creation time (epoch ms).
 				updated_at INTEGER NOT NULL -- Last update time (epoch ms).
+			);
+
+			-- Reusable tech stacks scoped to a programming language. The stack column holds a
+			-- JSON array of { label, libraries: [{ name, version? }], usagePatterns: string[] }.
+			CREATE TABLE IF NOT EXISTS tech_stacks (
+				id TEXT PRIMARY KEY,
+				language TEXT NOT NULL, -- Programming language the stack targets (e.g. "TypeScript").
+				name TEXT NOT NULL, -- Display name of the stack.
+				description TEXT NOT NULL DEFAULT '', -- Short description shown in the picker.
+				stack TEXT NOT NULL DEFAULT '[]', -- JSON array of labelled library/usage-pattern groups.
+				created_at INTEGER NOT NULL, -- Creation time (epoch ms).
+				updated_at INTEGER NOT NULL -- Last update time (epoch ms).
+			);
+
+			-- Categories used to classify guidelines (e.g. "UI design", "Best practice").
+			CREATE TABLE IF NOT EXISTS guideline_categories (
+				id TEXT PRIMARY KEY,
+				name TEXT NOT NULL UNIQUE, -- Unique category name.
+				description TEXT NOT NULL DEFAULT '', -- Short description of what the category covers.
+				created_at INTEGER NOT NULL, -- Creation time (epoch ms).
+				updated_at INTEGER NOT NULL -- Last update time (epoch ms).
+			);
+
+			-- Reusable guidelines, optionally classified under a guideline category.
+			CREATE TABLE IF NOT EXISTS guidelines (
+				id TEXT PRIMARY KEY,
+				name TEXT NOT NULL, -- Display name of the guideline.
+				description TEXT NOT NULL DEFAULT '', -- Short description shown in the picker.
+				category_id TEXT, -- Owning guideline category, if any.
+				content TEXT NOT NULL DEFAULT '', -- The guideline body injected into a project.
+				created_at INTEGER NOT NULL, -- Creation time (epoch ms).
+				updated_at INTEGER NOT NULL, -- Last update time (epoch ms).
+				FOREIGN KEY (category_id) REFERENCES guideline_categories(id) ON DELETE SET NULL
 			);
 
 			-- Snapshot of a project kept after it is archived/removed, with rolled-up totals.
@@ -137,6 +214,97 @@ export class MasterDatabase {
 				 VALUES ('global', 0, 0, 0, 0, 0, 0, 0, ?)`
 			)
 			.run(Date.now());
+
+		this.seedDefaults();
+	}
+
+	// ── Seeding ──────────────────────────────────────────────────────────────
+
+	private seedDefaults() {
+		const now = Date.now();
+
+		// Default guideline categories — only seeded when the table is empty.
+		const categoryCount = (this.db.query("SELECT COUNT(*) AS n FROM guideline_categories").get() as { n: number }).n;
+		if (categoryCount === 0) {
+			const defaults: { name: string; description: string }[] = [
+				{ name: "UI design", description: "Visual design, layout, and interaction patterns." },
+				{ name: "Best practice", description: "Recommended engineering practices and conventions." },
+				{ name: "Behavior", description: "How the agent should behave while working." },
+				{ name: "Rule", description: "Hard constraints the agent must always follow." },
+			];
+			const insert = this.db.query(
+				`INSERT INTO guideline_categories (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`
+			);
+			for (const cat of defaults) {
+				insert.run(randomUUID(), cat.name, cat.description, now, now);
+			}
+		}
+
+		// Default tech stacks (one per common language) — only seeded when the table is empty.
+		const stackCount = (this.db.query("SELECT COUNT(*) AS n FROM tech_stacks").get() as { n: number }).n;
+		if (stackCount === 0) {
+			const defaults: Omit<TechStack, "id" | "createdAt" | "updatedAt">[] = [
+				{
+					language: "TypeScript",
+					name: "TypeScript Full-Stack",
+					description: "Hono backend with a React frontend sharing a typed API client.",
+					stack: [
+						{
+							label: "Backend",
+							libraries: [{ name: "hono", version: "4" }],
+							usagePatterns: ["serverless"],
+						},
+						{
+							label: "Frontend",
+							libraries: [{ name: "react", version: "19" }],
+							usagePatterns: ["use hono/client for the API client"],
+						},
+					],
+				},
+				{
+					language: "Python",
+					name: "Python API",
+					description: "FastAPI service with SQLAlchemy persistence.",
+					stack: [
+						{
+							label: "Backend",
+							libraries: [{ name: "fastapi" }, { name: "sqlalchemy", version: "2" }],
+							usagePatterns: ["async endpoints", "pydantic models for validation"],
+						},
+					],
+				},
+				{
+					language: "Go",
+					name: "Go Service",
+					description: "Standard-library HTTP service with idiomatic project layout.",
+					stack: [
+						{
+							label: "Backend",
+							libraries: [{ name: "net/http" }],
+							usagePatterns: ["context-aware handlers", "table-driven tests"],
+						},
+					],
+				},
+				{
+					language: "Rust",
+					name: "Rust Service",
+					description: "Axum web service running on the Tokio runtime.",
+					stack: [
+						{
+							label: "Backend",
+							libraries: [{ name: "axum" }, { name: "tokio", version: "1" }],
+							usagePatterns: ["async/await", "thiserror for error types"],
+						},
+					],
+				},
+			];
+			const insert = this.db.query(
+				`INSERT INTO tech_stacks (id, language, name, description, stack, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+			);
+			for (const s of defaults) {
+				insert.run(randomUUID(), s.language, s.name, s.description, JSON.stringify(s.stack), now, now);
+			}
+		}
 	}
 
 	// ── Templates ────────────────────────────────────────────────────────────
@@ -191,6 +359,175 @@ export class MasterDatabase {
 
 	deleteTemplate(id: string) {
 		this.db.query("DELETE FROM templates WHERE id = ?").run(id);
+	}
+
+	// ── Tech stacks ────────────────────────────────────────────────────────────
+
+	private rowToTechStack(row: Record<string, unknown>): TechStack {
+		return {
+			id: row.id as string,
+			language: row.language as string,
+			name: row.name as string,
+			description: row.description as string,
+			stack: JSON.parse((row.stack as string) || "[]") as StackEntry[],
+			createdAt: row.createdAt as number,
+			updatedAt: row.updatedAt as number,
+		};
+	}
+
+	listTechStacks(): TechStack[] {
+		const rows = this.db
+			.query(
+				`SELECT id, language, name, description, stack,
+				 created_at AS createdAt, updated_at AS updatedAt
+				 FROM tech_stacks ORDER BY language ASC, created_at DESC`
+			)
+			.all() as Record<string, unknown>[];
+		return rows.map((r) => this.rowToTechStack(r));
+	}
+
+	getTechStack(id: string): TechStack | undefined {
+		const row = this.db
+			.query(
+				`SELECT id, language, name, description, stack,
+				 created_at AS createdAt, updated_at AS updatedAt
+				 FROM tech_stacks WHERE id = ?`
+			)
+			.get(id) as Record<string, unknown> | undefined;
+		return row ? this.rowToTechStack(row) : undefined;
+	}
+
+	createTechStack(data: Omit<TechStack, "id" | "createdAt" | "updatedAt">): TechStack {
+		const id = randomUUID();
+		const now = Date.now();
+		this.db
+			.query(
+				`INSERT INTO tech_stacks (id, language, name, description, stack, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?)`
+			)
+			.run(id, data.language, data.name, data.description, JSON.stringify(data.stack), now, now);
+		return { ...data, id, createdAt: now, updatedAt: now };
+	}
+
+	updateTechStack(id: string, data: Partial<Omit<TechStack, "id" | "createdAt">>): TechStack {
+		const existing = this.getTechStack(id);
+		if (!existing) throw new Error(`Tech stack ${id} not found`);
+
+		const updated = { ...existing, ...data, updatedAt: Date.now() };
+		this.db
+			.query(
+				`UPDATE tech_stacks SET language = ?, name = ?, description = ?, stack = ?, updated_at = ?
+				 WHERE id = ?`
+			)
+			.run(updated.language, updated.name, updated.description, JSON.stringify(updated.stack), updated.updatedAt, id);
+		return updated;
+	}
+
+	deleteTechStack(id: string) {
+		this.db.query("DELETE FROM tech_stacks WHERE id = ?").run(id);
+	}
+
+	// ── Guideline categories ─────────────────────────────────────────────────
+
+	listGuidelineCategories(): GuidelineCategory[] {
+		return this.db
+			.query(
+				`SELECT id, name, description, created_at AS createdAt, updated_at AS updatedAt
+				 FROM guideline_categories ORDER BY name ASC`
+			)
+			.all() as GuidelineCategory[];
+	}
+
+	getGuidelineCategory(id: string): GuidelineCategory | undefined {
+		return (
+			(this.db
+				.query(
+					`SELECT id, name, description, created_at AS createdAt, updated_at AS updatedAt
+					 FROM guideline_categories WHERE id = ?`
+				)
+				.get(id) as GuidelineCategory | undefined) ?? undefined
+		);
+	}
+
+	createGuidelineCategory(data: Omit<GuidelineCategory, "id" | "createdAt" | "updatedAt">): GuidelineCategory {
+		const id = randomUUID();
+		const now = Date.now();
+		this.db
+			.query(
+				`INSERT INTO guideline_categories (id, name, description, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, ?)`
+			)
+			.run(id, data.name, data.description, now, now);
+		return { ...data, id, createdAt: now, updatedAt: now };
+	}
+
+	updateGuidelineCategory(id: string, data: Partial<Omit<GuidelineCategory, "id" | "createdAt">>): GuidelineCategory {
+		const existing = this.getGuidelineCategory(id);
+		if (!existing) throw new Error(`Guideline category ${id} not found`);
+
+		const updated = { ...existing, ...data, updatedAt: Date.now() };
+		this.db
+			.query(`UPDATE guideline_categories SET name = ?, description = ?, updated_at = ? WHERE id = ?`)
+			.run(updated.name, updated.description, updated.updatedAt, id);
+		return updated;
+	}
+
+	deleteGuidelineCategory(id: string) {
+		this.db.query("DELETE FROM guideline_categories WHERE id = ?").run(id);
+	}
+
+	// ── Guidelines ───────────────────────────────────────────────────────────
+
+	listGuidelines(): Guideline[] {
+		return this.db
+			.query(
+				`SELECT id, name, description, category_id AS categoryId, content,
+				 created_at AS createdAt, updated_at AS updatedAt
+				 FROM guidelines ORDER BY created_at DESC`
+			)
+			.all() as Guideline[];
+	}
+
+	getGuideline(id: string): Guideline | undefined {
+		return (
+			(this.db
+				.query(
+					`SELECT id, name, description, category_id AS categoryId, content,
+					 created_at AS createdAt, updated_at AS updatedAt
+					 FROM guidelines WHERE id = ?`
+				)
+				.get(id) as Guideline | undefined) ?? undefined
+		);
+	}
+
+	createGuideline(data: Omit<Guideline, "id" | "createdAt" | "updatedAt">): Guideline {
+		const id = randomUUID();
+		const now = Date.now();
+		this.db
+			.query(
+				`INSERT INTO guidelines (id, name, description, category_id, content, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?)`
+			)
+			.run(id, data.name, data.description, data.categoryId, data.content, now, now);
+		return { ...data, id, createdAt: now, updatedAt: now };
+	}
+
+	updateGuideline(id: string, data: Partial<Omit<Guideline, "id" | "createdAt">>): Guideline {
+		const existing = this.getGuideline(id);
+		if (!existing) throw new Error(`Guideline ${id} not found`);
+
+		const updated = { ...existing, ...data, updatedAt: Date.now() };
+		this.db
+			.query(
+				`UPDATE guidelines SET name = ?, description = ?, category_id = ?, content = ?, updated_at = ?
+				 WHERE id = ?`
+			)
+			.run(updated.name, updated.description, updated.categoryId, updated.content, updated.updatedAt, id);
+		return updated;
+	}
+
+	deleteGuideline(id: string) {
+		this.db.query("DELETE FROM guidelines WHERE id = ?").run(id);
 	}
 
 	// ── Archive ──────────────────────────────────────────────────────────────
@@ -306,7 +643,14 @@ export class MasterDatabase {
 		return row;
 	}
 
-	incrementStats(deltas: Partial<Record<"projects" | "sessions" | "messages" | "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens", number>>) {
+	incrementStats(
+		deltas: Partial<
+			Record<
+				"projects" | "sessions" | "messages" | "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens",
+				number
+			>
+		>
+	) {
 		this.db
 			.query(
 				`UPDATE statistics SET

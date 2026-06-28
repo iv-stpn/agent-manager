@@ -6,8 +6,11 @@ import { EventHub } from "./lib/event-hub";
 import { createLogger } from "./lib/logger";
 import { requestLogger, responseLogger } from "./middleware/logging";
 import { resolveChromium } from "./render/chromium";
+import { guidelineCategoriesRouter } from "./routes/guideline-categories";
+import { guidelinesRouter } from "./routes/guidelines";
 import { projectsRouter } from "./routes/projects";
 import { renderRouter } from "./routes/render";
+import { techStacksRouter } from "./routes/tech-stacks";
 import { templatesRouter } from "./routes/templates";
 import type { HonoMasterEnv } from "./types";
 
@@ -47,6 +50,9 @@ const app = new Hono<HonoMasterEnv>()
 	.get("/health", (c) => c.json({ ok: true, ts: Date.now(), service: "agent-manager-api" }))
 	.route("/api/projects", projectsRouter)
 	.route("/api/templates", templatesRouter)
+	.route("/api/tech-stacks", techStacksRouter)
+	.route("/api/guideline-categories", guidelineCategoriesRouter)
+	.route("/api/guidelines", guidelinesRouter)
 	.route("/api/render", renderRouter);
 
 const chromium = resolveChromium();

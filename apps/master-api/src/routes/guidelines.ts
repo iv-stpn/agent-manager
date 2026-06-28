@@ -1,0 +1,42 @@
+import { zValidator } from "@hono/zod-validator";
+import { Hono } from "hono";
+import { z } from "zod";
+import type { HonoMasterEnv } from "../types";
+
+const CreateGuidelineSchema = z.object({
+	name: z.string().min(1),
+	description: z.string().default(""),
+	categoryId: z.string().nullable().default(null),
+	content: z.string().default(""),
+});
+
+const UpdateGuidelineSchema = CreateGuidelineSchema.partial();
+
+export const guidelinesRouter = new Hono<HonoMasterEnv>()
+	.get("/", (c) => {
+		return c.json(c.var.masterDb.listGuidelines());
+	})
+	.post("/", zValidator("json", CreateGuidelineSchema), async (c) => {
+		try {
+			const guideline = c.var.masterDb.createGuideline(c.req.valid("json"));
+			return c.json(guideline, 201);
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+		}
+	})
+	.put("/:id", zValidator("json", UpdateGuidelineSchema), async (c) => {
+		try {
+			const guideline = c.var.masterDb.updateGuideline(c.req.param("id"), c.req.valid("json"));
+			return c.json(guideline);
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 404);
+		}
+	})
+	.delete("/:id", (c) => {
+		try {
+			c.var.masterDb.deleteGuideline(c.req.param("id"));
+			return c.json({ success: true });
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 404);
+		}
+	});
