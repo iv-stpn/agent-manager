@@ -370,8 +370,8 @@ name: ${projectName}
 services:
   agent:
     build:
-      context: ../../project-template
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: project-template/Dockerfile
     environment:
 ${envLines.join("\n")}
     extra_hosts:

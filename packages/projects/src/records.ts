@@ -61,7 +61,7 @@ export interface ToolCallRecord {
 export interface CheckinRecord {
 	id: string;
 	sessionId: string;
-	trigger: "timer" | "urgent" | "manual" | "completion";
+	trigger: "timer" | "urgent" | "manual" | "completion" | "compaction";
 	summary: string;
 	discordMessageId: string | null;
 	status: "pending" | "answered" | "skipped" | "timeout";

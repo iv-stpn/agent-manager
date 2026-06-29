@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Clock, PlayCircle } from "lucide-react";
+import { AlertTriangle, Archive, CheckCircle2, Clock, PlayCircle } from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import type { Checkin, Question } from "@/lib/agent-api";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -8,6 +8,7 @@ const triggerIcon = {
 	urgent: AlertTriangle,
 	manual: PlayCircle,
 	completion: CheckCircle2,
+	compaction: Archive,
 };
 
 const statusStyle = {

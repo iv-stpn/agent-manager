@@ -1,6 +1,6 @@
+import { type NewSession, type Session, sessions } from "@agent-manager/db/project-schema";
 import { desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "../client";
-import { type NewSession, type Session, sessions } from "../schema";
 
 export function createSession(db: Db, data: NewSession): Session {
 	db.insert(sessions).values(data).run();

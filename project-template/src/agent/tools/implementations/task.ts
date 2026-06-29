@@ -1,6 +1,6 @@
+import { type TaskMetadata, tasks } from "@agent-manager/db/project-schema";
 import { eq, inArray } from "drizzle-orm";
 import type { Db } from "../../../db/client";
-import { type TaskMetadata, tasks } from "../../../db/schema";
 
 type TaskStatus = "pending" | "in_progress" | "done" | "cancelled";
 

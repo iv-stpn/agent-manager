@@ -1,0 +1,17 @@
+{
+	"name": "@agent-manager/db",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./project-schema": "./src/project-schema.ts",
+		"./host-schema": "./src/host-schema.ts",
+		"./ddl": "./src/ddl.ts"
+	},
+	"dependencies": {
+		"drizzle-orm": "0.45.2"
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
+	}
+}

@@ -1,6 +1,6 @@
+import { messages, type NewMessage, type NewToolCall, toolCalls } from "@agent-manager/db/project-schema";
 import { asc, eq } from "drizzle-orm";
 import type { Db } from "../client";
-import { messages, type NewMessage, type NewToolCall, toolCalls } from "../schema";
 
 export function insertMessage(db: Db, data: NewMessage) {
 	db.insert(messages).values(data).run();

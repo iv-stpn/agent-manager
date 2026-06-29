@@ -12,6 +12,7 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@agent-manager/db": "workspace:*",
 		"@agent-manager/projects": "workspace:*",
 		"@agent-manager/utils": "workspace:*",
 		"@hono/zod-validator": "^0.8.0",

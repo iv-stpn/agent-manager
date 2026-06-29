@@ -1,12 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { Checkin, Question } from "@agent-manager/db/project-schema";
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import { nanoid } from "nanoid";
 import {
 	addTokens,
 	answerQuestion,
-	type Checkin,
 	completeToolCall,
 	type Db,
 	getMessages,
@@ -18,7 +18,6 @@ import {
 	insertQuestion,
 	insertReport,
 	insertToolCall,
-	type Question,
 	updateCheckin,
 	updateMessageTokens,
 	updateQuestionCheckin,
@@ -27,7 +26,7 @@ import {
 import { sessionEmitter } from "../emitter";
 import { env } from "../env";
 import { compactMessages, estimateTokens } from "./context";
-import { type ReportData, sendChecklist, sendReport } from "./discord";
+import { type ChecklistItem, type ReportData, sendChecklist, sendReport } from "./discord";
 import {
 	BASE_MAX_TOKENS,
 	CompactionCircuitBreaker,
@@ -102,6 +101,172 @@ import {
 import { bootstrapWorkspace, buildStartupContext, MEMORY_SYSTEM_DESCRIPTION } from "./workspace";
 
 const WORKSPACE = env.WORKSPACE_PATH;
+
+// ── Tool table types ─────────────────────────────────────────────────────────
+
+type Input = Record<string, unknown>;
+
+/** Extract the narrowed type from an assertion function. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Asserted<F> = F extends ((i: any) => asserts i is infer T) ? T : Input;
+
+/** A single tool-table entry: validate narrows, execute receives the narrowed type. */
+interface ToolEntry<V extends (i: Input) => void> {
+	validate: V;
+	execute: (i: Asserted<V>) => Promise<string> | string;
+}
+
+/** Helper to build a correctly-typed entry (lets TS infer V per call site). */
+function tool<V extends (i: Input) => void>(entry: ToolEntry<V>): ToolEntry<V> {
+	return entry;
+}
+
+/** The runtime shape used by dispatchTool — erases per-entry generics. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ToolTable = Record<string, { validate: (i: Input) => void; execute: (i: any) => Promise<string> | string }>;
+
+/** Handlers backed by AgentRunner state that the tool table delegates to. */
+interface ToolHandlers {
+	queueQuestion: (input: QuestionInput) => Promise<string>;
+	urgentQuestion: (input: QuestionInput) => Promise<string>;
+	sendReport: (input: SendReportInput) => Promise<string>;
+	sendGraph: (input: SendGraphInput) => Promise<string>;
+}
+
+function buildToolTable(db: Db, sessionId: string, handlers: ToolHandlers): ToolTable {
+		return {
+			// ── File system ─────────────────────────────────────────────────────────
+			grep: tool({
+				validate: validateGrep,
+				execute: (i) => grep(i.pattern, i.path ?? ".", i.include, i.flags ?? ""),
+			}),
+			glob: tool({
+				validate: validateGlob,
+				execute: (i) => glob(i.pattern, i.path ?? "."),
+			}),
+			read_file: tool({
+				validate: validateReadFile,
+				execute: (i) => readFile(i.path),
+			}),
+			write_file: tool({
+				validate: validateWriteFile,
+				execute: async (i) => {
+					await writeFile(i.path, i.content);
+					return `Written to ${i.path}`;
+				},
+			}),
+			list_directory: tool({
+				validate: validateListDirectory,
+				execute: (i) => listDirectory(i.path ?? ""),
+			}),
+			search_files: tool({
+				validate: validateSearchFiles,
+				execute: (i) =>
+					searchFiles(i.pattern, i.path ?? ".", i.file_pattern ?? "*", i.case_sensitive ?? false, i.max_results ?? 100),
+			}),
+			edit_file: tool({
+				validate: validateEditFile,
+				execute: (i) => editFile(i.path, i.old_string, i.new_string, i.replace_all ?? false),
+			}),
+			move_file: tool({
+				validate: validateMoveFile,
+				execute: (i) => moveFile(i.source, i.destination),
+			}),
+			delete_file: tool({
+				validate: validateDeleteFile,
+				execute: (i) => deleteFile(i.path, i.recursive ?? false),
+			}),
+			create_directory: tool({
+				validate: validateCreateDirectory,
+				execute: (i) => createDirectory(i.path),
+			}),
+			get_file_info: tool({
+				validate: validateGetFileInfo,
+				execute: (i) => getFileInfo(i.path),
+			}),
+			read_file_range: tool({
+				validate: validateReadFileRange,
+				execute: (i) => readFileRange(i.path, i.start_line, i.end_line),
+			}),
+
+			// ── Memory ─────────────────────────────────────────────────────────────
+			remember: tool({
+				validate: validateRemember,
+				execute: (i) => remember(i.type, i.title, i.content, i.metadata),
+			}),
+			update_memory: tool({
+				validate: validateUpdateMemory,
+				execute: async (i) => {
+					await updateMemory(i.id, {
+						title: i.title,
+						content: i.content,
+						type: i.type,
+						metadata: i.metadata,
+					});
+					return "Memory updated.";
+				},
+			}),
+			delete_memory: tool({
+				validate: validateDeleteMemory,
+				execute: async (i) => {
+					await deleteMemory(i.id);
+					return "Memory deleted.";
+				},
+			}),
+
+			// ── Questions ──────────────────────────────────────────────────────────
+			queue_question: tool({
+				validate: validateQuestion,
+				execute: (i) => handlers.queueQuestion(i),
+			}),
+			urgent_question: tool({
+				validate: validateQuestion,
+				execute: (i) => handlers.urgentQuestion(i),
+			}),
+
+			// ── Reports ────────────────────────────────────────────────────────────
+			send_report: tool({
+				validate: validateSendReport,
+				execute: (i) => handlers.sendReport(i),
+			}),
+			send_graph: tool({
+				validate: validateSendGraph,
+				execute: (i) => handlers.sendGraph(i),
+			}),
+
+			// ── Task management ────────────────────────────────────────────────────
+			add_task: tool({
+				validate: validateAddTask,
+				execute: (i) => addTask(db, sessionId, i.text, i.status, i.dependsOn),
+			}),
+			list_tasks: tool({
+				validate: validateListTasks,
+				execute: (i) => listTasks(db, i.filter ?? "all"),
+			}),
+			update_task: tool({
+				validate: validateUpdateTask,
+				execute: (i) => updateTask(db, sessionId, i.id, i.status, i.text, i.dependsOn),
+			}),
+			set_current_task: tool({
+				validate: validateSetCurrentTask,
+				execute: (i) => setCurrentTask(db, sessionId, i.id),
+			}),
+			get_current_task: tool({
+				validate: () => {},
+				execute: () => getCurrentTask(db),
+			}),
+
+			// ── Web ────────────────────────────────────────────────────────────────
+			web_search: tool({
+				validate: validateWebSearch,
+				execute: (i) => webSearch(i.query, i.limit ?? 8),
+			}),
+			web_fetch: tool({
+				validate: validateWebFetch,
+				execute: (i) => webFetch(i.url, i.max_chars ?? 20_000),
+			}),
+		};
+	}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -255,6 +420,12 @@ export class AgentRunner {
 		this.alwaysImproveMode = config.alwaysImproveMode;
 		this.alwaysImproveScope = config.alwaysImproveScope;
 		this.systemPrompt = buildSystemPrompt(config);
+		this.toolTable = buildToolTable(this.db, this.sessionId, {
+			queueQuestion: (i) => this.handleQueueQuestion(i),
+			urgentQuestion: (i) => this.handleUrgentQuestion(i),
+			sendReport: (i) => this.handleSendReport(i),
+			sendGraph: (i) => this.handleSendGraph(i),
+		});
 	}
 
 	stop() {
@@ -419,6 +590,7 @@ export class AgentRunner {
 			}
 			const role = row.role as "user" | "assistant";
 			const last = this.messages[this.messages.length - 1];
+
 			if (last?.role === role) {
 				// Merge into the previous turn to keep strict user/assistant alternation
 				if (Array.isArray(last.content) && Array.isArray(content)) {
@@ -432,7 +604,7 @@ export class AgentRunner {
 					last.content = `${last.content}\n\n${String(content)}`;
 				}
 			} else {
-				this.messages.push({ role, content: content as string | Anthropic.ContentBlockParam[] });
+				this.messages.push({ role, content: content as MessageParam["content"] });
 			}
 		}
 
@@ -1106,21 +1278,32 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 		return results;
 	}
 
+	// ── Tool dispatch table ───────────────────────────────────────────────────────
+	// Simple tools that follow validate → execute → return string. Keeps dispatchTool focused on
+	// cases that need custom control flow (plan mode, formatting, state mutations).
+
+	private readonly toolTable: ToolTable;
+
 	private async dispatchTool(name: string, input: Record<string, unknown>): Promise<string> {
 		// ── Plan mode enforcement ────────────────────────────────────────────────────
 		if (this.planMode) {
-			// exit_plan_mode is allowed through and handled by its switch case below.
 			if (!isPlanModeToolAllowed(name)) {
 				return PLAN_MODE_BLOCKED_MESSAGE;
 			}
-			// For bash in plan mode, check if the command is read-only
 			if (name === "bash" && !isBashCommandReadOnly(typeof input.command === "string" ? input.command : "")) {
 				return PLAN_MODE_BASH_BLOCKED_MESSAGE;
 			}
 		}
 
+		// ── Table-driven dispatch for simple validate → execute tools ─────────────
+		const entry = this.toolTable[name];
+		if (entry) {
+			entry.validate(input);
+			return await entry.execute(input);
+		}
+
+		// ── Tools requiring custom control flow ──────────────────────────────────────
 		switch (name) {
-			// ── Plan mode ────────────────────────────────────────────────────────────────
 			case "enter_plan_mode": {
 				this.planMode = true;
 				sessionEmitter.emit(this.sessionId, { type: "plan_mode", data: { active: true } });
@@ -1133,8 +1316,6 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 				sessionEmitter.emit(this.sessionId, { type: "plan_mode", data: { active: false, summary } });
 				return summary ? `Exited plan mode. Plan summary recorded:\n${summary}` : "Exited plan mode. Full tool access restored.";
 			}
-
-			// ── File system ──────────────────────────────────────────────────────────────
 			case "bash": {
 				validateBash(input);
 				const r = await executeBash(input.command, input.timeout_ms ?? 30_000);
@@ -1142,57 +1323,6 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 					.filter(Boolean)
 					.join("\n");
 			}
-			case "grep":
-				validateGrep(input);
-				return await grep(input.pattern, input.path ?? ".", input.include, input.flags ?? "");
-			case "glob":
-				validateGlob(input);
-				return await glob(input.pattern, input.path ?? ".");
-			case "read_file":
-				validateReadFile(input);
-				return await readFile(input.path);
-			case "write_file": {
-				validateWriteFile(input);
-				await writeFile(input.path, input.content);
-				return `Written to ${input.path}`;
-			}
-			case "list_directory":
-				validateListDirectory(input);
-				return await listDirectory(input.path ?? "");
-			case "search_files":
-				validateSearchFiles(input);
-				return await searchFiles(
-					input.pattern,
-					input.path ?? ".",
-					input.file_pattern ?? "*",
-					input.case_sensitive ?? false,
-					input.max_results ?? 100
-				);
-			case "edit_file": {
-				validateEditFile(input);
-				return await editFile(input.path, input.old_string, input.new_string, input.replace_all ?? false);
-			}
-			case "move_file": {
-				validateMoveFile(input);
-				return await moveFile(input.source, input.destination);
-			}
-			case "delete_file":
-				validateDeleteFile(input);
-				return await deleteFile(input.path, input.recursive ?? false);
-			case "create_directory":
-				validateCreateDirectory(input);
-				return await createDirectory(input.path);
-			case "get_file_info":
-				validateGetFileInfo(input);
-				return await getFileInfo(input.path);
-			case "read_file_range":
-				validateReadFileRange(input);
-				return await readFileRange(input.path, input.start_line, input.end_line);
-
-			// ── Memory Management ────────────────────────────────────────────────────────
-			case "remember":
-				validateRemember(input);
-				return await remember(input.type, input.title, input.content, input.metadata);
 			case "recall": {
 				validateRecall(input);
 				const results = await recall(input.query, input.type, input.limit ?? 10);
@@ -1200,19 +1330,6 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 					? results.map((r) => `[${r.id}] (${r.type}) ${r.title}:\n${r.content}`).join("\n\n---\n\n")
 					: "No matching memories found.";
 			}
-			case "update_memory":
-				validateUpdateMemory(input);
-				await updateMemory(input.id, {
-					title: input.title,
-					content: input.content,
-					type: input.type,
-					metadata: input.metadata,
-				});
-				return "Memory updated.";
-			case "delete_memory":
-				validateDeleteMemory(input);
-				await deleteMemory(input.id);
-				return "Memory deleted.";
 			case "list_memories": {
 				validateListMemories(input);
 				const entries = await listMemories(input.type, input.limit ?? 100);
@@ -1220,27 +1337,9 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 					? entries.map((e) => `[${e.id}] (${e.type}) ${e.title}: ${e.content.slice(0, 150)}`).join("\n")
 					: "No memories found.";
 			}
-
-			// ── Questions ───────────────────────────────────────────────────────────────
-			case "queue_question":
-				validateQuestion(input);
-				return await this.handleQueueQuestion(input);
-			case "urgent_question":
-				validateQuestion(input);
-				return await this.handleUrgentQuestion(input);
-
-			// ── Reports ──────────────────────────────────────────────────────────────
-			case "send_report":
-				validateSendReport(input);
-				return await this.handleSendReport(input);
-			case "send_graph":
-				validateSendGraph(input);
-				return await this.handleSendGraph(input);
-
-			// ── Git ──────────────────────────────────────────────────────────────
 			case "commit_changes": {
 				validateCommitChanges(input);
-				const result = await commitChanges(WORKSPACE, input.message, !input.skip_checks);
+				const result = await commitChanges(WORKSPACE, input.message, !(input.skip_checks as boolean));
 				return result.success
 					? `Committed: ${result.commit ?? "unknown"}\n\n${result.output.slice(0, 2000)}`
 					: `Commit failed:\n\n${result.output.slice(0, 2000)}`;
@@ -1251,11 +1350,14 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 				this.messages = messages;
 				return `Context compacted: ${before} → ${messages.length} messages.`;
 			}
-
-			// ── Checklist ───────────────────────────────────────────────────────────────
 			case "ask_checklist": {
 				validateAskChecklist(input);
-				const result = await sendChecklist(this.sessionId, input.title, input.items, this.abortController.signal);
+				const result = await sendChecklist(
+					this.sessionId,
+					input.title,
+					input.items as ChecklistItem[],
+					this.abortController.signal
+				);
 				if (result.completed) {
 					const answersText = Object.entries(result.answers)
 						.map(([id, answer]) => `- ${id}: ${answer}`)
@@ -1264,31 +1366,6 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 				}
 				return "Checklist sent but no response received — proceeding with best judgment.";
 			}
-
-			// ── Task Management ─────────────────────────────────────────────────────────
-			case "add_task":
-				validateAddTask(input);
-				return await addTask(this.db, this.sessionId, input.text, input.status, input.dependsOn);
-			case "list_tasks":
-				validateListTasks(input);
-				return await listTasks(this.db, input.filter ?? "all");
-			case "update_task":
-				validateUpdateTask(input);
-				return await updateTask(this.db, this.sessionId, input.id, input.status, input.text, input.dependsOn);
-			case "set_current_task":
-				validateSetCurrentTask(input);
-				return await setCurrentTask(this.db, this.sessionId, input.id);
-			case "get_current_task":
-				return await getCurrentTask(this.db);
-
-			// ── Web ───────────────────────────────────────────────────────────────────────
-			case "web_search":
-				validateWebSearch(input);
-				return await webSearch(input.query, input.limit ?? 8);
-			case "web_fetch":
-				validateWebFetch(input);
-				return await webFetch(input.url, input.max_chars ?? 20_000);
-
 			default:
 				return `Unknown tool: ${name}`;
 		}

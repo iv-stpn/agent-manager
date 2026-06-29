@@ -1,6 +1,6 @@
+import { checkins, type NewCheckin, type NewQuestion, questions } from "@agent-manager/db/project-schema";
 import { asc, eq } from "drizzle-orm";
 import type { Db } from "../client";
-import { checkins, type NewCheckin, type NewQuestion, questions } from "../schema";
 
 export function insertCheckin(db: Db, data: NewCheckin) {
 	db.insert(checkins).values(data).run();

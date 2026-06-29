@@ -20,7 +20,6 @@ You interact with it through these tools:
 
 ### Entry Types
 - **decision** — Architectural or design decisions (append-only mindset: prefer adding new over deleting old)
-- **todo** — Pending work items with priority and dependencies
 - **plan** — Implementation plans (current and archived)
 - **question** — Accumulated questions for the user
 - **memory** — General project knowledge (architecture, conventions, tech stack, codebase notes)

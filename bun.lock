@@ -27,6 +27,7 @@
       "name": "@agent-manager/host-api",
       "version": "0.0.1",
       "dependencies": {
+        "@agent-manager/db": "workspace:*",
         "@agent-manager/projects": "workspace:*",
         "@agent-manager/utils": "workspace:*",
         "@hono/zod-validator": "^0.8.0",
@@ -82,6 +83,16 @@
         "vite": "^6.0.7",
       },
     },
+    "packages/db": {
+      "name": "@agent-manager/db",
+      "version": "0.0.1",
+      "dependencies": {
+        "drizzle-orm": "0.45.2",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
     "packages/projects": {
       "name": "@agent-manager/projects",
       "version": "0.0.1",
@@ -103,8 +114,10 @@
       "name": "server",
       "version": "0.0.1",
       "dependencies": {
+        "@agent-manager/db": "workspace:*",
+        "@agent-manager/utils": "workspace:*",
         "@anthropic-ai/sdk": "^0.54.0",
-        "drizzle-orm": "^0.38.3",
+        "drizzle-orm": "0.45.2",
         "hono": "4.12.14",
         "nanoid": "^5.1.5",
         "zod": "^3.24.1",
@@ -115,6 +128,8 @@
     },
   },
   "packages": {
+    "@agent-manager/db": ["@agent-manager/db@workspace:packages/db"],
+
     "@agent-manager/host-api": ["@agent-manager/host-api@workspace:apps/host-api"],
 
     "@agent-manager/host-web": ["@agent-manager/host-web@workspace:apps/host-web"],
@@ -954,7 +969,5 @@
     "prop-types/react-is": ["react-is@16.13.1", "", {}, "sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ=="],
 
     "readdirp/picomatch": ["picomatch@2.3.2", "", {}, "sha512-V7+vQEJ06Z+c5tSye8S+nHUfI51xoXIXjHQ99cQtKUkQqqO1kO/KCJUfZXuB47h/YBlDhah2H3hdUGXn8ie0oA=="],
-
-    "server/drizzle-orm": ["drizzle-orm@0.38.4", "", { "peerDependencies": { "@aws-sdk/client-rds-data": ">=3", "@cloudflare/workers-types": ">=4", "@electric-sql/pglite": ">=0.2.0", "@libsql/client": ">=0.10.0", "@libsql/client-wasm": ">=0.10.0", "@neondatabase/serverless": ">=0.10.0", "@op-engineering/op-sqlite": ">=2", "@opentelemetry/api": "^1.4.1", "@planetscale/database": ">=1", "@prisma/client": "*", "@tidbcloud/serverless": "*", "@types/better-sqlite3": "*", "@types/pg": "*", "@types/react": ">=18", "@types/sql.js": "*", "@vercel/postgres": ">=0.8.0", "@xata.io/client": "*", "better-sqlite3": ">=7", "bun-types": "*", "expo-sqlite": ">=14.0.0", "knex": "*", "kysely": "*", "mysql2": ">=2", "pg": ">=8", "postgres": ">=3", "react": ">=18", "sql.js": ">=1", "sqlite3": ">=5" }, "optionalPeers": ["@aws-sdk/client-rds-data", "@cloudflare/workers-types", "@electric-sql/pglite", "@libsql/client", "@libsql/client-wasm", "@neondatabase/serverless", "@op-engineering/op-sqlite", "@opentelemetry/api", "@planetscale/database", "@prisma/client", "@tidbcloud/serverless", "@types/better-sqlite3", "@types/pg", "@types/react", "@types/sql.js", "@vercel/postgres", "@xata.io/client", "better-sqlite3", "bun-types", "expo-sqlite", "knex", "kysely", "mysql2", "pg", "postgres", "react", "sql.js", "sqlite3"] }, "sha512-s7/5BpLKO+WJRHspvpqTydxFob8i1vo2rEx4pY6TGY7QSMuUfWUuzaY0DIpXCkgHOo37BaFC+SJQb99dDUXT3Q=="],
   }
 }

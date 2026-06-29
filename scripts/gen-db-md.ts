@@ -9,7 +9,7 @@
  *               apps/host-api/src/db/host-database.ts.
  *   - Project — one SQLite db per managed project, holding a project's sessions,
  *               messages, tool calls, etc. Schema is a Drizzle definition in
- *               project-template/src/db/schema.ts.
+ *               packages/db/src/project-schema.ts.
  *
  * Structure (columns, types, constraints) is read by introspecting each schema
  * at runtime so the docs always match what actually gets created. Human-readable
@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
-const PROJECT_SCHEMA_SRC = join(ROOT, "project-template", "src", "db", "schema.ts");
+const PROJECT_SCHEMA_SRC = join(ROOT, "packages", "db", "src", "project-schema.ts");
 const HOST_DB_SRC = join(ROOT, "apps", "host-api", "src", "db", "host-database.ts");
 const OUT_FILE = join(ROOT, "docs", "DATABASE.md");
 
@@ -359,7 +359,7 @@ const doc = [
 	renderSection("Host", hostIntro, hostTables),
 	renderSection(
 		"Project",
-		"One database per managed project, holding that project's agent sessions and their activity. Defined in `project-template/src/db/schema.ts`.",
+		"One database per managed project, holding that project's agent sessions and their activity. Defined in `packages/db/src/project-schema.ts`.",
 		projectTables
 	),
 ].join("\n");

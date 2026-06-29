@@ -110,7 +110,7 @@ sessions ──┬─< messages ──< tool_calls
            ├─< checkins ──< questions
            ├─< reports
            ├─< compactions
-           ├─< todos
+           ├─< tasks
            └─< (questions may also attach directly to a session)
 ```
 

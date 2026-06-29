@@ -2,6 +2,7 @@ import { createProjectStream } from "@agent-manager/utils";
 import {
 	Activity,
 	AlertTriangle,
+	Archive,
 	ArrowLeft,
 	CheckCircle2,
 	ClipboardList,
@@ -1045,6 +1046,7 @@ const reportTriggerIcon = {
 	urgent: AlertTriangle,
 	manual: PlayCircle,
 	completion: CheckCircle2,
+	compaction: Archive,
 };
 
 const reportStatusStyle = {

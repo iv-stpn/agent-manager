@@ -5,4 +5,3 @@ export * from "./queries/messages";
 export * from "./queries/reports";
 export * from "./queries/sessions";
 export * from "./queries/tasks";
-export * from "./schema";

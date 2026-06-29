@@ -1,6 +1,6 @@
+import { type NewReport, type Report, reports } from "@agent-manager/db/project-schema";
 import { desc, eq } from "drizzle-orm";
 import type { Db } from "../client";
-import { type NewReport, type Report, reports } from "../schema";
 
 export function insertReport(db: Db, data: NewReport): void {
 	db.insert(reports).values(data).run();

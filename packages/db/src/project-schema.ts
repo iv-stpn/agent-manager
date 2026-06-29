@@ -1,6 +1,11 @@
 import { sql } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
+// Schema for the per-project agent.db. This is the single source of truth for a
+// managed project's database: the project-template server creates and reads it,
+// and the host introspects it read-only. See @agent-manager/db/ddl for the DDL
+// derived from these definitions at runtime.
+
 // An autonomous agent run within a project. Holds the task, its runtime
 // configuration (report/timeout/freeze/compaction policy) and rolled-up token
 // totals. All other tables hang off a session.
@@ -62,10 +67,10 @@ export const messages = sqliteTable("messages", {
 		.references(() => sessions.id), // Owning session.
 	role: text("role", { enum: ["user", "assistant", "system"] }).notNull(), // Anthropic message role ("system" = system prompt, stored for the timeline only).
 	content: text("content").notNull(), // JSON-serialized Anthropic ContentBlock[].
-	inputTokens: integer("input_tokens").default(0), // Input tokens billed for this message.
-	outputTokens: integer("output_tokens").default(0), // Output tokens billed for this message.
-	cacheReadTokens: integer("cache_read_tokens").default(0), // Prompt-cache read tokens for this message.
-	cacheWriteTokens: integer("cache_write_tokens").default(0), // Prompt-cache write tokens for this message.
+	inputTokens: integer("input_tokens").notNull().default(0), // Input tokens billed for this message.
+	outputTokens: integer("output_tokens").notNull().default(0), // Output tokens billed for this message.
+	cacheReadTokens: integer("cache_read_tokens").notNull().default(0), // Prompt-cache read tokens for this message.
+	cacheWriteTokens: integer("cache_write_tokens").notNull().default(0), // Prompt-cache write tokens for this message.
 	error: text("error"), // Short error message if generation failed.
 	errorDetails: text("error_details"), // Full error detail / stack, if any.
 	createdAt: integer("created_at").notNull().default(sql`(unixepoch() * 1000)`), // Creation time (epoch ms).
@@ -159,18 +164,6 @@ export const compactions = sqliteTable("compactions", {
 	createdAt: integer("created_at").notNull().default(sql`(unixepoch() * 1000)`), // Creation time (epoch ms).
 });
 
-export type Session = typeof sessions.$inferSelect;
-export type NewSession = typeof sessions.$inferInsert;
-export type Message = typeof messages.$inferSelect;
-export type NewMessage = typeof messages.$inferInsert;
-export type ToolCall = typeof toolCalls.$inferSelect;
-export type NewToolCall = typeof toolCalls.$inferInsert;
-export type Checkin = typeof checkins.$inferSelect;
-export type NewCheckin = typeof checkins.$inferInsert;
-export type Question = typeof questions.$inferSelect;
-export type NewQuestion = typeof questions.$inferInsert;
-export type Report = typeof reports.$inferSelect;
-export type NewReport = typeof reports.$inferInsert;
 // A unit of work the agent coordinates. Tasks are project-wide (not bound to a
 // single session) so they survive restarts and are accessible across sessions,
 // mirroring how Claude Code Tasks coordinate many pieces of work. Dependencies
@@ -194,6 +187,18 @@ export type TaskMetadata = {
 	[key: string]: unknown;
 };
 
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;
+export type Message = typeof messages.$inferSelect;
+export type NewMessage = typeof messages.$inferInsert;
+export type ToolCall = typeof toolCalls.$inferSelect;
+export type NewToolCall = typeof toolCalls.$inferInsert;
+export type Checkin = typeof checkins.$inferSelect;
+export type NewCheckin = typeof checkins.$inferInsert;
+export type Question = typeof questions.$inferSelect;
+export type NewQuestion = typeof questions.$inferInsert;
+export type Report = typeof reports.$inferSelect;
+export type NewReport = typeof reports.$inferInsert;
 export type Compaction = typeof compactions.$inferSelect;
 export type NewCompaction = typeof compactions.$inferInsert;
 export type Task = typeof tasks.$inferSelect;

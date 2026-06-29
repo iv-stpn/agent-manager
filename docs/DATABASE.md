@@ -112,7 +112,7 @@ The orchestrator's own database (`host.db`): templates, archived projects/sessio
 
 ## Project
 
-One database per managed project, holding that project's agent sessions and their activity. Defined in `project-template/src/db/schema.ts`.
+One database per managed project, holding that project's agent sessions and their activity. Defined in `packages/db/src/project-schema.ts`.
 
 ### `checkins`
 
@@ -155,10 +155,10 @@ One turn of the conversation transcript for a session: a user or assistant messa
 | `session_id` | `text` | not null, → `sessions.id` | Owning session. |
 | `role` | `text` | not null | Anthropic message role ("system" = system prompt, stored for the timeline only). One of: `user`, `assistant`, `system` |
 | `content` | `text` | not null | JSON-serialized Anthropic ContentBlock[]. |
-| `input_tokens` | `integer` | default `0` | Input tokens billed for this message. |
-| `output_tokens` | `integer` | default `0` | Output tokens billed for this message. |
-| `cache_read_tokens` | `integer` | default `0` | Prompt-cache read tokens for this message. |
-| `cache_write_tokens` | `integer` | default `0` | Prompt-cache write tokens for this message. |
+| `input_tokens` | `integer` | not null, default `0` | Input tokens billed for this message. |
+| `output_tokens` | `integer` | not null, default `0` | Output tokens billed for this message. |
+| `cache_read_tokens` | `integer` | not null, default `0` | Prompt-cache read tokens for this message. |
+| `cache_write_tokens` | `integer` | not null, default `0` | Prompt-cache write tokens for this message. |
 | `error` | `text` | — | Short error message if generation failed. |
 | `error_details` | `text` | — | Full error detail / stack, if any. |
 | `created_at` | `integer` | not null, default `expression` | Creation time (epoch ms). |

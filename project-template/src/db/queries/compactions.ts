@@ -1,6 +1,6 @@
+import { compactions, type NewCompaction } from "@agent-manager/db/project-schema";
 import { asc, eq } from "drizzle-orm";
 import type { Db } from "../client";
-import { compactions, type NewCompaction } from "../schema";
 
 export function insertCompaction(db: Db, data: NewCompaction) {
 	db.insert(compactions).values(data).run();

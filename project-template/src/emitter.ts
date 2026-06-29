@@ -1,30 +1,20 @@
 import { EventEmitter } from "node:events";
-
-export type TokenStatistics = {
-	inputTokens: number;
-	outputTokens: number;
-	cacheReadTokens: number;
-	cacheWriteTokens: number;
-	totalInputTokens: number;
-	totalOutputTokens: number;
-	totalCacheReadTokens: number;
-	totalCacheWriteTokens: number;
-};
+import type { ErrorRecoveredPayload, PlanModePayload, TokenUpdatePayload, TokenWarningPayload } from "@agent-manager/utils";
 
 export type AgentEvent =
 	| { type: "session_created"; data: Record<string, unknown> }
 	| { type: "message"; data: Record<string, unknown> }
 	| { type: "text_delta"; data: { text: string } }
 	| { type: "tool_call"; data: Record<string, unknown> }
-	| { type: "token_update"; data: TokenStatistics }
+	| { type: "token_update"; data: TokenUpdatePayload }
 	| { type: "checkin_started"; data: Record<string, unknown> }
 	| { type: "checkin_completed"; data: Record<string, unknown> }
 	| { type: "compaction"; data: Record<string, unknown> }
 	| { type: "session_updated"; data: Record<string, unknown> }
 	| { type: "error"; data: { message: string } }
-	| { type: "plan_mode"; data: { active: boolean; summary?: string } }
-	| { type: "token_warning"; data: { state: string; estimatedTokens: number; threshold: number; contextWindow: number } }
-	| { type: "error_recovered"; data: { attempt: number; error: string; nextRetryMs: number } };
+	| { type: "plan_mode"; data: PlanModePayload }
+	| { type: "token_warning"; data: TokenWarningPayload }
+	| { type: "error_recovered"; data: ErrorRecoveredPayload };
 
 // A global event carries the same payload plus the originating session id, so a
 // project-wide stream can fan in events from every session.
