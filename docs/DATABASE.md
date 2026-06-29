@@ -169,7 +169,7 @@ One turn of the conversation transcript for a session: a user or assistant messa
 | --- | --- | --- | --- |
 | `id` | `text` | PK | — |
 | `session_id` | `text` | not null, → `sessions.id` | Owning session. |
-| `role` | `text` | not null | Anthropic message role. One of: `user`, `assistant` |
+| `role` | `text` | not null | Anthropic message role ("system" = system prompt, stored for the timeline only). One of: `user`, `assistant`, `system` |
 | `content` | `text` | not null | JSON-serialized Anthropic ContentBlock[]. |
 | `input_tokens` | `integer` | default `0` | Input tokens billed for this message. |
 | `output_tokens` | `integer` | default `0` | Output tokens billed for this message. |
