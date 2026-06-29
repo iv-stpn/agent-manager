@@ -14,7 +14,7 @@ export interface SessionRecord {
 	task: string;
 	status: "running" | "paused" | "compacting" | "completed" | "stopped" | "error";
 	reportIntervalMins: number;
-	totalTimeoutMins: number;
+	stopThresholdMins: number;
 	freezeReportMode: "always" | "never" | "custom";
 	freezeReportCustomRule: string | null;
 	freezeAskMode: "always" | "requiredOnly" | "onReportOnly" | "never";

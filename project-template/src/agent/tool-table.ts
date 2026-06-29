@@ -1,4 +1,5 @@
 import type { Db } from "../db";
+import { ToolName } from "./tools/definitions";
 import { glob, grep } from "./tools/implementations/commands";
 import {
 	createDirectory,
@@ -44,7 +45,6 @@ import {
 	validateWebSearch,
 	validateWriteFile,
 } from "./tools/validators";
-import { ToolName } from "./tools/definitions";
 
 type Input = Record<string, unknown>;
 
@@ -63,7 +63,7 @@ function tool<V extends (i: Input) => void>(entry: ToolEntry<V>): ToolEntry<V> {
 	return entry;
 }
 
-/** Handlers backed by AgentRunner state that the tool table delegates to. */
+/** Handlers backed by runner state that the tool table delegates to. */
 export interface ToolHandlers {
 	queueQuestion: (input: QuestionInput) => Promise<string>;
 	urgentQuestion: (input: QuestionInput) => Promise<string>;

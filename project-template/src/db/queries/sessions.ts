@@ -3,7 +3,9 @@ import { desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "../client";
 
 export function createSession(db: Db, data: NewSession): Session {
-	db.insert(sessions).values(data).run();
+	db.insert(sessions)
+		.values({ ...data, updatedAt: data.createdAt })
+		.run();
 	const result = db.select().from(sessions).where(eq(sessions.id, data.id)).get();
 	if (!result) throw new Error("Session not found after insert");
 	return result;

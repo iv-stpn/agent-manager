@@ -8,7 +8,7 @@
  * surfaced back to the agent as a tool_result error so it can self-correct.
  */
 
-import type { ChecklistItem, ReportData } from "../discord";
+import type { ChecklistItem, ReportData } from "../../external/discord";
 import type { MemoryType } from "./implementations/memory";
 
 type Input = Record<string, unknown>;

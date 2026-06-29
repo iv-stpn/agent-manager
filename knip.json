@@ -1,0 +1,37 @@
+{
+	"$schema": "https://unpkg.com/knip@latest/schema.json",
+	"workspaces": {
+		".": {
+			"entry": ["scripts/**/*.ts"],
+			"project": ["scripts/**/*.ts"]
+		},
+		"apps/host-api": {
+			"entry": ["src/index.ts"],
+			"project": ["src/**/*.ts"]
+		},
+		"apps/host-web": {
+			"entry": ["src/main.tsx", "vite.config.ts"],
+			"project": ["src/**/*.{ts,tsx}"]
+		},
+		"apps/cli": {
+			"entry": ["projects.ts"],
+			"project": ["*.ts"]
+		},
+		"packages/db": {
+			"entry": ["src/project-schema.ts", "src/host-schema.ts", "src/ddl.ts"],
+			"project": ["src/**/*.ts"]
+		},
+		"packages/projects": {
+			"entry": ["src/index.ts", "src/client-types.ts"],
+			"project": ["src/**/*.ts"]
+		},
+		"packages/utils": {
+			"entry": ["src/index.ts"],
+			"project": ["src/**/*.ts"]
+		},
+		"project-template": {
+			"entry": ["src/index.ts"],
+			"project": ["src/**/*.ts"]
+		}
+	}
+}

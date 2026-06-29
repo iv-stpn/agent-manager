@@ -457,7 +457,7 @@ export default function SessionPage() {
 										</div>
 										<div className="flex justify-between">
 											<span className="text-muted-foreground">Total timeout</span>
-											<span>{session.totalTimeoutMins}m</span>
+											<span>{session.stopThresholdMins}m</span>
 										</div>
 										<div className="flex justify-between">
 											<span className="text-muted-foreground">Freeze reports</span>

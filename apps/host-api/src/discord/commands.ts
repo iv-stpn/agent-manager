@@ -141,7 +141,7 @@ export async function handleInteraction(interaction: ChatInputCommandInteraction
 
 		switch (interaction.commandName) {
 			case "timeout":
-				payload.totalTimeoutMins = Math.max(1, Math.min(1440, interaction.options.getNumber("minutes", true)));
+				payload.stopThresholdMins = Math.max(1, Math.min(1440, interaction.options.getNumber("minutes", true)));
 				break;
 			case "report-interval":
 				payload.reportIntervalMins = Math.max(0, interaction.options.getNumber("minutes", true));

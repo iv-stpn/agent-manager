@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { env } from "../env";
+import type { AgentStateConfig } from "./runner-types";
 import { MEMORY_SYSTEM_DESCRIPTION } from "./workspace";
-import type { RunnerConfig } from "./runner-types";
 
 /**
  * Read the rendered per-project context (tech stacks / guidelines / local
@@ -20,7 +20,7 @@ export function readProjectContext(): string {
 	}
 }
 
-export function buildSystemPrompt(cfg: RunnerConfig): string {
+export function buildSystemPrompt(cfg: AgentStateConfig): string {
 	const projectContext = readProjectContext();
 	return `You are an autonomous software engineering agent running unattended in a sandboxed Docker container. Your workspace is /workspace — every file you touch lives there. No human is watching in real time; you report asynchronously and keep working.
 
@@ -53,7 +53,7 @@ You write for an engineer reading reports asynchronously. Be concise and direct 
 ${MEMORY_SYSTEM_DESCRIPTION}
 ${projectContext ? `\n${projectContext}\n` : ""}
 # Settings (current)
-Report interval: ${cfg.reportIntervalMins} min (0 = disabled) · Total timeout: ${cfg.totalTimeoutMins} min · compact_threshold: ${cfg.compactThresholdTokens} tokens · stop_threshold: ${cfg.stopThresholdTokens} tokens
+Report interval: ${cfg.reportIntervalMins} min (0 = disabled) · Total timeout: ${cfg.stopThresholdMins} min · compact_threshold: ${cfg.compactThresholdTokens} tokens · stop_threshold: ${cfg.stopThresholdTokens} tokens
 freeze_report_mode: ${cfg.freezeReportMode}${cfg.freezeReportCustomRule ? ` (rule "${cfg.freezeReportCustomRule}")` : ""} · freeze_ask_mode: ${cfg.freezeAskMode} · always_improve: ${cfg.alwaysImproveMode}${cfg.alwaysImproveScope ? ` (scope "${cfg.alwaysImproveScope}")` : ""}
 
 always_improve — ${

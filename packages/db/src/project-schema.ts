@@ -21,7 +21,7 @@ export const sessions = sqliteTable("sessions", {
 
 	// Report / timeout configuration
 	reportIntervalMins: integer("report_interval_mins").notNull().default(15), // Minutes between automatic progress reports.
-	totalTimeoutMins: integer("total_timeout_mins").notNull().default(240), // Hard wall-clock cap before the session is stopped.
+	stopThresholdMins: integer("total_timeout_mins").notNull().default(240), // Hard wall-clock cap before the session is stopped.
 
 	// Freeze modes
 	freezeReportMode: text("freeze_report_mode", { enum: ["always", "never", "custom"] })

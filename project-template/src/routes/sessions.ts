@@ -2,7 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { z } from "zod";
-import { createAgentRunner, type AgentRunner } from "../agent/runner";
+import { initAgent, interjectAgent, runners, stopAgent } from "../agent/runner";
+import type { AgentStateConfig } from "../agent/runner-types";
+import { resume, run } from "../agent/runner-utils/loop";
 import {
 	createSession,
 	type Db,
@@ -17,14 +19,13 @@ import {
 } from "../db";
 import { sessionEmitter } from "../emitter";
 import { env } from "../env";
-import { runners } from "../runners";
 import type { HonoProjectEnv } from "../types";
 
 const CreateSessionSchema = z.object({
 	task: z.string().min(1),
 	name: z.string().optional(),
 	reportIntervalMins: z.number().optional(),
-	totalTimeoutMins: z.number().optional(),
+	stopThresholdMins: z.number().optional(),
 	freezeReportMode: z.enum(["always", "never", "custom"]).optional(),
 	freezeReportCustomRule: z.string().optional(),
 	freezeAskMode: z.enum(["always", "requiredOnly", "onReportOnly", "never"]).optional(),
@@ -64,6 +65,12 @@ function autoNameSession(db: Db, sessionId: string, task: string) {
 			console.warn("[AutoName] Failed to name session:", err.message ?? err);
 		});
 }
+
+const defaultChatName = () => {
+	const now = new Date();
+	const pad = (n: number) => String(n).padStart(2, "0");
+	return `New chat session at ${pad(now.getHours())}:${pad(now.getMinutes())} on ${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+};
 
 export const sessionsRouter = new Hono<HonoProjectEnv>()
 	.get("/", (c) => c.json(listSessions(c.get("db"))))
@@ -114,50 +121,24 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 
 		const db = c.get("db");
 		const id = nanoid();
-		const reportIntervalMins = body.reportIntervalMins ?? 15;
-		const totalTimeoutMins = body.totalTimeoutMins ?? 240;
-		const freezeReportMode = body.freezeReportMode ?? "never";
-		const freezeAskMode = body.freezeAskMode ?? "always";
-		const compactThresholdTokens = body.compactThresholdTokens ?? 80_000;
-		const stopThresholdTokens = body.stopThresholdTokens ?? 400_000;
-		const alwaysImproveMode = body.alwaysImproveMode ?? "no";
+
+		const config: AgentStateConfig = {
+			reportIntervalMins: body.reportIntervalMins ?? 15,
+			stopThresholdMins: body.stopThresholdMins ?? 240,
+			freezeReportMode: body.freezeReportMode ?? "never",
+			freezeAskMode: body.freezeAskMode ?? "always",
+			freezeReportCustomRule: body.freezeReportCustomRule ?? null,
+			compactThresholdTokens: body.compactThresholdTokens ?? 80_000,
+			stopThresholdTokens: body.stopThresholdTokens ?? 400_000,
+			alwaysImproveMode: body.alwaysImproveMode ?? "no",
+			alwaysImproveScope: body.alwaysImproveScope ?? null,
+		};
 
 		const createdAt = Date.now();
-		const d = new Date(createdAt);
-		const pad = (n: number) => String(n).padStart(2, "0");
-		const defaultName = `New chat session at ${pad(d.getHours())}:${pad(d.getMinutes())} on ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+		const name = body.name ?? defaultChatName();
+		const session = createSession(db, { id, name, task: body.task, status: "running", createdAt, ...config });
 
-		const session = createSession(db, {
-			id,
-			name: body.name ?? defaultName,
-			task: body.task,
-			reportIntervalMins,
-			totalTimeoutMins,
-			freezeReportMode,
-			freezeReportCustomRule: body.freezeReportCustomRule ?? null,
-			freezeAskMode,
-			compactThresholdTokens,
-			stopThresholdTokens,
-			alwaysImproveMode,
-			alwaysImproveScope: body.alwaysImproveScope ?? null,
-			status: "running",
-			createdAt,
-			updatedAt: createdAt,
-		});
-
-		const runner = createAgentRunner({
-			db,
-			sessionId: id,
-			reportIntervalMins,
-			totalTimeoutMins,
-			freezeReportMode,
-			freezeReportCustomRule: body.freezeReportCustomRule ?? null,
-			freezeAskMode,
-			compactThresholdTokens,
-			stopThresholdTokens,
-			alwaysImproveMode,
-			alwaysImproveScope: body.alwaysImproveScope ?? null,
-		});
+		const runner = initAgent({ db, sessionId: id, config });
 		runners.set(id, runner);
 
 		sessionEmitter.emit(id, { type: "session_created", data: session });
@@ -167,7 +148,7 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 			autoNameSession(db, id, body.task);
 		}
 
-		runner.run(body.task).finally(() => {
+		run(runner, body.task).finally(() => {
 			runners.delete(id);
 		});
 
@@ -182,7 +163,7 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 
 		const runner = runners.get(id);
 		if (runner) {
-			runner.stop();
+			stopAgent(runner);
 			runners.delete(id);
 		}
 
@@ -206,15 +187,13 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 
 		const existing = runners.get(id);
 		if (existing) {
-			existing.interject(message);
+			interjectAgent(existing, message);
 			return c.json({ ok: true });
 		}
 
-		const runner = createAgentRunner({
-			db,
-			sessionId: id,
+		const config: AgentStateConfig = {
 			reportIntervalMins: session.reportIntervalMins,
-			totalTimeoutMins: session.totalTimeoutMins,
+			stopThresholdMins: session.stopThresholdMins,
 			freezeReportMode: session.freezeReportMode,
 			freezeReportCustomRule: session.freezeReportCustomRule,
 			freezeAskMode: session.freezeAskMode,
@@ -222,10 +201,12 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 			stopThresholdTokens: session.stopThresholdTokens,
 			alwaysImproveMode: session.alwaysImproveMode,
 			alwaysImproveScope: session.alwaysImproveScope,
-		});
+		};
+
+		const runner = initAgent({ db, sessionId: id, config });
 
 		runners.set(id, runner);
-		runner.resume(message).finally(() => runners.delete(id));
+		resume(runner, message).finally(() => runners.delete(id));
 
 		return c.json({ ok: true });
 	});

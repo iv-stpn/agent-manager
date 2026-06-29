@@ -22,11 +22,13 @@
 		"format": "biome format --write .",
 		"projects": "bun run apps/cli/projects.ts",
 		"stop-all": "bun run scripts/stop-all-projects.ts",
-		"typecheck": "bun run --cwd apps/host-api build:types && bun run --cwd project-template build:types && (cd apps/host-api && tsc --noEmit) && (cd apps/host-web && tsc --noEmit) && (cd project-template && tsc --noEmit) && tsc -p packages/db/tsconfig.json --noEmit && tsc -p packages/projects/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit"
+		"typecheck": "bun run --cwd apps/host-api build:types && bun run --cwd project-template build:types && (cd apps/host-api && tsc --noEmit) && (cd apps/host-web && tsc --noEmit) && (cd project-template && tsc --noEmit) && tsc -p packages/db/tsconfig.json --noEmit && tsc -p packages/projects/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit",
+		"knip": "knip"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.4.16",
 		"husky": "^9.1.7",
+		"knip": "^6.23.0",
 		"typescript": "^5.7.3"
 	},
 	"dependencies": {

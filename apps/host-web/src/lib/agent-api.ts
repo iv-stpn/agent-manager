@@ -206,7 +206,7 @@ export async function createSession(
 	data: {
 		task: string;
 		reportIntervalMins?: number;
-		totalTimeoutMins?: number;
+		stopThresholdMins?: number;
 		freezeReportMode?: "always" | "never" | "custom";
 		freezeReportCustomRule?: string;
 		freezeAskMode?: "always" | "requiredOnly" | "onReportOnly" | "never";

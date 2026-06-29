@@ -18,7 +18,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 	const navigate = useNavigate();
 	const [task, setTask] = useState("");
 	const [reportIntervalMins, setReportIntervalMins] = useState("15");
-	const [totalTimeoutMins, setTotalTimeoutMins] = useState("240");
+	const [stopThresholdMins, setstopThresholdMins] = useState("240");
 	const [freezeReportMode, setFreezeReportMode] = useState<"always" | "never" | "custom">("never");
 	const [freezeReportCustomRule, setFreezeReportCustomRule] = useState("");
 	const [freezeAskMode, setFreezeAskMode] = useState<"always" | "requiredOnly" | "onReportOnly" | "never">("always");
@@ -36,7 +36,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 			const session = await createSession(projectId, {
 				task,
 				reportIntervalMins: Number(reportIntervalMins) || 15,
-				totalTimeoutMins: Number(totalTimeoutMins) || 240,
+				stopThresholdMins: Number(stopThresholdMins) || 240,
 				freezeReportMode,
 				freezeReportCustomRule: freezeReportCustomRule || undefined,
 				freezeAskMode,
@@ -95,8 +95,8 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 								type="number"
 								min="1"
 								max="1440"
-								value={totalTimeoutMins}
-								onChange={(e) => setTotalTimeoutMins(e.target.value)}
+								value={stopThresholdMins}
+								onChange={(e) => setstopThresholdMins(e.target.value)}
 							/>
 						</div>
 					</div>
