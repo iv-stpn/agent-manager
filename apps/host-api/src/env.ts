@@ -11,6 +11,4 @@ export const env = {
 	DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID,
 	LANCEDB_URL: process.env.LANCEDB_URL ?? "http://localhost:3200",
 	CHROMIUM_WS_URL: process.env.CHROMIUM_WS_URL ?? "ws://localhost:3201",
-} as const;
-
-export type Env = typeof env;
+};

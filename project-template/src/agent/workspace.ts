@@ -1,6 +1,6 @@
-import { initGitRepo, isGitRepo } from "./git";
 import { executeBash } from "./tools/implementations/commands";
 import { listMemories, recall, remember } from "./tools/implementations/memory";
+import { initGitRepo, isGitRepo } from "./utils/git";
 
 // ── Role documentation injected into the system prompt ───────────────────────
 
@@ -98,7 +98,7 @@ Then proceed to the main task.`;
 
 // ── Startup context ────────────────────────────────────────────────────────────
 
-export async function buildStartupContext(_workspace: string, task: string, isNewProject: boolean): Promise<string[]> {
+export async function buildStartupContext(task: string, isNewProject: boolean): Promise<string[]> {
 	const msgs: string[] = [];
 
 	// Load relevant memories from vector DB (skip for brand-new projects — nothing to recall)

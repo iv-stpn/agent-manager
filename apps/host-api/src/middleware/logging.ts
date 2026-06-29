@@ -2,6 +2,7 @@ import type { MiddlewareHandler } from "hono";
 import { getErrorMessage } from "../lib/errors";
 import { createLogger } from "../lib/logger";
 import type { HonoHostEnv } from "../types";
+import { env } from "../env";
 
 const red = "\x1b[31m";
 const green = "\x1b[32m";
@@ -36,7 +37,7 @@ function jsonStringify(value: unknown): string {
 		return (
 			JSON.stringify(
 				value,
-				(_key, currentValue) => {
+				(_, currentValue) => {
 					if (currentValue instanceof Error) {
 						return {
 							name: currentValue.name,
@@ -169,7 +170,7 @@ function isWebSocketHandshake(request: Request, response: Response): boolean {
 
 export const requestLogger: MiddlewareHandler<HonoHostEnv> = async (context, next) => {
 	const requestId = generateId();
-	const logger = createLogger({ DISCORD_WEBHOOK_URL: context.env.DISCORD_WEBHOOK_URL }).child({
+	const logger = createLogger({ DISCORD_WEBHOOK_URL: env.DISCORD_WEBHOOK_URL }).child({
 		requestId,
 		path: context.req.path,
 		method: context.req.method,

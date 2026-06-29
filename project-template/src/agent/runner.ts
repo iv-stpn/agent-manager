@@ -25,16 +25,7 @@ import {
 import { sessionEmitter } from "../emitter";
 import { env } from "../env";
 import { compactMessages, estimateTokens } from "./context";
-import { type ChecklistItem, type ReportData, sendChecklist, sendReport } from "./discord-client";
-import type { AgentError } from "./errors";
-import { classifyApiError, withRetry } from "./errors";
-import { commitChanges } from "./git";
-import {
-	isBashCommandReadOnly,
-	isPlanModeToolAllowed,
-	PLAN_MODE_BASH_BLOCKED_MESSAGE,
-	PLAN_MODE_BLOCKED_MESSAGE,
-} from "./plan-mode";
+import { type ChecklistItem, type ReportData, sendChecklist, sendReport } from "./discord";
 import {
 	BASE_MAX_TOKENS,
 	CompactionCircuitBreaker,
@@ -62,6 +53,15 @@ import { deleteMemory, listMemories, type MemoryType, recall, remember, updateMe
 import { addTask, getCurrentTask, listTasks, setCurrentTask, updateTask } from "./tools/implementations/task";
 import { webFetch, webSearch } from "./tools/implementations/web";
 import { validateToolInput } from "./tools/validators";
+import type { AgentError } from "./utils/errors";
+import { classifyApiError, withRetry } from "./utils/errors";
+import { commitChanges } from "./utils/git";
+import {
+	isBashCommandReadOnly,
+	isPlanModeToolAllowed,
+	PLAN_MODE_BASH_BLOCKED_MESSAGE,
+	PLAN_MODE_BLOCKED_MESSAGE,
+} from "./utils/plan-mode";
 import { bootstrapWorkspace, buildStartupContext, MEMORY_SYSTEM_DESCRIPTION } from "./workspace";
 
 const WORKSPACE = env.WORKSPACE_PATH;
@@ -325,7 +325,7 @@ export class AgentRunner {
 
 		// ── Build startup context ──────────────────────────────────────────
 		this.recordSystemPrompt();
-		const startupMsgs = await buildStartupContext(WORKSPACE, task, isNewProject);
+		const startupMsgs = await buildStartupContext(task, isNewProject);
 		this.messages = startupMsgs.map((content, i) => ({
 			role: (i % 2 === 0 ? "user" : "user") as "user",
 			content,
@@ -675,7 +675,7 @@ export class AgentRunner {
 
 	// ── Report helpers ─────────────────────────────────────────────────────────────
 
-	private shouldFreeze(_trigger: string, freezeOverride?: "freeze" | "continue"): boolean {
+	private shouldFreeze(freezeOverride?: "freeze" | "continue"): boolean {
 		if (freezeOverride === "freeze") return true;
 		if (freezeOverride === "continue") return false;
 		if (this.freezeReportMode === "always") return true;
@@ -691,7 +691,7 @@ export class AgentRunner {
 	): Promise<void> {
 		console.log("[Report]", trigger, JSON.stringify(report, null, 2));
 
-		const freeze = forceFreeze || this.shouldFreeze(trigger, freezeOverride);
+		const freeze = forceFreeze || this.shouldFreeze(freezeOverride);
 		const pending = this.drainPending();
 		const questionsToAsk = freeze ? pending : [];
 
@@ -1218,6 +1218,8 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 			// ── Reports ──────────────────────────────────────────────────────────────
 			case "send_report":
 				return await this.handleSendReport(input);
+			case "send_graph":
+				return await this.handleSendGraph(input);
 
 			// ── Git ──────────────────────────────────────────────────────────────
 			case "commit_changes": {
@@ -1260,7 +1262,7 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 					input.dependsOn as string[] | undefined
 				);
 			case "list_tasks":
-				return await listTasks(this.db, this.sessionId, (input.filter as string) ?? "all");
+				return await listTasks(this.db, (input.filter as string) ?? "all");
 			case "update_task":
 				return await updateTask(
 					this.db,
@@ -1273,7 +1275,7 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 			case "set_current_task":
 				return await setCurrentTask(this.db, this.sessionId, input.id as string);
 			case "get_current_task":
-				return await getCurrentTask(this.db, this.sessionId);
+				return await getCurrentTask(this.db);
 
 			// ── Web ───────────────────────────────────────────────────────────────────────
 			case "web_search":
@@ -1349,11 +1351,10 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 			title: (input.title as string) ?? "Report",
 			sections: (input.sections as ReportData["sections"]) ?? [],
 			mermaid_diagrams: input.mermaid_diagrams as ReportData["mermaid_diagrams"],
-			screenshot_targets: input.screenshot_targets as ReportData["screenshot_targets"],
 		};
 
 		const freezeOverride = input.freeze_override as "freeze" | "continue" | undefined;
-		const freeze = this.shouldFreeze("manual", freezeOverride);
+		const freeze = this.shouldFreeze(freezeOverride);
 		const pending = this.drainPending();
 		const questionsToAsk = freeze ? pending : [];
 
@@ -1379,5 +1380,18 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 		}
 
 		return freeze ? "Report sent and user acknowledged." : "Report sent (continuing).";
+	}
+
+	private async handleSendGraph(input: Record<string, unknown>): Promise<string> {
+		const definition = input.definition as string;
+		const title = (input.title as string) || undefined;
+
+		const { renderMermaid } = await import("./mermaid");
+		const png = await renderMermaid(definition);
+
+		const { sendGraph } = await import("./discord");
+		await sendGraph(this.sessionId, png, title);
+
+		return "Graph sent to Discord.";
 	}
 }

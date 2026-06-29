@@ -468,7 +468,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 	{
 		name: "send_report",
 		description:
-			"Send a structured progress report via Discord and save it as an immutable record in the database. Supports text sections (auto-split at 1800 chars), Mermaid diagrams (rendered to PNG), and web page / HTML screenshots. Whether the agent freezes after sending depends on freeze_report_mode.\n\nIMPORTANT: This is the ONLY correct way to record reports. Do NOT use write_file to save reports — file-based reports are mutable and can be accidentally overwritten. Reports saved via send_report are permanent database records that cannot be modified.",
+			"Send a structured progress report via Discord and save it as an immutable record in the database. Supports text sections (auto-split at 1800 chars) and Mermaid diagrams (rendered to PNG). Whether the agent freezes after sending depends on freeze_report_mode.\n\nIMPORTANT: This is the ONLY correct way to record reports. Do NOT use write_file to save reports — file-based reports are mutable and can be accidentally overwritten. Reports saved via send_report are permanent database records that cannot be modified.",
 		input_schema: {
 			type: "object",
 			properties: {
@@ -503,19 +503,6 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 						required: ["definition"],
 					},
 				},
-				screenshot_targets: {
-					type: "array",
-					description:
-						"Pages to screenshot. Each target can be: a URL (https://...), a workspace-relative file path (.html), or a raw HTML string (starts with '<').",
-					items: {
-						type: "object",
-						properties: {
-							title: { type: "string" },
-							target: { type: "string" },
-						},
-						required: ["target"],
-					},
-				},
 				freeze_override: {
 					type: "string",
 					enum: ["freeze", "continue"],
@@ -524,6 +511,23 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 				},
 			},
 			required: ["title", "sections"],
+		},
+	},
+
+	{
+		name: "send_graph",
+		description:
+			"Render a Mermaid diagram to PNG and send it to the Discord channel. Use this for standalone diagrams (architecture, flows, ERDs) that don't belong inside a full report.",
+		input_schema: {
+			type: "object",
+			properties: {
+				title: { type: "string", description: "Caption shown above the graph in Discord." },
+				definition: {
+					type: "string",
+					description: "Full Mermaid diagram definition (e.g. 'graph TD; A-->B').",
+				},
+			},
+			required: ["definition"],
 		},
 	},
 

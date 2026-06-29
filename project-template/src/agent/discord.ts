@@ -13,7 +13,6 @@ export interface ReportData {
 	title: string;
 	sections: Array<{ title?: string; content: string }>;
 	mermaid_diagrams?: Array<{ title?: string; definition: string }>;
-	screenshot_targets?: Array<{ title?: string; target: string }>;
 }
 
 export interface Question {
@@ -98,6 +97,25 @@ export async function sendMessage(sessionId: string, content: string): Promise<v
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ sessionId, content }),
+		});
+	} catch {
+		// Silent failure — Discord is non-critical
+	}
+}
+
+/**
+ * Send a rendered Mermaid graph (PNG buffer) to the session's Discord channel.
+ */
+export async function sendGraph(sessionId: string, png: Buffer, title?: string): Promise<void> {
+	try {
+		const formData = new FormData();
+		formData.append("sessionId", sessionId);
+		if (title) formData.append("title", title);
+		formData.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "graph.png");
+
+		await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/graph`, {
+			method: "POST",
+			body: formData,
 		});
 	} catch {
 		// Silent failure — Discord is non-critical

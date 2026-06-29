@@ -107,4 +107,30 @@ export const discordRouter = new Hono<HonoHostEnv>()
 
 		await channel.send(body.content);
 		return c.json({ ok: true });
+	})
+
+	.post("/:id/discord/graph", async (c) => {
+		const formData = await c.req.formData();
+		const sessionId = formData.get("sessionId") as string;
+		const title = formData.get("title") as string | null;
+		const file = formData.get("file") as File | null;
+
+		if (!sessionId || !file) return c.json({ error: "Missing sessionId or file" }, 400);
+		if (!channelStore) return c.json({ error: "Discord not configured" }, 503);
+
+		const channelRecord = channelStore.getBySession(sessionId);
+		if (!channelRecord) return c.json({ error: "No Discord channel for this session" }, 404);
+
+		const { getChannel } = await import("../discord/bot");
+		const channel = await getChannel(channelRecord.id);
+		if (!channel) return c.json({ error: "Discord channel unavailable" }, 503);
+
+		const buffer = Buffer.from(await file.arrayBuffer());
+		const { AttachmentBuilder, EmbedBuilder } = await import("discord.js");
+		const attachment = new AttachmentBuilder(buffer, { name: "graph.png" });
+		const embed = new EmbedBuilder().setColor(0x5865f2).setImage("attachment://graph.png");
+		if (title) embed.setTitle(title);
+
+		await channel.send({ embeds: [embed], files: [attachment] });
+		return c.json({ ok: true });
 	});

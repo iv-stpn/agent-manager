@@ -78,7 +78,7 @@ if (chromiumReady) {
 	logger.info("Rendering enabled — connected to Chromium container");
 } else {
 	logger.warn(
-		"Chromium container not reachable — /api/render (mermaid + screenshots) will fail. " +
+		"Chromium container not reachable — /api/render (mermaid) will fail. " +
 			"Start shared services: docker compose -f docker-compose.yml up -d"
 	);
 }

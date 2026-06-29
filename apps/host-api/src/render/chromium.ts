@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import puppeteer from "puppeteer-core";
 import { env } from "../env";
 
@@ -62,38 +61,7 @@ export async function renderMermaid(definition: string): Promise<Buffer> {
 		const svg = await page.$("svg");
 		if (!svg) throw new Error("Mermaid rendering produced no SVG");
 
-		const screenshot = await svg.screenshot({ type: "png" });
-		return Buffer.from(screenshot);
+		const mermaidScreenshot = await svg.screenshot({ type: "png" });
+		return Buffer.from(mermaidScreenshot);
 	});
-}
-
-/** Screenshot a URL or an absolute file path. */
-export async function screenshotTarget(target: string): Promise<Buffer> {
-	return withPage(async (page) => {
-		if (/^https?:\/\//.test(target)) {
-			await page.goto(target, { waitUntil: "networkidle2", timeout: 30_000 });
-		} else {
-			// For file paths, read and set as content since remote browser can't access host filesystem
-			const file = Bun.file(target);
-			const html = await file.text();
-			await page.setContent(html, { waitUntil: "load", timeout: 10_000 });
-		}
-		return Buffer.from(await page.screenshot({ type: "png", fullPage: false }));
-	});
-}
-
-/** Screenshot a raw HTML string. */
-export async function screenshotHtml(html: string): Promise<Buffer> {
-	return withPage(async (page) => {
-		await page.setContent(html, { waitUntil: "load" });
-		return Buffer.from(await page.screenshot({ type: "png", fullPage: false }));
-	});
-}
-
-/** Resolve a workspace-relative target to an absolute path under workspaceRoot. */
-export function resolveWorkspacePath(workspaceRoot: string, target: string): string {
-	if (target.startsWith("/")) {
-		return target.startsWith(workspaceRoot) ? target : join(workspaceRoot, target.replace(/^\/+/, ""));
-	}
-	return join(workspaceRoot, target);
 }

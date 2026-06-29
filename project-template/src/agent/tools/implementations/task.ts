@@ -54,7 +54,7 @@ export async function addTask(
 
 // List tasks across the whole project (cross-session), optionally filtered by
 // status. Dependency annotations are computed against all done tasks.
-export async function listTasks(db: Db, _sessionId: string, filter = "all"): Promise<string> {
+export async function listTasks(db: Db, filter = "all"): Promise<string> {
 	const rows =
 		filter === "all"
 			? db.select().from(tasks).all()
@@ -76,7 +76,7 @@ export async function listTasks(db: Db, _sessionId: string, filter = "all"): Pro
 }
 
 // Return the task currently in progress, if any (project-wide).
-export async function getCurrentTask(db: Db, _sessionId: string): Promise<string> {
+export async function getCurrentTask(db: Db): Promise<string> {
 	const [task] = db.select().from(tasks).where(eq(tasks.status, "in_progress")).all();
 	if (!task) return "No current task (none in progress).";
 	return `[${task.id}] ${task.text}`;

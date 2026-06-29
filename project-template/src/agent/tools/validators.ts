@@ -244,7 +244,6 @@ const validators: Record<string, Validator> = {
 			requireString(input, "title", "report title"),
 			validateArrayItems(input, "sections", { content: "section body" }, { required: true, minLength: 1 }),
 			validateArrayItems(input, "mermaid_diagrams", { definition: "mermaid diagram definition" }),
-			validateArrayItems(input, "screenshot_targets", { target: "URL, file path, or HTML string" }),
 			optionalEnum(input, "freeze_override", ["freeze", "continue"])
 		),
 

@@ -13,7 +13,7 @@ host creates and supervises projects; each project runs as a Docker container.
 │  host-api  (port 3100, Hono)                                 │
 │    • Project CRUD + Docker lifecycle (start/stop/build/logs)   │
 │    • Reads each project's config.json + data/agent.db          │
-│    • Centralized rendering: /api/render (mermaid + screenshots)│
+│    • Centralized rendering: /api/render (mermaid)│
 │    • Own SQLite DB for logs & historical stats (not runtime)   │
 │                                                                │
 │  host-web  (port 3101, Next.js)                              │
@@ -59,8 +59,8 @@ Key points:
   `Dockerfile` are copied into each project at creation time, so projects are
   fully isolated and can diverge.
 - **Rendering is centralized.** Chromium lives only on the host (host-api).
-  Project containers POST to `/api/render` for Mermaid diagrams and screenshots
-  instead of bundling a browser into every image.
+  Project containers POST to `/api/render` to render Mermaid diagrams instead of
+  bundling a browser into every image.
 - **Each project gets one container** (`agent`) on its own bridge network, with
   a single host-exposed port (`config.ports.server`, auto-allocated from 4000).
 

@@ -13,6 +13,4 @@ export const env = {
 	ANTHROPIC_SMALL_MODEL: process.env.ANTHROPIC_SMALL_MODEL ?? "claude-haiku-4-5-20251001",
 	WORKSPACE_PATH: process.env.WORKSPACE_PATH ?? "/workspace",
 	AGENT_MAX_CONTEXT_TOKENS: process.env.AGENT_MAX_CONTEXT_TOKENS,
-} as const;
-
-export type Env = typeof env;
+};

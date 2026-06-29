@@ -270,7 +270,7 @@ Ask a critical question that blocks progress. In requiredOnly/always modes this 
 
 ### `send_report`
 
-Send a structured progress report via Discord and save it as an immutable record in the database. Supports text sections (auto-split at 1800 chars), Mermaid diagrams (rendered to PNG), and web page / HTML screenshots. Whether the agent freezes after sending depends on freeze_report_mode.
+Send a structured progress report via Discord and save it as an immutable record in the database. Supports text sections (auto-split at 1800 chars) and Mermaid diagrams (rendered to PNG). Whether the agent freezes after sending depends on freeze_report_mode.
 
 IMPORTANT: This is the ONLY correct way to record reports. Do NOT use write_file to save reports — file-based reports are mutable and can be accidentally overwritten. Reports saved via send_report are permanent database records that cannot be modified.
 
@@ -279,8 +279,16 @@ IMPORTANT: This is the ONLY correct way to record reports. Do NOT use write_file
 | `title` | `string` | Yes | Report title |
 | `sections` | `array` | Yes | Text sections. Each section is split into ≤1800-char chunks automatically. |
 | `mermaid_diagrams` | `array` |  | Mermaid diagrams to render as PNG images and attach to the report. |
-| `screenshot_targets` | `array` |  | Pages to screenshot. Each target can be: a URL (https://...), a workspace-relative file path (.html), or a raw HTML string (starts with '<'). |
 | `freeze_override` | `freeze` \| `continue` |  | Override the current freeze_report_mode for this specific report. 'freeze' = pause agent until user confirms; 'continue' = send report and keep working. |
+
+### `send_graph`
+
+Render a Mermaid diagram to PNG and send it to the Discord channel. Use this for standalone diagrams (architecture, flows, ERDs) that don't belong inside a full report.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `title` | `string` |  | Caption shown above the graph in Discord. |
+| `definition` | `string` | Yes | Full Mermaid diagram definition (e.g. 'graph TD; A-->B'). |
 
 ## Git
 

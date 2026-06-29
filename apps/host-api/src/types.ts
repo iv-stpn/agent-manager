@@ -1,5 +1,4 @@
 import type { HostDatabase, ProjectDatabase, ProjectDocker, ProjectManager } from "@agent-manager/projects";
-import type { Env } from "./env";
 import type { EventHub } from "./lib/event-hub";
 import type { Logger } from "./lib/logger";
 
@@ -14,6 +13,5 @@ export type HonoHostVariables = {
 };
 
 export type HonoHostEnv = {
-	Bindings: Env;
 	Variables: HonoHostVariables;
 };

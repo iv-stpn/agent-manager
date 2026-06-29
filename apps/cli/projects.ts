@@ -24,7 +24,7 @@ interface CollectedSettings {
 }
 
 /** Interactively collect Anthropic config at project init. */
-async function collectSettings(rl: readline.Interface, _skipDiscord: boolean, skipAgent: boolean): Promise<CollectedSettings> {
+async function collectSettings(rl: readline.Interface, skipAgent: boolean): Promise<CollectedSettings> {
 	const settings: CollectedSettings = {};
 
 	if (!skipAgent) {
@@ -52,7 +52,7 @@ const commands = {
 		console.log(`Creating project "${name}"...`);
 		const rl = readline.createInterface({ input: stdin, output: stdout });
 		try {
-			const settings = await collectSettings(rl, false, skipAgent);
+			const settings = await collectSettings(rl, skipAgent);
 			const project = await manager.createProject({
 				name,
 				description,
@@ -70,7 +70,7 @@ const commands = {
 		console.log(`Editing settings for "${project.name}" (${projectId})`);
 		const rl = readline.createInterface({ input: stdin, output: stdout });
 		try {
-			const settings = await collectSettings(rl, false, false);
+			const settings = await collectSettings(rl, false);
 			if (!settings.agent) {
 				console.log("No changes entered.");
 				return;

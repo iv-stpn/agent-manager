@@ -26,11 +26,17 @@ function extractConversationText(messages: MessageParam[]): string {
 
 		if (!Array.isArray(msg.content)) continue;
 
-		// Only extract text blocks — skip tool_use, tool_result, images, etc.
 		const textParts: string[] = [];
 		for (const block of msg.content) {
 			if (block.type === "text" && (block as Anthropic.TextBlock).text?.trim()) {
 				textParts.push((block as Anthropic.TextBlock).text.trim());
+			} else if (block.type === "tool_use") {
+				const toolBlock = block as Anthropic.ToolUseBlock;
+				textParts.push(`[Tool call: ${toolBlock.name}]`);
+			} else if (block.type === "tool_result") {
+				const resultBlock = block as { type: "tool_result"; is_error?: boolean };
+				const status = resultBlock.is_error ? "error" : "success";
+				textParts.push(`[Tool result: ${status}]`);
 			}
 		}
 		if (textParts.length > 0) {
@@ -53,17 +59,12 @@ export async function compactMessages(
 	messages: MessageParam[],
 	client: Anthropic
 ): Promise<{ messages: MessageParam[]; summary: string }> {
-	if (messages.length <= 4) {
-		// Not enough messages to compact meaningfully
-		return { messages, summary: "" };
-	}
+	// Not enough messages to compact meaningfully
+	if (messages.length <= 4) return { messages, summary: "" };
 
 	// Extract only conversational text (no tool calls/results)
 	const transcript = extractConversationText(messages);
-
-	if (!transcript.trim()) {
-		return { messages, summary: "" };
-	}
+	if (!transcript.trim()) return { messages, summary: "" };
 
 	const model = env.ANTHROPIC_MODEL;
 
@@ -75,27 +76,22 @@ export async function compactMessages(
 			messages: [
 				{
 					role: "user",
-					content: `You are summarizing a past agent conversation to create a memory for the next conversation cycle. Focus ONLY on the dialogue — ignore any tool calls or tool results.
+					content: `Create a structured memory (≤1000 words) from this conversation for the next session.
 
-Summarize the following conversation into a structured memory (≤1000 words). Preserve:
-- The original task/goal
-- Key decisions made and their rationale
-- Important discoveries about the codebase
-- Current progress and what was completed
-- Outstanding issues or next steps
-- Any user preferences or corrections expressed
+Include: initial goal, key decisions, discoveries, progress, remaining work, and user preferences/corrections.
 
-CONVERSATION:
-${transcript.slice(0, 50000)}
+<conversation>
+${transcript}
+</conversation>
 
-Provide ONLY the summary — no preamble.`,
+Output only the summary.`,
 				},
 			],
 		});
 
 		summary = resp.content
 			.filter((b) => b.type === "text")
-			.map((b) => (b as Anthropic.TextBlock).text)
+			.map((b) => b.text)
 			.join("\n");
 	} catch {
 		summary = `[${messages.length} messages compacted — summary unavailable]`;
@@ -104,15 +100,12 @@ Provide ONLY the summary — no preamble.`,
 	// Restart the conversation with just a context primer from the memory
 	const restartMessage: MessageParam = {
 		role: "user",
-		content: `[CONVERSATION MEMORY — This is a continuation of a previous conversation within the same session. Here is what happened before:]
-
+		content: `<previous_context>
 ${summary}
+</previous_context>
 
-[END OF MEMORY — The conversation is now restarting. Continue working on the task from where you left off. Do NOT repeat completed work or send a status report. Pick up from the next incomplete step.]`,
+Resume the active task or, if none is active, the next pending one.`,
 	};
 
-	return {
-		messages: [restartMessage],
-		summary,
-	};
+	return { messages: [restartMessage], summary };
 }

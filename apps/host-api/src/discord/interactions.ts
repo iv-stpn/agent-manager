@@ -101,6 +101,33 @@ export async function sendReport(
 		}
 	}
 
+	// Mermaid diagram attachments (render up to 3 in parallel)
+	if (report.mermaid_diagrams?.length) {
+		const { renderMermaid } = await import("../render/chromium");
+		const { AttachmentBuilder } = await import("discord.js");
+
+		const diagrams = report.mermaid_diagrams;
+		for (let i = 0; i < diagrams.length; i += 3) {
+			const batch = diagrams.slice(i, i + 3);
+			const results = await Promise.allSettled(batch.map((d) => renderMermaid(d.definition)));
+
+			for (let j = 0; j < batch.length; j++) {
+				const diagram = batch[j];
+				const result = results[j];
+				if (result.status === "fulfilled") {
+					const attachment = new AttachmentBuilder(result.value, { name: "diagram.png" });
+					const embed = new EmbedBuilder().setColor(color).setImage("attachment://diagram.png");
+					if (diagram.title) embed.setTitle(diagram.title);
+					await channel.send({ embeds: [embed], files: [attachment] });
+				} else {
+					const fallback = new EmbedBuilder().setColor(0xffaa00).setDescription(`\`\`\`mermaid\n${diagram.definition}\n\`\`\``);
+					if (diagram.title) fallback.setTitle(`${diagram.title} (render failed)`);
+					await channel.send({ embeds: [fallback] });
+				}
+			}
+		}
+	}
+
 	// If not freezing, just show queued questions as info
 	if (!freeze) {
 		if (pendingQuestions.length > 0) {
@@ -310,7 +337,7 @@ export async function sendCheckinForm(
 			}
 		});
 
-		collector.on("end", (_collected, reason) => {
+		collector.on("end", (_, reason) => {
 			if (reason === "done") return;
 			msg.edit({ components: [] }).catch(() => {});
 			channel.client.removeListener("interactionCreate", modalListener);
