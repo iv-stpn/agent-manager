@@ -153,23 +153,23 @@ Fetch a URL and return its readable text content (HTML is stripped to plain text
 
 ### `remember`
 
-Store a new entry in the project's persistent vector memory. Use to record architecture decisions, conventions, context, plans, or any knowledge that should persist across sessions. Entries are semantically searchable. Do NOT use for todos (use task tools), reports (use send_report), or questions (use queue_question/urgent_question).
+Store a new entry in the project's persistent vector memory. Use to record architecture decisions, conventions, context, plans, or any knowledge that should persist across sessions. Entries are semantically searchable. Do NOT use for tasks (use task tools), reports (use send_report), or questions (use queue_question/urgent_question). When working on a task, include {taskId} in metadata to link the memory to the active task.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `type` | `decision` \| `plan` \| `memory` \| `context` | Yes | Category of the memory entry |
+| `type` | `decision` \| `plan` \| `memory` \| `context` | Yes | Category of the memory entry. Do NOT use for tasks (use task tools instead). |
 | `title` | `string` | Yes | Short descriptive title (used for search ranking) |
 | `content` | `string` | Yes | Full content of the memory entry |
 | `metadata` | `object` |  | Optional structured metadata (e.g. {priority: 'high', status: 'active'}) |
 
 ### `recall`
 
-Semantically search project memory. Returns entries ranked by relevance to your query. Use natural language queries for best results (e.g. 'how is authentication implemented' rather than 'auth'). Searches across all entry types including auto-recorded todos, reports, and questions.
+Semantically search project memory. Returns entries ranked by relevance to your query. Use natural language queries for best results (e.g. 'how is authentication implemented' rather than 'auth'). Searches across all entry types including auto-recorded reports and questions.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `query` | `string` | Yes | Natural language search query |
-| `type` | `decision` \| `todo` \| `plan` \| `question` \| `memory` \| `report` \| `context` |  | Optional: filter results to a specific type |
+| `type` | `decision` \| `plan` \| `question` \| `memory` \| `report` \| `context` |  | Optional: filter results to a specific type |
 | `limit` | `number` |  | Max results to return (default: 10) |
 
 ### `update_memory`
@@ -198,7 +198,7 @@ List all memory entries, optionally filtered by type. Use to see everything stor
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `type` | `decision` \| `todo` \| `plan` \| `question` \| `memory` \| `report` \| `context` |  | Filter by type (optional, lists all if omitted) |
+| `type` | `decision` \| `plan` \| `question` \| `memory` \| `report` \| `context` |  | Filter by type (optional, lists all if omitted) |
 | `limit` | `number` |  | Max results (default: 100) |
 
 ## Task Management
