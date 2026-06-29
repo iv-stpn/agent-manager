@@ -101,6 +101,27 @@ export async function updateSettings(
 	return (await res.json()).project;
 }
 
+// ── Project context (tech stacks / guidelines / instructions) ──────────────────
+
+export type ProjectContext = {
+	techStackIds: string[];
+	guidelineIds: string[];
+	instructions: string;
+};
+
+export async function getProjectContext(projectId: string): Promise<ProjectContext> {
+	const res = await api.api.projects[":projectId"].context.$get({ param: { projectId } });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()).context;
+}
+
+export async function updateProjectContext(projectId: string, data: ProjectContext): Promise<ProjectContext> {
+	const req = { param: { projectId }, json: data };
+	const res = await api.api.projects[":projectId"].context.$put(req);
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()).context;
+}
+
 // ── Session endpoints ─────────────────────────────────────────────────────────
 
 export async function getSessions(projectId: string) {

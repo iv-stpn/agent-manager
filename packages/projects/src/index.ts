@@ -14,11 +14,13 @@ export type {
 	AgentConfig,
 	CreateProjectInput,
 	ProjectConfig,
+	ProjectContext,
 	UpdateSettingsInput,
 } from "./types";
 export {
 	AgentConfigSchema,
 	CreateProjectSchema,
 	ProjectConfigSchema,
+	ProjectContextSchema,
 	UpdateSettingsSchema,
 } from "./types";

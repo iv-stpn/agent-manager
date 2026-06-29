@@ -29,9 +29,23 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { API_URL } from "@/constants";
-import type { Report, Session } from "@/lib/agent-api";
-import { deleteProject as apiDeleteProject, getLogs, getProject, getReports, getSessions, updateSettings } from "@/lib/agent-api";
+import type { Guideline, Report, Session, TechStack } from "@/lib/agent-api";
+import {
+	deleteProject as apiDeleteProject,
+	getGuidelines,
+	getLogs,
+	getProject,
+	getProjectContext,
+	getReports,
+	getSessions,
+	getTechStacks,
+	updateGuideline,
+	updateProjectContext,
+	updateSettings,
+	updateTechStack,
+} from "@/lib/agent-api";
 import { getCache, mutateCache, setCache, useQuery } from "@/lib/query-cache";
 import type { Project } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -764,6 +778,8 @@ function SettingsTab({ projectId }: { projectId: string }) {
 				</CardContent>
 			</Card>
 
+			<ProjectContextCard projectId={projectId} />
+
 			<Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
 				<DialogContent open={editing !== null}>
 					<DialogHeader>
@@ -806,6 +822,221 @@ function SettingRow({ field, onEdit }: { field: SettingField; onEdit: () => void
 			<Button type="button" variant="outline" size="sm" onClick={onEdit}>
 				Edit
 			</Button>
+		</div>
+	);
+}
+
+type LibraryEdit = { kind: "tech-stack"; item: TechStack } | { kind: "guideline"; item: Guideline };
+
+function ProjectContextCard({ projectId }: { projectId: string }) {
+	const [techStacks, setTechStacks] = useState<TechStack[]>([]);
+	const [guidelines, setGuidelines] = useState<Guideline[]>([]);
+	const [techStackIds, setTechStackIds] = useState<string[]>([]);
+	const [guidelineIds, setGuidelineIds] = useState<string[]>([]);
+	const [instructions, setInstructions] = useState("");
+	const [loading, setLoading] = useState(true);
+	const [saving, setSaving] = useState(false);
+	const [editing, setEditing] = useState<LibraryEdit | null>(null);
+	const [draft, setDraft] = useState("");
+	const [savingEntity, setSavingEntity] = useState(false);
+
+	const load = useCallback(async () => {
+		try {
+			const [stacks, guides, ctx] = await Promise.all([getTechStacks(), getGuidelines(), getProjectContext(projectId)]);
+			setTechStacks(stacks);
+			setGuidelines(guides);
+			setTechStackIds(ctx.techStackIds);
+			setGuidelineIds(ctx.guidelineIds);
+			setInstructions(ctx.instructions);
+		} catch (err) {
+			console.error("Failed to load project context:", err);
+		} finally {
+			setLoading(false);
+		}
+	}, [projectId]);
+
+	useEffect(() => {
+		load();
+	}, [load]);
+
+	function toggle(list: string[], setList: (v: string[]) => void, id: string) {
+		setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+	}
+
+	async function save() {
+		setSaving(true);
+		try {
+			await updateProjectContext(projectId, { techStackIds, guidelineIds, instructions });
+			toast.success("Context saved. Restart the project for changes to take effect.");
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Failed to save context.");
+		} finally {
+			setSaving(false);
+		}
+	}
+
+	function openEntityEdit(edit: LibraryEdit) {
+		setEditing(edit);
+		setDraft(edit.kind === "tech-stack" ? edit.item.description : edit.item.content);
+	}
+
+	async function saveEntity() {
+		if (!editing) return;
+		setSavingEntity(true);
+		try {
+			if (editing.kind === "tech-stack") {
+				await updateTechStack(editing.item.id, { description: draft });
+			} else {
+				await updateGuideline(editing.item.id, { content: draft });
+			}
+			toast.success("Library item updated for all projects. Re-save context to apply here.");
+			setEditing(null);
+			await load();
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Failed to update library item.");
+		} finally {
+			setSavingEntity(false);
+		}
+	}
+
+	// PLACEHOLDER_CONTEXT_CARD_JSX
+	if (loading) {
+		return (
+			<Card>
+				<CardHeader>
+					<CardTitle>Project context</CardTitle>
+				</CardHeader>
+				<CardContent className="text-sm text-gray-500">Loading context...</CardContent>
+			</Card>
+		);
+	}
+
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>Project context</CardTitle>
+			</CardHeader>
+			<CardContent className="space-y-6">
+				<p className="text-sm text-muted-foreground">
+					Selected tech stacks, guidelines, and instructions are injected into the agent&apos;s system prompt. Editing a library
+					item changes it for every project that uses it.
+				</p>
+
+				<ContextSelectList
+					title="Tech stacks"
+					empty="No tech stacks in the library yet."
+					items={techStacks.map((t) => ({ id: t.id, label: `${t.name} (${t.language})`, sub: t.description }))}
+					selectedIds={techStackIds}
+					onToggle={(id) => toggle(techStackIds, setTechStackIds, id)}
+					onEdit={(id) => {
+						const item = techStacks.find((t) => t.id === id);
+						if (item) openEntityEdit({ kind: "tech-stack", item });
+					}}
+				/>
+
+				<ContextSelectList
+					title="Guidelines"
+					empty="No guidelines in the library yet."
+					items={guidelines.map((g) => ({ id: g.id, label: g.name, sub: g.description }))}
+					selectedIds={guidelineIds}
+					onToggle={(id) => toggle(guidelineIds, setGuidelineIds, id)}
+					onEdit={(id) => {
+						const item = guidelines.find((g) => g.id === id);
+						if (item) openEntityEdit({ kind: "guideline", item });
+					}}
+				/>
+
+				<div className="space-y-2">
+					<div className="text-sm font-medium">Project instructions</div>
+					<p className="text-xs text-muted-foreground">
+						Free-form instructions specific to this project. Layered on top of the selected library items.
+					</p>
+					<Textarea
+						value={instructions}
+						onChange={(e) => setInstructions(e.target.value)}
+						placeholder="e.g. Always run the full test suite before committing. Prefer functional components."
+						rows={5}
+					/>
+				</div>
+
+				<div className="flex justify-end">
+					<Button type="button" onClick={save} disabled={saving}>
+						{saving ? "Saving..." : "Save context"}
+					</Button>
+				</div>
+			</CardContent>
+
+			<Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
+				<DialogContent open={editing !== null}>
+					<DialogHeader>
+						<DialogTitle>Edit {editing?.kind === "tech-stack" ? "tech stack description" : "guideline content"}</DialogTitle>
+						<DialogDescription>
+							This edits the shared library item — changes apply to every project that uses it.
+						</DialogDescription>
+					</DialogHeader>
+					<Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={10} autoFocus />
+					<DialogFooter>
+						<Button type="button" variant="outline" onClick={() => setEditing(null)} disabled={savingEntity}>
+							Cancel
+						</Button>
+						<Button type="button" onClick={saveEntity} disabled={savingEntity}>
+							{savingEntity ? "Saving..." : "Save library item"}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+		</Card>
+	);
+}
+
+function ContextSelectList({
+	title,
+	empty,
+	items,
+	selectedIds,
+	onToggle,
+	onEdit,
+}: {
+	title: string;
+	empty: string;
+	items: { id: string; label: string; sub?: string }[];
+	selectedIds: string[];
+	onToggle: (id: string) => void;
+	onEdit: (id: string) => void;
+}) {
+	return (
+		<div className="space-y-2">
+			<div className="text-sm font-medium">{title}</div>
+			{items.length === 0 ? (
+				<p className="text-xs italic text-muted-foreground">{empty}</p>
+			) : (
+				<ul className="divide-y rounded-md border">
+					{items.map((item) => {
+						const selected = selectedIds.includes(item.id);
+						return (
+							<li key={item.id} className="flex items-center justify-between gap-3 px-3 py-2">
+								<button type="button" onClick={() => onToggle(item.id)} className="flex min-w-0 items-center gap-3 text-left">
+									<span
+										className={cn(
+											"flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+											selected ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300"
+										)}
+									>
+										{selected && <CheckCircle2 className="h-3 w-3" />}
+									</span>
+									<span className="min-w-0">
+										<span className="block text-sm">{item.label}</span>
+										{item.sub && <span className="block truncate text-xs text-muted-foreground">{item.sub}</span>}
+									</span>
+								</button>
+								<Button type="button" variant="outline" size="sm" onClick={() => onEdit(item.id)}>
+									Edit
+								</Button>
+							</li>
+						);
+					})}
+				</ul>
+			)}
 		</div>
 	);
 }

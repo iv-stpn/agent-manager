@@ -3,6 +3,7 @@ import {
 	type CompactionRecord,
 	CreateProjectSchema,
 	type MessageRecord,
+	ProjectContextSchema,
 	type QuestionRecord,
 	type SessionRecord,
 	type ToolCallRecord,
@@ -13,6 +14,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { getErrorMessage } from "../lib/errors";
+import { renderProjectContext } from "../lib/render-context";
 import type { HonoHostEnv } from "../types";
 
 export type WorkspaceFolderStatus = "not_found" | "empty" | "not_empty" | "not_directory";
@@ -446,6 +448,38 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			};
 			const project = await c.var.manager.updateProject(projectId, updates);
 			return c.json({ project });
+		} catch (error) {
+			return c.json({ error: getErrorMessage(error) }, 400);
+		}
+	})
+	// Read per-project prompt context (selected tech stacks / guidelines + local instructions)
+	.get("/:projectId/context", async (c) => {
+		try {
+			const projectId = c.req.param("projectId");
+			const context = await c.var.manager.getProjectContext(projectId);
+			return c.json({ context });
+		} catch (error) {
+			return c.json({ error: getErrorMessage(error) }, 400);
+		}
+	})
+	// Update per-project prompt context. Resolves selected library IDs to their
+	// text here (only the host has the library DB), renders the markdown the
+	// container reads, and persists both via the manager.
+	.put("/:projectId/context", async (c) => {
+		try {
+			const projectId = c.req.param("projectId");
+			const { techStackIds, guidelineIds, instructions } = ProjectContextSchema.parse(await c.req.json());
+
+			const techStacks = techStackIds.map((id) => c.var.hostDb.getTechStack(id)).filter((t): t is NonNullable<typeof t> => !!t);
+			const guidelines = guidelineIds.map((id) => c.var.hostDb.getGuideline(id)).filter((g): g is NonNullable<typeof g> => !!g);
+
+			const markdown = renderProjectContext({ techStacks, guidelines, instructions });
+			const context = await c.var.manager.setProjectContext(
+				projectId,
+				{ techStackIds: techStacks.map((t) => t.id), guidelineIds: guidelines.map((g) => g.id), instructions },
+				markdown
+			);
+			return c.json({ context });
 		} catch (error) {
 			return c.json({ error: getErrorMessage(error) }, 400);
 		}

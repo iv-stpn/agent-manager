@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import { nanoid } from "nanoid";
@@ -123,7 +125,24 @@ export interface RunnerConfig {
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
+/**
+ * Read the rendered per-project context (tech stacks / guidelines / local
+ * instructions). The host writes it next to the agent DB, which is mounted
+ * into the container, so no host-DB round-trip is needed. Returns "" when the
+ * project has no context configured.
+ */
+function readProjectContext(): string {
+	try {
+		const path = join(dirname(env.DATABASE_PATH), "project-context.md");
+		if (!existsSync(path)) return "";
+		return readFileSync(path, "utf-8").trim();
+	} catch {
+		return "";
+	}
+}
+
 function buildSystemPrompt(cfg: RunnerConfig): string {
+	const projectContext = readProjectContext();
 	return `You are an autonomous software engineering agent running unattended in a sandboxed Docker container. Your workspace is /workspace — every file you touch lives there. No human is watching in real time; you report asynchronously and keep working.
 
 Assist with authorized engineering and defensive security work. Refuse to build malware, destructive payloads, or anything designed to cause harm.
@@ -153,7 +172,7 @@ Front-load clarifying questions with \`ask_checklist\` at the start; later, use 
 You write for an engineer reading reports asynchronously. Be concise and direct — lead with the result, skip preamble. Use markdown; minimal emoji.
 
 ${MEMORY_SYSTEM_DESCRIPTION}
-
+${projectContext ? `\n${projectContext}\n` : ""}
 # Settings (current)
 Report interval: ${cfg.reportIntervalMins} min (0 = disabled) · Total timeout: ${cfg.totalTimeoutMins} min · compact_threshold: ${cfg.compactThresholdTokens} tokens · stop_threshold: ${cfg.stopThresholdTokens} tokens
 freeze_report_mode: ${cfg.freezeReportMode}${cfg.freezeReportCustomRule ? ` (rule "${cfg.freezeReportCustomRule}")` : ""} · freeze_ask_mode: ${cfg.freezeAskMode} · always_improve: ${cfg.alwaysImproveMode}${cfg.alwaysImproveScope ? ` (scope "${cfg.alwaysImproveScope}")` : ""}

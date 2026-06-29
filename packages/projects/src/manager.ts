@@ -2,7 +2,8 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { CreateProjectInput, ProjectConfig } from "./types";
+import type { CreateProjectInput, ProjectConfig, ProjectContext } from "./types";
+import { ProjectContextSchema } from "./types";
 
 const PROJECTS_DIR = ".projects";
 const BASE_SERVER_PORT = 4000;
@@ -68,6 +69,20 @@ export class ProjectManager {
 
 	getProjectDatabaseManagerPath(projectId: string): string {
 		return join(this.getProjectDir(projectId), "data", "agent.db");
+	}
+
+	/** Path to the per-project context selection file (`context.json`). */
+	getProjectContextPath(projectId: string): string {
+		return join(this.getProjectDir(projectId), "context.json");
+	}
+
+	/**
+	 * Path to the rendered context markdown. Lives under `data/`, which is
+	 * mounted into the container as `/data`, so the agent can read it at
+	 * runtime without reaching back to the host DB.
+	 */
+	getRenderedContextPath(projectId: string): string {
+		return join(this.getProjectDir(projectId), "data", "project-context.md");
 	}
 
 	// ── Read ─────────────────────────────────────────────────────────────────
@@ -221,6 +236,48 @@ export class ProjectManager {
 
 		await this.generateDockerCompose(projectId, merged);
 		return this.getProject(projectId);
+	}
+
+	// ── Project context ────────────────────────────────────────────────────────
+
+	/**
+	 * Read the project's context selection (tech stacks / guidelines / local
+	 * instructions). Returns empty defaults when no context file exists.
+	 */
+	async getProjectContext(projectId: string): Promise<ProjectContext> {
+		const path = this.getProjectContextPath(projectId);
+		if (!existsSync(path)) {
+			return { techStackIds: [], guidelineIds: [], instructions: "" };
+		}
+		try {
+			return ProjectContextSchema.parse(JSON.parse(readFileSync(path, "utf-8")));
+		} catch {
+			return { techStackIds: [], guidelineIds: [], instructions: "" };
+		}
+	}
+
+	/**
+	 * Persist the project's context selection and the markdown the agent reads
+	 * at runtime. The caller resolves selected IDs to text (only the host has
+	 * the library DB) and passes the rendered markdown here. Empty markdown
+	 * removes the file so the prompt stays clean.
+	 */
+	async setProjectContext(projectId: string, context: ProjectContext, renderedMarkdown: string): Promise<ProjectContext> {
+		const projectDir = this.getProjectDir(projectId);
+		if (!existsSync(projectDir)) {
+			throw new Error(`Project "${projectId}" does not exist`);
+		}
+		const parsed = ProjectContextSchema.parse(context);
+		await writeFile(this.getProjectContextPath(projectId), `${JSON.stringify(parsed, null, 2)}\n`);
+
+		await mkdir(join(projectDir, "data"), { recursive: true });
+		const renderedPath = this.getRenderedContextPath(projectId);
+		if (renderedMarkdown.trim() === "") {
+			if (existsSync(renderedPath)) await rm(renderedPath, { force: true });
+		} else {
+			await writeFile(renderedPath, renderedMarkdown);
+		}
+		return parsed;
 	}
 
 	// ── Delete ───────────────────────────────────────────────────────────────

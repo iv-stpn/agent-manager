@@ -27,6 +27,20 @@ export const ProjectConfigSchema = z.object({
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
 
+/**
+ * Per-project prompt context: which library tech stacks / guidelines apply,
+ * plus a free-form project-local instructions block. Persisted in the
+ * project's `context.json`; the rendered markdown is mounted into the
+ * container and injected into the agent's system prompt.
+ */
+export const ProjectContextSchema = z.object({
+	techStackIds: z.array(z.string()).default([]),
+	guidelineIds: z.array(z.string()).default([]),
+	instructions: z.string().default(""),
+});
+
+export type ProjectContext = z.infer<typeof ProjectContextSchema>;
+
 export const UpdateSettingsSchema = z.object({
 	name: z.string().min(1).max(50).optional(),
 	description: z.string().optional(),
