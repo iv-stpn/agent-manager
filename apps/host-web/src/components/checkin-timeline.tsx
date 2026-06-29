@@ -1,5 +1,3 @@
-"use client";
-
 import { AlertTriangle, CheckCircle2, Clock, PlayCircle } from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import type { Checkin, Question } from "@/lib/agent-api";

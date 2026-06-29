@@ -1,5 +1,3 @@
-"use client";
-
 import { Fragment, type ReactNode } from "react";
 import { Markdown } from "@/components/markdown";
 import { cn } from "@/lib/utils";

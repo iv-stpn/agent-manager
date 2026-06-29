@@ -6,36 +6,21 @@
 
 import { env } from "../env";
 
-// ── Model Context Windows ────────────────────────────────────────────────────
+// ── Context Window ──────────────────────────────────────────────────────────
 
-const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
-	"claude-opus-4-8": 200_000,
-	"claude-sonnet-4-6": 200_000,
-	"claude-haiku-4-5-20251001": 200_000,
-	"claude-sonnet-4-20250514": 200_000,
-	"claude-opus-4-20250514": 200_000,
-};
+export const MODEL_CONTEXT_WINDOW = env.AGENT_MAX_CONTEXT_TOKENS
+	? Math.max(Number.parseInt(env.AGENT_MAX_CONTEXT_TOKENS, 10), 50_000)
+	: 200_000;
 
-const DEFAULT_CONTEXT_WINDOW = 200_000;
 const MAX_OUTPUT_TOKENS_FOR_SUMMARY = 20_000;
-
-export function getContextWindowForModel(model: string): number {
-	const envOverride = env.AGENT_MAX_CONTEXT_TOKENS;
-	if (envOverride) {
-		const parsed = Number.parseInt(envOverride, 10);
-		if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-	}
-	return MODEL_CONTEXT_WINDOWS[model] ?? DEFAULT_CONTEXT_WINDOW;
-}
 
 /**
  * Effective window = context window minus space reserved for summary output.
  * For small windows (<100K) use 20% instead of a fixed 20K.
  */
-export function getEffectiveContextWindow(model: string): number {
-	const contextWindow = getContextWindowForModel(model);
-	const reserved = Math.min(MAX_OUTPUT_TOKENS_FOR_SUMMARY, Math.floor(contextWindow * 0.2));
-	return contextWindow - reserved;
+export function getEffectiveContextWindow(): number {
+	const reserved = Math.min(MAX_OUTPUT_TOKENS_FOR_SUMMARY, Math.floor(MODEL_CONTEXT_WINDOW * 0.2));
+	return MODEL_CONTEXT_WINDOW - reserved;
 }
 
 // ── Adaptive Buffer Scaling ──────────────────────────────────────────────────
@@ -50,18 +35,18 @@ function scaleBuffer(buffer: number, effectiveWindow: number): number {
 	return Math.round(buffer * (effectiveWindow / REFERENCE_WINDOW));
 }
 
-export function getAutoCompactThreshold(model: string): number {
-	const effective = getEffectiveContextWindow(model);
+export function getAutoCompactThreshold(): number {
+	const effective = getEffectiveContextWindow();
 	return Math.max(0, effective - scaleBuffer(AUTOCOMPACT_BUFFER_TOKENS, effective));
 }
 
-export function getWarningThreshold(model: string): number {
-	const effective = getEffectiveContextWindow(model);
+export function getWarningThreshold(): number {
+	const effective = getEffectiveContextWindow();
 	return Math.max(0, effective - scaleBuffer(WARNING_THRESHOLD_BUFFER_TOKENS, effective));
 }
 
-export function getBlockingLimit(model: string): number {
-	const effective = getEffectiveContextWindow(model);
+export function getBlockingLimit(): number {
+	const effective = getEffectiveContextWindow();
 	return Math.max(0, effective - scaleBuffer(BLOCKING_BUFFER_TOKENS, effective));
 }
 
@@ -75,14 +60,12 @@ export interface TokenWarningInfo {
 	warningThreshold: number;
 	autoCompactThreshold: number;
 	blockingLimit: number;
-	contextWindow: number;
 }
 
-export function calculateTokenWarningState(estimatedTokens: number, model: string): TokenWarningInfo {
-	const contextWindow = getContextWindowForModel(model);
-	const blockingLimit = getBlockingLimit(model);
-	const autoCompactThreshold = getAutoCompactThreshold(model);
-	const warningThreshold = getWarningThreshold(model);
+export function calculateTokenWarningState(estimatedTokens: number): TokenWarningInfo {
+	const blockingLimit = getBlockingLimit();
+	const autoCompactThreshold = getAutoCompactThreshold();
+	const warningThreshold = getWarningThreshold();
 
 	let state: TokenWarningState = "normal";
 	if (estimatedTokens >= blockingLimit) {
@@ -93,7 +76,7 @@ export function calculateTokenWarningState(estimatedTokens: number, model: strin
 		state = "warning";
 	}
 
-	return { state, estimatedTokens, warningThreshold, autoCompactThreshold, blockingLimit, contextWindow };
+	return { state, estimatedTokens, warningThreshold, autoCompactThreshold, blockingLimit };
 }
 
 // ── Circuit Breaker ──────────────────────────────────────────────────────────
@@ -103,12 +86,12 @@ const MAX_CONSECUTIVE_FAILURES = 3;
 export class CompactionCircuitBreaker {
 	private consecutiveFailures = 0;
 
-	shouldAutoCompact(estimatedTokens: number, model: string, isCompactionCall = false): boolean {
+	shouldAutoCompact(estimatedTokens: number, isCompactionCall = false): boolean {
 		// Escape condition: don't compact during a compaction call
 		if (isCompactionCall) return false;
 		// Circuit open
 		if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) return false;
-		return estimatedTokens >= getAutoCompactThreshold(model);
+		return estimatedTokens >= getAutoCompactThreshold();
 	}
 
 	recordSuccess(): void {

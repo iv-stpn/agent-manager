@@ -60,7 +60,7 @@ export const messages = sqliteTable("messages", {
 	sessionId: text("session_id")
 		.notNull()
 		.references(() => sessions.id), // Owning session.
-	role: text("role", { enum: ["user", "assistant"] }).notNull(), // Anthropic message role.
+	role: text("role", { enum: ["user", "assistant", "system"] }).notNull(), // Anthropic message role ("system" = system prompt, stored for the timeline only).
 	content: text("content").notNull(), // JSON-serialized Anthropic ContentBlock[].
 	inputTokens: integer("input_tokens").default(0), // Input tokens billed for this message.
 	outputTokens: integer("output_tokens").default(0), // Output tokens billed for this message.

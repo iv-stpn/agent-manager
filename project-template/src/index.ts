@@ -22,12 +22,12 @@ app.use("*", (c, next) => {
 	return next();
 });
 
-app.get("/health", (c) => c.json({ ok: true, ts: Date.now() }));
-
-app.route("/api/sessions", sessionsRouter);
-app.route("/api/sessions", streamRouter);
-// Project-wide event stream (every session). host-api restreams this.
-app.route("/api/stream", globalStreamRouter);
+app
+	.get("/health", (c) => c.json({ ok: true, ts: Date.now() }))
+	// Project-wide event stream (every session). host-api restreams this.
+	.route("/api/stream", globalStreamRouter)
+	.route("/api/sessions", sessionsRouter)
+	.route("/api/sessions", streamRouter);
 
 try {
 	Bun.serve({ port: env.PORT, fetch: app.fetch });

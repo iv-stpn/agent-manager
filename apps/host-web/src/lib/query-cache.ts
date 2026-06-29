@@ -1,5 +1,3 @@
-"use client";
-
 // A tiny client-side query cache. It exists so the app never re-queries data it
 // already holds: results are keyed and shared across every component and every
 // mount, in-flight requests are de-duplicated, and SSE handlers can patch a

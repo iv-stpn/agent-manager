@@ -40,6 +40,7 @@ import {
 	CompactionCircuitBreaker,
 	calculateTokenWarningState,
 	ESCALATED_MAX_TOKENS,
+	MODEL_CONTEXT_WINDOW,
 	type TokenWarningState,
 	truncateToolResult,
 } from "./token-budget";
@@ -236,6 +237,27 @@ export class AgentRunner {
 	}
 
 	/** Persist a user message, emit it, and append it to the live context. */
+	/** Persist the system prompt once as a "system"-role message so it shows in the timeline.
+	 * The system prompt is sent to the API as a separate top-level param, so this row is for
+	 * display only and is skipped when rebuilding the Anthropic message history on resume. */
+	private recordSystemPrompt(): void {
+		const id = this.saveMessage("system", this.systemPrompt, 0, 0);
+		sessionEmitter.emit(this.sessionId, {
+			type: "message",
+			data: {
+				id,
+				sessionId: this.sessionId,
+				role: "system",
+				content: this.systemPrompt,
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+				createdAt: Date.now(),
+			},
+		});
+	}
+
 	private recordUserMessage(text: string): void {
 		const id = this.saveMessage("user", text, 0, 0);
 		this.lastUserMessageId = id;
@@ -302,6 +324,7 @@ export class AgentRunner {
 		const { isNewProject } = await bootstrapWorkspace(WORKSPACE);
 
 		// ── Build startup context ──────────────────────────────────────────
+		this.recordSystemPrompt();
 		const startupMsgs = await buildStartupContext(WORKSPACE, task, isNewProject);
 		this.messages = startupMsgs.map((content, i) => ({
 			role: (i % 2 === 0 ? "user" : "user") as "user",
@@ -329,6 +352,8 @@ export class AgentRunner {
 		const rows = getMessages(this.db, this.sessionId);
 		this.messages = [];
 		for (const row of rows) {
+			// System-prompt rows are display-only; the prompt is sent as a separate API param.
+			if (row.role === "system") continue;
 			let content: unknown;
 			try {
 				const parsed = JSON.parse(row.content);
@@ -385,11 +410,10 @@ export class AgentRunner {
 				}
 
 				// Auto-compact context if too large (using circuit breaker)
-				const model = env.ANTHROPIC_MODEL;
 				const estTokens = this.lastApiInputTokens || estimateTokens(this.messages);
 
 				// Emit token warning state changes
-				const warningInfo = calculateTokenWarningState(estTokens, model);
+				const warningInfo = calculateTokenWarningState(estTokens);
 				if (warningInfo.state !== this.lastWarningState) {
 					this.lastWarningState = warningInfo.state;
 					sessionEmitter.emit(this.sessionId, {
@@ -398,7 +422,7 @@ export class AgentRunner {
 							state: warningInfo.state,
 							estimatedTokens: estTokens,
 							threshold: warningInfo.autoCompactThreshold,
-							contextWindow: warningInfo.contextWindow,
+							contextWindow: MODEL_CONTEXT_WINDOW,
 						},
 					});
 				}
@@ -410,7 +434,7 @@ export class AgentRunner {
 					circuitBreakerOpen: this.circuitBreaker.isOpen,
 				});
 
-				if (this.circuitBreaker.shouldAutoCompact(estTokens, model)) {
+				if (this.circuitBreaker.shouldAutoCompact(estTokens)) {
 					await this.doCompaction();
 				}
 
@@ -911,7 +935,7 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 	// ── Persistence helpers ─────────────────────────────────────────────────────
 
 	private saveMessage(
-		role: "user" | "assistant",
+		role: "user" | "assistant" | "system",
 		content: string,
 		inputTokens: number,
 		outputTokens: number,

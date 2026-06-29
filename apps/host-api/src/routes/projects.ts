@@ -1,4 +1,13 @@
-import { CreateProjectSchema, UpdateSettingsSchema } from "@agent-manager/projects";
+import {
+	type CheckinRecord,
+	type CompactionRecord,
+	CreateProjectSchema,
+	type MessageRecord,
+	type QuestionRecord,
+	type SessionRecord,
+	type ToolCallRecord,
+	UpdateSettingsSchema,
+} from "@agent-manager/projects";
 
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -54,15 +63,11 @@ async function proxyToAgent(c: Context<HonoHostEnv>, projectId: string, upstream
 	}
 }
 
-async function proxyOrDb(
-	c: Context<HonoHostEnv>,
-	projectId: string,
-	upstreamPath: string,
-	dbFallback: () => Response | Promise<Response>
-): Promise<Response> {
+/** Fetch JSON from the agent server; returns null if unreachable (502). */
+async function fetchAgentJson<T>(c: Context<HonoHostEnv>, projectId: string, upstreamPath: string): Promise<T | null> {
 	const resp = await proxyToAgent(c, projectId, upstreamPath);
-	if (resp.status !== 502) return resp;
-	return dbFallback();
+	if (resp.status === 502) return null;
+	return resp.json();
 }
 
 // Sessions from DB when the project is stopped may still carry an active status from
@@ -421,9 +426,9 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 	// List sessions — falls back to DB when the agent server is stopped
 	.get("/:projectId/sessions", async (c) => {
 		const projectId = c.req.param("projectId");
-		return proxyOrDb(c, projectId, "/api/sessions", async () =>
-			c.json(maskActiveSessions(await c.var.projectDatabaseManager.getSessions(projectId)))
-		);
+		const upstream = await fetchAgentJson<SessionRecord[]>(c, projectId, "/api/sessions");
+		if (upstream) return c.json(upstream);
+		return c.json(maskActiveSessions(await c.var.projectDatabaseManager.getSessions(projectId)));
 	})
 	// All check-ins across every session — always DB-backed (reports tab)
 	.get("/:projectId/reports", async (c) => {
@@ -448,44 +453,66 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 	// ---- Agent proxy: forward live agent endpoints to the project's server ----
 	.post("/:projectId/sessions", async (c) => {
 		const projectId = c.req.param("projectId");
-		return proxyToAgent(c, projectId, "/api/sessions");
+		const project = await c.var.manager.getProject(projectId);
+		const qs = c.req.query();
+
+		const search = new URLSearchParams(qs).toString();
+		const url = `http://localhost:${project.ports.server}/api/sessions${search ? `?${search}` : ""}`;
+
+		const body = await c.req.text();
+		const headers = new Headers();
+
+		const ct = c.req.header("content-type");
+		if (ct) headers.set("content-type", ct);
+
+		try {
+			const upstream = await fetch(url, { method: "POST", headers, body });
+			const data: SessionRecord = await upstream.json();
+			return c.json(data, 201);
+		} catch (error) {
+			return c.json(
+				{ error: error instanceof Error ? `Agent server unreachable: ${error.message}` : "Agent server unreachable." },
+				502
+			);
+		}
 	})
 	.get("/:projectId/sessions/:sessionId", async (c) => {
 		const { projectId, sessionId } = c.req.param();
-		return proxyOrDb(c, projectId, `/api/sessions/${sessionId}`, async () => {
-			const s = await c.var.projectDatabaseManager.getSession(projectId, sessionId);
-			return s ? c.json(maskActiveSession(s)) : c.json({ error: "Not found" }, 404);
-		});
+		const upstream = await fetchAgentJson<SessionRecord>(c, projectId, `/api/sessions/${sessionId}`);
+		if (upstream) return c.json(upstream);
+
+		const s = await c.var.projectDatabaseManager.getSession(projectId, sessionId);
+		return s ? c.json(maskActiveSession(s)) : c.json({ error: "Not found" }, 404);
 	})
 	.get("/:projectId/sessions/:sessionId/messages", async (c) => {
 		const { projectId, sessionId } = c.req.param();
-		return proxyOrDb(c, projectId, `/api/sessions/${sessionId}/messages`, async () =>
-			c.json(await c.var.projectDatabaseManager.getMessages(projectId, sessionId))
-		);
+		const upstream = await fetchAgentJson<MessageRecord[]>(c, projectId, `/api/sessions/${sessionId}/messages`);
+		if (upstream) return c.json(upstream);
+		return c.json(await c.var.projectDatabaseManager.getMessages(projectId, sessionId));
 	})
 	.get("/:projectId/sessions/:sessionId/tools", async (c) => {
 		const { projectId, sessionId } = c.req.param();
-		return proxyOrDb(c, projectId, `/api/sessions/${sessionId}/tools`, async () =>
-			c.json(await c.var.projectDatabaseManager.getToolCalls(projectId, sessionId))
-		);
+		const upstream = await fetchAgentJson<ToolCallRecord[]>(c, projectId, `/api/sessions/${sessionId}/tools`);
+		if (upstream) return c.json(upstream);
+		return c.json(await c.var.projectDatabaseManager.getToolCalls(projectId, sessionId));
 	})
 	.get("/:projectId/sessions/:sessionId/checkins", async (c) => {
 		const { projectId, sessionId } = c.req.param();
-		return proxyOrDb(c, projectId, `/api/sessions/${sessionId}/checkins`, async () =>
-			c.json(await c.var.projectDatabaseManager.getCheckins(projectId, sessionId))
-		);
+		const upstream = await fetchAgentJson<CheckinRecord[]>(c, projectId, `/api/sessions/${sessionId}/checkins`);
+		if (upstream) return c.json(upstream);
+		return c.json(await c.var.projectDatabaseManager.getCheckins(projectId, sessionId));
 	})
 	.get("/:projectId/sessions/:sessionId/questions", async (c) => {
 		const { projectId, sessionId } = c.req.param();
-		return proxyOrDb(c, projectId, `/api/sessions/${sessionId}/questions`, async () =>
-			c.json(await c.var.projectDatabaseManager.getQuestions(projectId, sessionId))
-		);
+		const upstream = await fetchAgentJson<QuestionRecord[]>(c, projectId, `/api/sessions/${sessionId}/questions`);
+		if (upstream) return c.json(upstream);
+		return c.json(await c.var.projectDatabaseManager.getQuestions(projectId, sessionId));
 	})
 	.get("/:projectId/sessions/:sessionId/compactions", async (c) => {
 		const { projectId, sessionId } = c.req.param();
-		return proxyOrDb(c, projectId, `/api/sessions/${sessionId}/compactions`, async () =>
-			c.json(await c.var.projectDatabaseManager.getCompactions(projectId, sessionId))
-		);
+		const upstream = await fetchAgentJson<CompactionRecord[]>(c, projectId, `/api/sessions/${sessionId}/compactions`);
+		if (upstream) return c.json(upstream);
+		return c.json(await c.var.projectDatabaseManager.getCompactions(projectId, sessionId));
 	})
 	.post("/:projectId/sessions/:sessionId/stop", async (c) => {
 		const { projectId, sessionId } = c.req.param();

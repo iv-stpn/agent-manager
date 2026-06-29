@@ -1,5 +1,3 @@
-"use client";
-
 import { AlertCircle, ArrowDownToLine, Bot, ChevronDown, ChevronRight, MessageCircle, Settings, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { JsonView } from "@/components/json-view";

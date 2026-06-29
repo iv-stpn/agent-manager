@@ -1,5 +1,3 @@
-"use client";
-
 import { Scissors } from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import type { Compaction } from "@/lib/agent-api";

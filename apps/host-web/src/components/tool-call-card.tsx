@@ -1,5 +1,3 @@
-"use client";
-
 import { CheckCircle2, ChevronDown, ChevronRight, Clock, XCircle } from "lucide-react";
 import { useState } from "react";
 import { JsonView } from "@/components/json-view";
