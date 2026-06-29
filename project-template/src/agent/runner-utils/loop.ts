@@ -7,16 +7,33 @@ import { env } from "../../env";
 import { compactMessages, estimateTokens } from "../context";
 import { calculateTokenWarningState, MODEL_CONTEXT_WINDOW } from "../token-budget";
 import type { AgentState } from "../types";
+import { extractTextContent } from "../utils/content";
 import { classifyApiError } from "../utils/errors";
 import { bootstrapWorkspace, buildStartupContext } from "../workspace";
 import { callAnthropicApi, recordApiTokens, recordAssistantMessage, requestSummary } from "./api";
-import { pushOrMergeMessage, recordUserMessage } from "./messages";
 import { buildImproveMessage, flushQuestionsToDiscord, handleStopThreshold, handleTotalTimeout, triggerReport } from "./reports";
 import { emitMessage, setStatus } from "./status";
 import { executeTools } from "./tools";
 
-// ── Context compaction ─────────────────────────────────────────────────────────────
+/** Push a message onto the list, merging same-role consecutive turns to keep
+ * strict user/assistant alternation required by the Anthropic API. */
+export function pushOrMergeMessage(messages: MessageParam[], role: "user" | "assistant", content: MessageParam["content"]): void {
+	const last = messages[messages.length - 1];
+	if (last?.role === role) {
+		// Merge into the previous turn
+		if (Array.isArray(last.content) && Array.isArray(content)) {
+			last.content.push(...content);
+		} else if (Array.isArray(last.content)) {
+			last.content.push({ type: "text", text: String(content) });
+		} else {
+			last.content = `${last.content}\n\n${String(content)}`;
+		}
+	} else {
+		messages.push({ role, content });
+	}
+}
 
+// ── Context compaction ─────────────────────────────────────────────────────────────
 export async function doCompaction(agent: AgentState): Promise<void> {
 	const before = agent.messages.length;
 	const estBefore = agent.lastApiInputTokens || estimateTokens(agent.messages);
@@ -154,7 +171,15 @@ export async function runLoop(agent: AgentState): Promise<void> {
 					if (agent.injectedMessage) {
 						const text = agent.injectedMessage;
 						agent.injectedMessage = null;
-						recordUserMessage(agent, text);
+						const injected = insertMessage(agent.db, {
+							sessionId: agent.sessionId,
+							role: "user",
+							content: text,
+							createdAt: Date.now(),
+						});
+						agent.lastUserMessageId = injected.id;
+						emitMessage(agent, { id: injected.id, role: "user", content: text });
+						pushOrMergeMessage(agent.messages, "user", text);
 					}
 					continue;
 				}
@@ -171,10 +196,7 @@ export async function runLoop(agent: AgentState): Promise<void> {
 			const messageId = recordAssistantMessage(agent, response.content, outputTokens, cacheReadTokens);
 
 			if (response.stop_reason === "end_turn") {
-				const finalText = response.content
-					.filter((b) => b.type === "text")
-					.map((b) => b.text)
-					.join("\n");
+				const finalText = extractTextContent(response.content);
 
 				// Always-improve: continue instead of stopping
 				if (agent.config.alwaysImproveMode !== "no") {
@@ -348,7 +370,10 @@ export async function resume(agent: AgentState, message: string): Promise<void> 
 	}
 
 	// Append and persist the new user message
-	recordUserMessage(agent, message);
+	const userMsg = insertMessage(agent.db, { sessionId: agent.sessionId, role: "user", content: message, createdAt: Date.now() });
+	agent.lastUserMessageId = userMsg.id;
+	emitMessage(agent, { id: userMsg.id, role: "user", content: message });
+	pushOrMergeMessage(agent.messages, "user", message);
 
 	setStatus(agent, "running");
 

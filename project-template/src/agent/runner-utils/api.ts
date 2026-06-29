@@ -6,6 +6,7 @@ import { env } from "../../env";
 import { BASE_MAX_TOKENS, ESCALATED_MAX_TOKENS } from "../token-budget";
 import { AGENT_TOOLS } from "../tools/definitions";
 import type { AgentState } from "../types";
+import { extractTextContent } from "../utils/content";
 import type { AgentError } from "../utils/errors";
 import { withRetry } from "../utils/errors";
 import { emitMessage } from "./status";
@@ -117,10 +118,7 @@ export async function requestSummary(agent: AgentState): Promise<string> {
 			],
 		});
 
-		return resp.content
-			.filter((b) => b.type === "text")
-			.map((b) => b.text)
-			.join("\n");
+		return extractTextContent(resp.content);
 	} catch {
 		return "(summary unavailable)";
 	}

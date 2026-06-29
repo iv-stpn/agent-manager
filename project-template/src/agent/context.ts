@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import { env } from "../env";
+import { extractTextContent } from "./utils/content";
 
 // Rough token estimate: 1 token ≈ 4 chars
 export function estimateTokens(messages: MessageParam[]): number {
@@ -89,10 +90,7 @@ Output only the summary.`,
 			],
 		});
 
-		summary = resp.content
-			.filter((b) => b.type === "text")
-			.map((b) => b.text)
-			.join("\n");
+		summary = extractTextContent(resp.content);
 	} catch {
 		summary = `[${messages.length} messages compacted — summary unavailable]`;
 	}

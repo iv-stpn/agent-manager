@@ -65,12 +65,7 @@ import {
 	PLAN_MODE_BLOCKED_MESSAGE,
 	PLAN_MODE_TOOLS,
 } from "../utils/plan-mode";
-import {
-	handleQueueQuestion,
-	handleSendGraph,
-	handleSendReport,
-	handleUrgentQuestion,
-} from "./question-handlers";
+import { handleQueueQuestion, handleSendGraph, handleSendReport, handleUrgentQuestion } from "./question-handlers";
 
 function isObj(v: unknown): v is Record<string, unknown> {
 	return typeof v === "object" && v !== null;

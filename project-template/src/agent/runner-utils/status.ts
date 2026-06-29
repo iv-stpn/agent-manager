@@ -7,10 +7,7 @@ export function setStatus(
 	status: "error" | "running" | "paused" | "compacting" | "completed" | "stopped"
 ): void {
 	updateSession(agent.db, agent.sessionId, { status });
-	sessionEmitter.emit(agent.sessionId, {
-		type: "session_updated",
-		data: { id: agent.sessionId, status },
-	});
+	sessionEmitter.emit(agent.sessionId, { type: "session_updated", data: { id: agent.sessionId, status } });
 }
 
 export function emitMessage(
