@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, type Guild, Partials, type TextChannel } from "discord.js";
+import { ChannelType, Client, GatewayIntentBits, Guild, Partials, type TextChannel } from "discord.js";
 
 let client: Client | null = null;
 let guildId: string | null = null;
@@ -62,10 +62,8 @@ export async function getChannel(channelId: string): Promise<TextChannel | null>
 	if (!client) return null;
 	try {
 		const channel = await client.channels.fetch(channelId);
-		if (channel?.isTextBased() && "send" in channel) {
-			return channel as TextChannel;
-		}
-		return null;
+		if (!channel?.isTextBased() || channel.type !== ChannelType.GuildText) return null;
+		return channel;
 	} catch {
 		return null;
 	}

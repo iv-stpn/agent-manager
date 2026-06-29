@@ -199,10 +199,18 @@ export async function sendCheckinForm(
 			channel.client.removeListener("interactionCreate", modalListener);
 		}
 
+		function isSuggestion(v: unknown): v is Suggestion {
+			if (typeof v !== "object" || v === null) return false;
+			if (!("id" in v) || !("title" in v)) return false;
+			return typeof v.id === "string" && typeof v.title === "string";
+		}
+
 		function parseSuggestions(q: Question): Suggestion[] {
 			if (!q.suggestions) return [];
 			try {
-				return JSON.parse(q.suggestions) as Suggestion[];
+				const parsed: unknown = JSON.parse(q.suggestions);
+				if (!Array.isArray(parsed)) return [];
+				return parsed.filter(isSuggestion);
 			} catch {
 				return [];
 			}
@@ -241,7 +249,7 @@ export async function sendCheckinForm(
 				}
 
 				if (replyMethod === "reply") await interaction.reply({ embeds: [qEmbed], components: rows, flags: 64 });
-				else await (interaction as ButtonInteraction).update({ embeds: [qEmbed], components: rows });
+				else if (interaction.isButton()) await interaction.update({ embeds: [qEmbed], components: rows });
 			} else {
 				if (interaction.isButton()) {
 					const modal = new ModalBuilder()
@@ -408,7 +416,8 @@ export async function sendChecklist(
 				channel.client.removeListener("interactionCreate", modalListener);
 				resolve(results);
 			} else {
-				await showChecklistModal(i as unknown as ButtonInteraction, items[currentStep], currentStep, items.length, sessionId);
+								// ModalSubmitInteraction has showModal at runtime but not in discord.js types
+					await showChecklistModal(i as unknown as ModalShowable, items[currentStep], currentStep, items.length, sessionId);
 			}
 		};
 
@@ -438,8 +447,11 @@ export async function sendChecklist(
 	});
 }
 
+/** Any interaction that supports showing a modal (ButtonInteraction, SelectMenuInteraction, etc.) */
+type ModalShowable = Pick<ButtonInteraction, "showModal">;
+
 async function showChecklistModal(
-	interaction: ButtonInteraction,
+	interaction: ModalShowable,
 	item: { id: string; question: string; description?: string },
 	step: number,
 	total: number,

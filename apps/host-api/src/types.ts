@@ -1,4 +1,5 @@
-import type { HostDatabase, ProjectDatabase, ProjectDocker, ProjectManager } from "@agent-manager/projects";
+import type { ProjectDocker, ProjectManager } from "@agent-manager/projects";
+import type { HostDatabase, ProjectDatabase } from "./db";
 import type { EventHub } from "./lib/event-hub";
 import type { Logger } from "./lib/logger";
 

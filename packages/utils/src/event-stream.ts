@@ -8,6 +8,8 @@ import { PROJECT_STREAM_EVENTS, SESSION_STREAM_EVENTS } from "./sse";
 
 // ── Generic typed EventSource factory ────────────────────────────────────────
 
+const apiUrl = (port: number, path: string) => `http://localhost:${port}/api/${path}`;
+
 /**
  * Opens an EventSource to `url`, attaches one listener per event type, and
  * calls `onEvent` with a typed discriminated-union payload.
@@ -20,8 +22,8 @@ export function createEventStream<E extends { type: string; data: unknown }>(
 ): EventSource {
 	const es = new EventSource(url);
 	for (const type of events) {
-		es.addEventListener(type, (raw: Event) => {
-			const text = (raw as MessageEvent<string>).data;
+		es.addEventListener(type, (raw: MessageEvent) => {
+			const text = raw.data;
 			let data: unknown;
 			try {
 				data = JSON.parse(text);
@@ -29,7 +31,8 @@ export function createEventStream<E extends { type: string; data: unknown }>(
 				data = text;
 			}
 			console.log(`[SSE:${logPrefix}] ${type}`, data);
-			onEvent({ type, data } as E);
+			const event = { type, data } satisfies { type: E["type"]; data: unknown };
+			onEvent(event as E);
 		});
 	}
 	return es;
@@ -38,49 +41,11 @@ export function createEventStream<E extends { type: string; data: unknown }>(
 // ── Concrete stream factories (browser) ──────────────────────────────────────
 
 export function createSessionStream(id: string, onEvent: (event: SessionStreamEvent) => void, port: number): EventSource {
-	return createEventStream<SessionStreamEvent>(
-		`http://localhost:${port}/api/sessions/${id}/stream`,
-		SESSION_STREAM_EVENTS,
-		onEvent,
-		"session"
-	);
+	return createEventStream<SessionStreamEvent>(apiUrl(port, `sessions/${id}/stream`), SESSION_STREAM_EVENTS, onEvent, "session");
 }
 
 export function createProjectStream(onEvent: (event: ProjectStreamEvent) => void, port: number): EventSource {
-	return createEventStream<ProjectStreamEvent>(`http://localhost:${port}/api/stream`, PROJECT_STREAM_EVENTS, onEvent, "project");
-}
-
-export function createHostStream(
-	onEvent: (type: string, payload: { projectId: string; data: unknown }) => void,
-	onSnapshot: (projects: unknown[]) => void,
-	baseUrl = ""
-): EventSource {
-	const es = new EventSource(`${baseUrl}/api/projects/events`);
-
-	es.addEventListener("projects", (e) => {
-		try {
-			const parsed = JSON.parse((e as MessageEvent).data);
-			console.log("[SSE:host] projects (snapshot)", parsed);
-			onSnapshot(parsed);
-		} catch {
-			// ignore malformed snapshot
-		}
-	});
-
-	const events = ["project_status", "session_created", "message"];
-	for (const event of events) {
-		es.addEventListener(event, (e) => {
-			try {
-				const parsed = JSON.parse((e as MessageEvent).data);
-				console.log(`[SSE:host] ${event}`, parsed);
-				onEvent(event, parsed);
-			} catch {
-				// ignore malformed event
-			}
-		});
-	}
-
-	return es;
+	return createEventStream<ProjectStreamEvent>(apiUrl(port, "stream"), PROJECT_STREAM_EVENTS, onEvent, "project");
 }
 
 // ── Progress stream (start/stop/restart modals) ──────────────────────────────
@@ -123,20 +88,20 @@ export function createProgressStream(
 	const endpoint = `${baseUrl}/api/projects/${projectId}/${action}-stream`;
 	const es = new EventSource(endpoint);
 
-	es.addEventListener("progress", (e: Event) => {
-		const data = JSON.parse((e as MessageEvent).data);
+	es.addEventListener("progress", (event: MessageEvent) => {
+		const data = JSON.parse(event.data);
 		console.log(`[${action}] SSE progress:`, data);
 		callbacks.onProgress(data.step, data.status, data.log);
 	});
 
-	es.addEventListener("delta", (e: Event) => {
-		const data = JSON.parse((e as MessageEvent).data);
+	es.addEventListener("delta", (event: MessageEvent) => {
+		const data = JSON.parse(event.data);
 		console.log(`[${action}] SSE delta:`, data);
 		callbacks.onDelta(data.step, data.line);
 	});
 
-	es.addEventListener("complete", (e: Event) => {
-		const data = JSON.parse((e as MessageEvent).data);
+	es.addEventListener("complete", (event: MessageEvent) => {
+		const data = JSON.parse(event.data);
 		console.log(`[${action}] SSE complete:`, data);
 		callbacks.onComplete(data.success);
 		es.close();

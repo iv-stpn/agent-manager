@@ -6,7 +6,7 @@
  * There are two databases in this project:
  *   - Host  — the orchestrator's own SQLite db (templates, archives, global
  *               stats). Schema lives as raw `CREATE TABLE` SQL in
- *               packages/projects/src/host-database.ts.
+ *               apps/host-api/src/db/host-database.ts.
  *   - Project — one SQLite db per managed project, holding a project's sessions,
  *               messages, tool calls, etc. Schema is a Drizzle definition in
  *               project-template/src/db/schema.ts.
@@ -23,7 +23,7 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
 const PROJECT_SCHEMA_SRC = join(ROOT, "project-template", "src", "db", "schema.ts");
-const HOST_DB_SRC = join(ROOT, "packages", "projects", "src", "host-database.ts");
+const HOST_DB_SRC = join(ROOT, "apps", "host-api", "src", "db", "host-database.ts");
 const OUT_FILE = join(ROOT, "docs", "DATABASE.md");
 
 // ── Shared types ─────────────────────────────────────────────────────────────
@@ -204,14 +204,14 @@ function parseProjectComments(src: string, lines: string[]): CommentMap {
 // ── Host schema (raw CREATE TABLE SQL) ─────────────────────────────────────
 
 function buildHostTables(): TableDoc[] {
-	const { HostDatabase } = require(join(ROOT, "packages", "projects", "src", "host-database.ts"));
+	const { HostDatabase } = require(join(ROOT, "apps", "host-api", "src", "db", "host-database.ts"));
 	const tmp = mkdtempSync(join(tmpdir(), "gen-db-md-"));
 	const comments = parseHostComments();
 
 	try {
 		const dbInstance = new HostDatabase(tmp);
 		// Reach the underlying bun:sqlite handle to introspect via PRAGMA.
-		const db = (dbInstance as unknown as { db: import("bun:sqlite").Database }).db;
+		const db = (dbInstance as unknown as { sqlite: import("bun:sqlite").Database }).sqlite;
 
 		const tableNames = db
 			.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
@@ -343,7 +343,7 @@ const seededTables = parseSeededTables();
 
 const hostIntro =
 	"The orchestrator's own database (`host.db`): templates, archived projects/sessions, and global statistics. " +
-	"Defined in `packages/projects/src/host-database.ts`." +
+	"Defined in `apps/host-api/src/db/host-database.ts`." +
 	(seededTables.length
 		? ` On first open, the constructor runs \`seedDefaults()\`, which populates default rows for ${seededTables
 				.map((t) => `\`${t}\``)

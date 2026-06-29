@@ -66,7 +66,7 @@ export class ProjectManager {
 		return join(this.projectsRoot, projectId);
 	}
 
-	getprojectDatabaseManagerPath(projectId: string): string {
+	getProjectDatabaseManagerPath(projectId: string): string {
 		return join(this.getProjectDir(projectId), "data", "agent.db");
 	}
 

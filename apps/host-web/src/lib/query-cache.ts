@@ -28,8 +28,12 @@ interface Entry<T> {
 
 const store = new Map<string, Entry<unknown>>();
 
+function peekEntry<T>(key: string): Entry<T> | undefined {
+	return store.get(key) as Entry<T> | undefined;
+}
+
 function getEntry<T>(key: string): Entry<T> {
-	let entry = store.get(key) as Entry<T> | undefined;
+	let entry = peekEntry<T>(key);
 	if (!entry) {
 		entry = {
 			snapshot: { data: undefined, error: undefined, loading: true },
@@ -37,7 +41,7 @@ function getEntry<T>(key: string): Entry<T> {
 			updatedAt: 0,
 			listeners: new Set(),
 		};
-		store.set(key, entry as Entry<unknown>);
+		store.set(key, entry);
 	}
 	return entry;
 }
@@ -49,7 +53,7 @@ function commit<T>(entry: Entry<T>, snapshot: Snapshot<T>) {
 
 /** Read a cached value without subscribing (e.g. inside an event handler). */
 export function getCache<T>(key: string): T | undefined {
-	return (store.get(key) as Entry<T> | undefined)?.snapshot.data;
+	return peekEntry<T>(key)?.snapshot.data;
 }
 
 /** Replace a cached value and notify subscribers. */
@@ -65,7 +69,7 @@ export function setCache<T>(key: string, data: T) {
  * if nothing has been cached for the key yet (the eventual initial fetch wins).
  */
 export function mutateCache<T>(key: string, updater: (prev: T) => T) {
-	const entry = store.get(key) as Entry<T> | undefined;
+	const entry = peekEntry<T>(key);
 	if (!entry || entry.snapshot.loading || entry.snapshot.data === undefined) return;
 	entry.updatedAt = Date.now();
 	commit(entry, { data: updater(entry.snapshot.data), error: undefined, loading: false });
@@ -104,7 +108,6 @@ export interface QueryOptions {
 	refetchInterval?: number;
 }
 
-const emptySnapshot: Snapshot<unknown> = { data: undefined, error: undefined, loading: true };
 
 /**
  * Subscribe to a cached query. Identical keys share one entry, so mounting the
@@ -137,7 +140,7 @@ export function useQuery<T>(
 	);
 
 	const getSnapshot = useCallback(() => {
-		if (!key) return emptySnapshot as Snapshot<T>;
+		if (!key) return { data: undefined, error: undefined, loading: true } satisfies Snapshot<T>;
 		return getEntry<T>(key).snapshot;
 	}, [key]);
 

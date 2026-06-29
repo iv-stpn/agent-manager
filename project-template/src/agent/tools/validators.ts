@@ -1,12 +1,27 @@
 /**
  * Input validators for all agent tools.
- * Each validator returns null if valid, or an error string describing what's wrong.
- * The error is returned to the agent so it can self-correct.
+ *
+ * Each validator is a TypeScript assertion function: it narrows the raw
+ * `Record<string, unknown>` tool input to a precisely-typed shape, or throws a
+ * `ToolValidationError` describing what's wrong. Callers (the runner's tool
+ * dispatch) get fully-typed input with no casting; the thrown message is
+ * surfaced back to the agent as a tool_result error so it can self-correct.
  */
+
+import type { ChecklistItem, ReportData } from "../discord";
+import type { MemoryType } from "./implementations/memory";
 
 type Input = Record<string, unknown>;
 
-type Validator = (input: Input) => string | null;
+/** Thrown by a validator when input fails its checks. */
+export class ToolValidationError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "ToolValidationError";
+	}
+}
+
+// ── Primitive checks (return an error string, or null when valid) ─────────────
 
 function requireString(input: Input, field: string, label?: string): string | null {
 	const val = input[field];
@@ -48,23 +63,23 @@ function optionalBoolean(input: Input, field: string): string | null {
 	return null;
 }
 
-function optionalEnum(input: Input, field: string, allowed: string[]): string | null {
+function optionalEnum<T extends string>(input: Input, field: string, allowed: readonly T[]): string | null {
 	const val = input[field];
 	if (val === undefined || val === null) return null;
 	if (typeof val !== "string") return `Parameter "${field}" must be a string, got ${typeof val}`;
-	if (!allowed.includes(val)) return `Parameter "${field}" must be one of: ${allowed.join(", ")}. Got "${val}"`;
+	if (!allowed.includes(val as T)) return `Parameter "${field}" must be one of: ${allowed.join(", ")}. Got "${val}"`;
 	return null;
 }
 
-function requireEnum(input: Input, field: string, allowed: string[]): string | null {
+function requireEnum<T extends string>(input: Input, field: string, allowed: readonly T[]): string | null {
 	const val = input[field];
 	if (val === undefined || val === null) return `Missing required parameter: "${field}". Must be one of: ${allowed.join(", ")}`;
 	if (typeof val !== "string") return `Parameter "${field}" must be a string, got ${typeof val}`;
-	if (!allowed.includes(val)) return `Parameter "${field}" must be one of: ${allowed.join(", ")}. Got "${val}"`;
+	if (!allowed.includes(val as T)) return `Parameter "${field}" must be one of: ${allowed.join(", ")}. Got "${val}"`;
 	return null;
 }
 
-function requireStringArray(input: Input, field: string): string | null {
+function optionalStringArray(input: Input, field: string): string | null {
 	const val = input[field];
 	if (val === undefined || val === null) return null;
 	if (!Array.isArray(val)) return `Parameter "${field}" must be an array, got ${typeof val}`;
@@ -95,7 +110,7 @@ function validateArrayItems(
 			continue;
 		}
 		for (const [key, label] of Object.entries(requiredFields)) {
-			if (!(key in item) || typeof item[key] !== "string" || item[key].trim() === "") {
+			if (!(key in item) || typeof (item as Input)[key] !== "string" || ((item as Input)[key] as string).trim() === "") {
 				errors.push(`"${field}[${i}].${key}" is required (${label})`);
 			}
 		}
@@ -103,175 +118,356 @@ function validateArrayItems(
 	return errors.length > 0 ? errors.join("\n") : null;
 }
 
-/** Collect all errors from a list of validation checks. */
-function collectErrors(...checks: (string | null)[]): string | null {
+/** Throw a ToolValidationError if any of the checks produced an error. */
+function assertValid(...checks: (string | null)[]): void {
 	const errors = checks.filter(Boolean) as string[];
-	return errors.length > 0 ? errors.join("\n") : null;
+	if (errors.length > 0) throw new ToolValidationError(errors.join("\n"));
 }
 
-// ── Per-tool validators ──────────────────────────────────────────────────────
+type TaskStatus = "pending" | "in_progress" | "done" | "cancelled";
 
-const validators: Record<string, Validator> = {
-	// Commands
-	bash: (input) =>
-		collectErrors(
-			requireString(input, "command", "shell command to execute"),
-			optionalNumber(input, "timeout_ms", { min: 1, max: 300_000 })
-		),
-	grep: (input) =>
-		collectErrors(
-			requireString(input, "pattern", "regex pattern"),
-			optionalString(input, "path"),
-			optionalString(input, "include"),
-			optionalString(input, "flags")
-		),
-	glob: (input) => collectErrors(requireString(input, "pattern", "glob pattern"), optionalString(input, "path")),
+// ── Commands ──────────────────────────────────────────────────────────────────
 
-	// Filesystem
-	read_file: (input) => requireString(input, "path", "file path"),
-	write_file: (input) =>
-		collectErrors(requireString(input, "path", "file path"), requireString(input, "content", "file content")),
-	list_directory: (input) => optionalString(input, "path"),
-	search_files: (input) =>
-		collectErrors(
-			requireString(input, "pattern", "search pattern"),
-			optionalString(input, "path"),
-			optionalString(input, "file_pattern"),
-			optionalBoolean(input, "case_sensitive"),
-			optionalNumber(input, "max_results", { min: 1, max: 1000 })
-		),
-	edit_file: (input) =>
-		collectErrors(
-			requireString(input, "path", "file path"),
-			requireString(input, "old_string", "string to find"),
-			requireString(input, "new_string", "replacement string"),
-			optionalBoolean(input, "replace_all")
-		),
-	move_file: (input) =>
-		collectErrors(requireString(input, "source", "source path"), requireString(input, "destination", "destination path")),
-	delete_file: (input) => collectErrors(requireString(input, "path", "path to delete"), optionalBoolean(input, "recursive")),
-	create_directory: (input) => requireString(input, "path", "directory path"),
-	get_file_info: (input) => requireString(input, "path", "file path"),
-	read_file_range: (input) => {
-		const errs = collectErrors(
-			requireString(input, "path", "file path"),
-			requireNumber(input, "start_line", { min: 1 }),
-			requireNumber(input, "end_line", { min: 1 })
-		);
-		if (errs) return errs;
-		if ((input.end_line as number) < (input.start_line as number)) return `"end_line" must be ≥ "start_line"`;
-		return null;
-	},
+export interface BashInput extends Input {
+	command: string;
+	timeout_ms?: number;
+}
+export function validateBash(input: Input): asserts input is BashInput {
+	assertValid(
+		requireString(input, "command", "shell command to execute"),
+		optionalNumber(input, "timeout_ms", { min: 1, max: 300_000 })
+	);
+}
 
-	// Web
-	web_search: (input) =>
-		collectErrors(requireString(input, "query", "search query"), optionalNumber(input, "limit", { min: 1, max: 50 })),
-	web_fetch: (input) => {
-		const urlErr = requireString(input, "url", "URL to fetch");
-		if (urlErr) return urlErr;
-		const url = input.url as string;
-		if (!/^https?:\/\//i.test(url)) return `Parameter "url" must start with http:// or https:// — got "${url}"`;
-		return optionalNumber(input, "max_chars", { min: 100 });
-	},
+export interface GrepInput extends Input {
+	pattern: string;
+	path?: string;
+	include?: string;
+	flags?: string;
+}
+export function validateGrep(input: Input): asserts input is GrepInput {
+	assertValid(
+		requireString(input, "pattern", "regex pattern"),
+		optionalString(input, "path"),
+		optionalString(input, "include"),
+		optionalString(input, "flags")
+	);
+}
 
-	// Memory
-	remember: (input) =>
-		collectErrors(
-			requireEnum(input, "type", ["decision", "plan", "memory", "context"]),
-			requireString(input, "title", "short descriptive title"),
-			requireString(input, "content", "memory content")
-		),
-	recall: (input) =>
-		collectErrors(
-			requireString(input, "query", "natural language search query"),
-			optionalEnum(input, "type", ["decision", "todo", "plan", "question", "memory", "report", "context"]),
-			optionalNumber(input, "limit", { min: 1 })
-		),
-	update_memory: (input) => {
-		const idErr = requireString(input, "id", "memory entry ID");
-		if (idErr) return idErr;
-		// At least one update field should be present
-		if (!input.title && !input.content && !input.type && !input.metadata)
-			return `At least one field to update must be provided (title, content, type, or metadata)`;
-		return collectErrors(
-			optionalString(input, "title"),
-			optionalString(input, "content"),
-			optionalEnum(input, "type", ["decision", "plan", "memory", "context"])
-		);
-	},
-	delete_memory: (input) => requireString(input, "id", "memory entry ID"),
-	list_memories: (input) =>
-		collectErrors(
-			optionalEnum(input, "type", ["decision", "todo", "plan", "question", "memory", "report", "context"]),
-			optionalNumber(input, "limit", { min: 1 })
-		),
+export interface GlobInput extends Input {
+	pattern: string;
+	path?: string;
+}
+export function validateGlob(input: Input): asserts input is GlobInput {
+	assertValid(requireString(input, "pattern", "glob pattern"), optionalString(input, "path"));
+}
 
-	// Tasks
-	add_task: (input) =>
-		collectErrors(
-			requireString(input, "text", "task description"),
-			optionalEnum(input, "status", ["pending", "in_progress", "done", "cancelled"]),
-			requireStringArray(input, "dependsOn")
-		),
-	list_tasks: (input) => optionalEnum(input, "filter", ["all", "pending", "in_progress", "done", "cancelled"]),
-	update_task: (input) =>
-		collectErrors(
-			requireString(input, "id", "task ID"),
-			optionalEnum(input, "status", ["pending", "in_progress", "done", "cancelled"]),
-			optionalString(input, "text"),
-			requireStringArray(input, "dependsOn")
-		),
-	get_current_task: () => null,
-	set_current_task: (input) => requireString(input, "id", "task ID"),
+// ── Filesystem ────────────────────────────────────────────────────────────────
 
-	// Questions
-	queue_question: (input) =>
-		collectErrors(
-			requireString(input, "question", "question text"),
-			optionalString(input, "context"),
-			validateArrayItems(input, "suggestions", { id: "unique identifier", title: "button label" })
-		),
-	urgent_question: (input) =>
-		collectErrors(
-			requireString(input, "question", "question text"),
-			optionalString(input, "context"),
-			validateArrayItems(input, "suggestions", { id: "unique identifier", title: "button label" })
-		),
+export interface ReadFileInput extends Input {
+	path: string;
+}
+export function validateReadFile(input: Input): asserts input is ReadFileInput {
+	assertValid(requireString(input, "path", "file path"));
+}
 
-	// Reports
-	send_report: (input) =>
-		collectErrors(
-			requireString(input, "title", "report title"),
-			validateArrayItems(input, "sections", { content: "section body" }, { required: true, minLength: 1 }),
-			validateArrayItems(input, "mermaid_diagrams", { definition: "mermaid diagram definition" }),
-			optionalEnum(input, "freeze_override", ["freeze", "continue"])
-		),
+export interface WriteFileInput extends Input {
+	path: string;
+	content: string;
+}
+export function validateWriteFile(input: Input): asserts input is WriteFileInput {
+	assertValid(requireString(input, "path", "file path"), requireString(input, "content", "file content"));
+}
 
-	// Git
-	commit_changes: (input) =>
-		collectErrors(requireString(input, "message", "conventional commit message"), optionalBoolean(input, "skip_checks")),
+export interface ListDirectoryInput extends Input {
+	path?: string;
+}
+export function validateListDirectory(input: Input): asserts input is ListDirectoryInput {
+	assertValid(optionalString(input, "path"));
+}
 
-	// Context
-	compact_context: () => null,
+export interface SearchFilesInput extends Input {
+	pattern: string;
+	path?: string;
+	file_pattern?: string;
+	case_sensitive?: boolean;
+	max_results?: number;
+}
+export function validateSearchFiles(input: Input): asserts input is SearchFilesInput {
+	assertValid(
+		requireString(input, "pattern", "search pattern"),
+		optionalString(input, "path"),
+		optionalString(input, "file_pattern"),
+		optionalBoolean(input, "case_sensitive"),
+		optionalNumber(input, "max_results", { min: 1, max: 1000 })
+	);
+}
 
-	// Checklist
-	ask_checklist: (input) =>
-		collectErrors(
-			requireString(input, "title", "checklist title"),
-			validateArrayItems(input, "items", { id: "unique identifier", question: "question text" }, { required: true, minLength: 1 })
-		),
+export interface EditFileInput extends Input {
+	path: string;
+	old_string: string;
+	new_string: string;
+	replace_all?: boolean;
+}
+export function validateEditFile(input: Input): asserts input is EditFileInput {
+	assertValid(
+		requireString(input, "path", "file path"),
+		requireString(input, "old_string", "string to find"),
+		requireString(input, "new_string", "replacement string"),
+		optionalBoolean(input, "replace_all")
+	);
+}
 
-	// Plan mode
-	enter_plan_mode: () => null,
-	exit_plan_mode: (input) => requireString(input, "plan_summary", "summary of what you explored and the implementation plan"),
-};
+export interface MoveFileInput extends Input {
+	source: string;
+	destination: string;
+}
+export function validateMoveFile(input: Input): asserts input is MoveFileInput {
+	assertValid(requireString(input, "source", "source path"), requireString(input, "destination", "destination path"));
+}
 
-/**
- * Validate tool input. Returns null if valid, or a descriptive error string
- * that should be returned to the agent as a tool_result with is_error: true.
- */
-export function validateToolInput(toolName: string, input: Input): string | null {
-	const validator = validators[toolName];
-	if (!validator) return null; // Unknown tools pass through (handled by dispatch)
-	return validator(input);
+export interface DeleteFileInput extends Input {
+	path: string;
+	recursive?: boolean;
+}
+export function validateDeleteFile(input: Input): asserts input is DeleteFileInput {
+	assertValid(requireString(input, "path", "path to delete"), optionalBoolean(input, "recursive"));
+}
+
+export interface CreateDirectoryInput extends Input {
+	path: string;
+}
+export function validateCreateDirectory(input: Input): asserts input is CreateDirectoryInput {
+	assertValid(requireString(input, "path", "directory path"));
+}
+
+export interface GetFileInfoInput extends Input {
+	path: string;
+}
+export function validateGetFileInfo(input: Input): asserts input is GetFileInfoInput {
+	assertValid(requireString(input, "path", "file path"));
+}
+
+export interface ReadFileRangeInput extends Input {
+	path: string;
+	start_line: number;
+	end_line: number;
+}
+export function validateReadFileRange(input: Input): asserts input is ReadFileRangeInput {
+	assertValid(
+		requireString(input, "path", "file path"),
+		requireNumber(input, "start_line", { min: 1 }),
+		requireNumber(input, "end_line", { min: 1 })
+	);
+	if ((input.end_line as number) < (input.start_line as number))
+		throw new ToolValidationError(`"end_line" must be ≥ "start_line"`);
+}
+
+// ── Web ───────────────────────────────────────────────────────────────────────
+
+export interface WebSearchInput extends Input {
+	query: string;
+	limit?: number;
+}
+export function validateWebSearch(input: Input): asserts input is WebSearchInput {
+	assertValid(requireString(input, "query", "search query"), optionalNumber(input, "limit", { min: 1, max: 50 }));
+}
+
+export interface WebFetchInput extends Input {
+	url: string;
+	max_chars?: number;
+}
+export function validateWebFetch(input: Input): asserts input is WebFetchInput {
+	assertValid(requireString(input, "url", "URL to fetch"));
+	const url = input.url as string;
+	if (!/^https?:\/\//i.test(url))
+		throw new ToolValidationError(`Parameter "url" must start with http:// or https:// — got "${url}"`);
+	assertValid(optionalNumber(input, "max_chars", { min: 100 }));
+}
+
+// ── Memory ────────────────────────────────────────────────────────────────────
+
+const REMEMBER_TYPES = ["decision", "plan", "memory", "context"] as const satisfies readonly MemoryType[];
+const ALL_MEMORY_TYPES = [
+	"decision",
+	"todo",
+	"plan",
+	"question",
+	"memory",
+	"report",
+	"context",
+] as const satisfies readonly MemoryType[];
+
+export interface RememberInput extends Input {
+	type: MemoryType;
+	title: string;
+	content: string;
+	metadata?: Record<string, unknown>;
+}
+export function validateRemember(input: Input): asserts input is RememberInput {
+	assertValid(
+		requireEnum(input, "type", REMEMBER_TYPES),
+		requireString(input, "title", "short descriptive title"),
+		requireString(input, "content", "memory content")
+	);
+}
+
+export interface RecallInput extends Input {
+	query: string;
+	type?: MemoryType;
+	limit?: number;
+}
+export function validateRecall(input: Input): asserts input is RecallInput {
+	assertValid(
+		requireString(input, "query", "natural language search query"),
+		optionalEnum(input, "type", ALL_MEMORY_TYPES),
+		optionalNumber(input, "limit", { min: 1 })
+	);
+}
+
+export interface UpdateMemoryInput extends Input {
+	id: string;
+	title?: string;
+	content?: string;
+	type?: MemoryType;
+	metadata?: Record<string, unknown>;
+}
+export function validateUpdateMemory(input: Input): asserts input is UpdateMemoryInput {
+	assertValid(requireString(input, "id", "memory entry ID"));
+	if (!input.title && !input.content && !input.type && !input.metadata)
+		throw new ToolValidationError(`At least one field to update must be provided (title, content, type, or metadata)`);
+	assertValid(optionalString(input, "title"), optionalString(input, "content"), optionalEnum(input, "type", REMEMBER_TYPES));
+}
+
+export interface DeleteMemoryInput extends Input {
+	id: string;
+}
+export function validateDeleteMemory(input: Input): asserts input is DeleteMemoryInput {
+	assertValid(requireString(input, "id", "memory entry ID"));
+}
+
+export interface ListMemoriesInput extends Input {
+	type?: MemoryType;
+	limit?: number;
+}
+export function validateListMemories(input: Input): asserts input is ListMemoriesInput {
+	assertValid(optionalEnum(input, "type", ALL_MEMORY_TYPES), optionalNumber(input, "limit", { min: 1 }));
+}
+
+// ── Tasks ─────────────────────────────────────────────────────────────────────
+
+const TASK_STATUSES = ["pending", "in_progress", "done", "cancelled"] as const satisfies readonly TaskStatus[];
+
+export interface AddTaskInput extends Input {
+	text: string;
+	status?: TaskStatus;
+	dependsOn?: string[];
+}
+export function validateAddTask(input: Input): asserts input is AddTaskInput {
+	assertValid(
+		requireString(input, "text", "task description"),
+		optionalEnum(input, "status", TASK_STATUSES),
+		optionalStringArray(input, "dependsOn")
+	);
+}
+
+export interface ListTasksInput extends Input {
+	filter?: "all" | TaskStatus;
+}
+export function validateListTasks(input: Input): asserts input is ListTasksInput {
+	assertValid(optionalEnum(input, "filter", ["all", ...TASK_STATUSES] as const));
+}
+
+export interface UpdateTaskInput extends Input {
+	id: string;
+	status?: TaskStatus;
+	text?: string;
+	dependsOn?: string[];
+}
+export function validateUpdateTask(input: Input): asserts input is UpdateTaskInput {
+	assertValid(
+		requireString(input, "id", "task ID"),
+		optionalEnum(input, "status", TASK_STATUSES),
+		optionalString(input, "text"),
+		optionalStringArray(input, "dependsOn")
+	);
+}
+
+export interface SetCurrentTaskInput extends Input {
+	id: string;
+}
+export function validateSetCurrentTask(input: Input): asserts input is SetCurrentTaskInput {
+	assertValid(requireString(input, "id", "task ID"));
+}
+
+// ── Questions ─────────────────────────────────────────────────────────────────
+
+export interface QuestionInput extends Input {
+	question: string;
+	context?: string;
+	suggestions?: Array<{ id: string; title: string; description?: string }>;
+}
+export function validateQuestion(input: Input): asserts input is QuestionInput {
+	assertValid(
+		requireString(input, "question", "question text"),
+		optionalString(input, "context"),
+		validateArrayItems(input, "suggestions", { id: "unique identifier", title: "button label" })
+	);
+}
+
+// ── Reports ───────────────────────────────────────────────────────────────────
+
+export interface SendReportInput extends Input {
+	title: string;
+	sections: ReportData["sections"];
+	mermaid_diagrams?: ReportData["mermaid_diagrams"];
+	freeze_override?: "freeze" | "continue";
+}
+export function validateSendReport(input: Input): asserts input is SendReportInput {
+	assertValid(
+		requireString(input, "title", "report title"),
+		validateArrayItems(input, "sections", { content: "section body" }, { required: true, minLength: 1 }),
+		validateArrayItems(input, "mermaid_diagrams", { definition: "mermaid diagram definition" }),
+		optionalEnum(input, "freeze_override", ["freeze", "continue"] as const)
+	);
+}
+
+export interface SendGraphInput extends Input {
+	definition: string;
+	title?: string;
+}
+export function validateSendGraph(input: Input): asserts input is SendGraphInput {
+	assertValid(requireString(input, "definition", "mermaid diagram definition"), optionalString(input, "title"));
+}
+
+// ── Git ───────────────────────────────────────────────────────────────────────
+
+export interface CommitChangesInput extends Input {
+	message: string;
+	skip_checks?: boolean;
+}
+export function validateCommitChanges(input: Input): asserts input is CommitChangesInput {
+	assertValid(requireString(input, "message", "conventional commit message"), optionalBoolean(input, "skip_checks"));
+}
+
+// ── Checklist ─────────────────────────────────────────────────────────────────
+
+export interface AskChecklistInput extends Input {
+	title: string;
+	items: ChecklistItem[];
+}
+export function validateAskChecklist(input: Input): asserts input is AskChecklistInput {
+	assertValid(
+		requireString(input, "title", "checklist title"),
+		validateArrayItems(input, "items", { id: "unique identifier", question: "question text" }, { required: true, minLength: 1 })
+	);
+}
+
+// ── Plan mode ─────────────────────────────────────────────────────────────────
+
+export interface ExitPlanModeInput extends Input {
+	plan_summary: string;
+}
+export function validateExitPlanMode(input: Input): asserts input is ExitPlanModeInput {
+	assertValid(requireString(input, "plan_summary", "summary of what you explored and the implementation plan"));
 }

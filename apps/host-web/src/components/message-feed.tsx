@@ -191,7 +191,7 @@ function MessageBubble({
 							<ToolCallBubble
 								key={block.id ?? `tool-${index}-${block.name}`}
 								name={block.name}
-								input={(block.input as Record<string, unknown>) ?? {}}
+								input={block.input ?? {}}
 							/>
 						);
 					}

@@ -1,3 +1,4 @@
+import { createProjectStream } from "@agent-manager/utils";
 import {
 	Activity,
 	AlertTriangle,
@@ -30,15 +31,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { API_URL } from "@/constants";
 import type { Report, Session } from "@/lib/agent-api";
-import {
-	deleteProject as apiDeleteProject,
-	createProjectStream,
-	getLogs,
-	getProject,
-	getReports,
-	getSessions,
-	updateSettings,
-} from "@/lib/agent-api";
+import { deleteProject as apiDeleteProject, getLogs, getProject, getReports, getSessions, updateSettings } from "@/lib/agent-api";
 import { getCache, mutateCache, setCache, useQuery } from "@/lib/query-cache";
 import type { Project } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -66,8 +59,8 @@ function ProjectDetailContent() {
 	const projectId = params.id;
 
 	const validTabs: Tab[] = ["overview", "sessions", "logs", "reports", "settings"];
-	const tabParam = searchParams.get("tab") as Tab | null;
-	const tab: Tab = tabParam && validTabs.includes(tabParam) ? tabParam : "sessions";
+	const rawTab = searchParams.get("tab");
+	const tab: Tab = validTabs.find((t) => t === rawTab) ?? "sessions";
 
 	const setTab = (newTab: Tab) => {
 		const urlParams = new URLSearchParams(searchParams.toString());

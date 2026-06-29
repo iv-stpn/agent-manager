@@ -54,15 +54,8 @@ export async function addTask(
 
 // List tasks across the whole project (cross-session), optionally filtered by
 // status. Dependency annotations are computed against all done tasks.
-export async function listTasks(db: Db, filter = "all"): Promise<string> {
-	const rows =
-		filter === "all"
-			? db.select().from(tasks).all()
-			: db
-					.select()
-					.from(tasks)
-					.where(eq(tasks.status, filter as TaskStatus))
-					.all();
+export async function listTasks(db: Db, filter: TaskStatus | "all" = "all"): Promise<string> {
+	const rows = filter === "all" ? db.select().from(tasks).all() : db.select().from(tasks).where(eq(tasks.status, filter)).all();
 	if (rows.length === 0) return "No tasks found.";
 	const doneIds = new Set(
 		db

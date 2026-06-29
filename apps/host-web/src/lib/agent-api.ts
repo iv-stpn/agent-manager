@@ -2,23 +2,19 @@
 // RPC layer — response shapes are inferred from the server's route definitions.
 // SSE streams connect directly to the agent server port to avoid proxy buffering.
 
-import type { AppType, WorkspaceFolderStatus } from "@agent-manager/host-api";
-import type { CreateProjectInput, Guideline, GuidelineCategory, TechStack } from "@agent-manager/projects";
+import type { AppType, Guideline, GuidelineCategory, TechStack, WorkspaceFolderStatus } from "@agent-manager/host-api";
+import type { CreateProjectInput } from "@agent-manager/projects";
 import { hc } from "hono/client";
 import { API_URL } from "@/constants";
 
+export type { Guideline, GuidelineCategory, StackEntry, StackLibrary, TechStack } from "@agent-manager/host-api";
 export type {
 	CheckinRecord as Checkin,
 	CompactionRecord as Compaction,
-	Guideline,
-	GuidelineCategory,
 	MessageRecord as Message,
 	QuestionRecord as Question,
 	ReportRecord as Report,
 	SessionRecord as Session,
-	StackEntry,
-	StackLibrary,
-	TechStack,
 	ToolCallRecord as ToolCall,
 } from "@agent-manager/projects";
 export type {
@@ -198,10 +194,6 @@ export async function sendSessionMessage(projectId: string, id: string, message:
 	const req = { param: { projectId, sessionId: id }, json: { message } };
 	await api.api.projects[":projectId"].sessions[":sessionId"].message.$post(req);
 }
-
-// ── SSE streams — re-exported from @agent-manager/utils ─────────────────────
-
-export { createHostStream, createProjectStream, createSessionStream } from "@agent-manager/utils";
 
 // ── Tech stack endpoints ────────────────────────────────────────────────────
 

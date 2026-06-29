@@ -1,8 +1,8 @@
 import type { MiddlewareHandler } from "hono";
+import { env } from "../env";
 import { getErrorMessage } from "../lib/errors";
 import { createLogger } from "../lib/logger";
 import type { HonoHostEnv } from "../types";
-import { env } from "../env";
 
 const red = "\x1b[31m";
 const green = "\x1b[32m";

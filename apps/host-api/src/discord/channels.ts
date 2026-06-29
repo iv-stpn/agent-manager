@@ -10,7 +10,7 @@ export interface DiscordChannel {
 }
 
 export interface ChannelStore {
-	get(projectId: string, type: string, sessionId?: string | null): DiscordChannel | undefined;
+	get(projectId: string, type: DiscordChannel["type"], sessionId?: string | null): DiscordChannel | undefined;
 	getBySession(sessionId: string): DiscordChannel | undefined;
 	save(channel: DiscordChannel): void;
 	delete(id: string): void;
@@ -123,10 +123,17 @@ export async function archiveSessionChannel(sessionId: string): Promise<void> {
 		let archiveChannel: TextChannel | undefined;
 
 		if (archiveCh) {
+			const archiveChId = archiveCh.id;
 			try {
-				archiveChannel = (await guild.channels.fetch(archiveCh.id)) as TextChannel;
+				const fetched = await guild.channels.fetch(archiveChId);
+				if (fetched?.type === ChannelType.GuildText) {
+					archiveChannel = fetched;
+				} else {
+					store.delete(archiveChId);
+					archiveCh = undefined;
+				}
 			} catch {
-				store.delete(archiveCh.id);
+				store.delete(archiveChId);
 				archiveCh = undefined;
 			}
 		}
@@ -145,7 +152,11 @@ export async function archiveSessionChannel(sessionId: string): Promise<void> {
 		if (!archiveChannel) return;
 
 		// Create a thread in the archive channel with the session name
-		const textChannel = channel as TextChannel;
+		if (channel.type !== ChannelType.GuildText) {
+			store.delete(record.id);
+			return;
+		}
+		const textChannel = channel;
 		const thread = await archiveChannel.threads.create({
 			name: textChannel.name,
 			autoArchiveDuration: 10080, // 7 days

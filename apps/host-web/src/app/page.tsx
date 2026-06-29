@@ -5,12 +5,12 @@ import { toast } from "sonner";
 import { NewProjectDialog } from "@/components/new-project-dialog";
 import { API_URL } from "@/constants";
 import { containerClassName } from "@/lib/classes";
+import { createHostStream } from "@/lib/host-stream";
 import { cn } from "@/lib/utils";
 import {
 	deleteProject as apiDeleteProject,
 	startProject as apiStartProject,
 	stopProject as apiStopProject,
-	createHostStream,
 	getProjects,
 } from "../lib/agent-api";
 import { mutateCache, setCache, useQuery } from "../lib/query-cache";
@@ -39,7 +39,7 @@ export default function Home() {
 		const patch = (projectId: string, fn: (p: Project) => Project) =>
 			mutateCache<Project[]>("projects", (list) => list.map((p) => (p.id === projectId ? fn(p) : p)));
 
-		const es = createHostStream(
+		const es = createHostStream<Project>(
 			(type, { projectId, data }) => {
 				if (type === "project_status") {
 					const running = Boolean((data as { running?: boolean }).running);
@@ -56,7 +56,7 @@ export default function Home() {
 					}));
 				}
 			},
-			(snapshot) => setCache("projects", snapshot as Project[])
+			(snapshot) => setCache("projects", snapshot)
 		);
 		return () => es.close();
 	}, []);

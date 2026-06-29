@@ -25,7 +25,7 @@ import {
 import { sessionEmitter } from "../emitter";
 import { env } from "../env";
 import { compactMessages, estimateTokens } from "./context";
-import { type ChecklistItem, type ReportData, sendChecklist, sendReport } from "./discord";
+import { type ReportData, sendChecklist, sendReport } from "./discord";
 import {
 	BASE_MAX_TOKENS,
 	CompactionCircuitBreaker,
@@ -49,10 +49,45 @@ import {
 	searchFiles,
 	writeFile,
 } from "./tools/implementations/filesystem";
-import { deleteMemory, listMemories, type MemoryType, recall, remember, updateMemory } from "./tools/implementations/memory";
+import { deleteMemory, listMemories, recall, remember, updateMemory } from "./tools/implementations/memory";
 import { addTask, getCurrentTask, listTasks, setCurrentTask, updateTask } from "./tools/implementations/task";
 import { webFetch, webSearch } from "./tools/implementations/web";
-import { validateToolInput } from "./tools/validators";
+import {
+	type QuestionInput,
+	type SendGraphInput,
+	type SendReportInput,
+	ToolValidationError,
+	validateAddTask,
+	validateAskChecklist,
+	validateBash,
+	validateCommitChanges,
+	validateCreateDirectory,
+	validateDeleteFile,
+	validateDeleteMemory,
+	validateEditFile,
+	validateExitPlanMode,
+	validateGetFileInfo,
+	validateGlob,
+	validateGrep,
+	validateListDirectory,
+	validateListMemories,
+	validateListTasks,
+	validateMoveFile,
+	validateQuestion,
+	validateReadFile,
+	validateReadFileRange,
+	validateRecall,
+	validateRemember,
+	validateSearchFiles,
+	validateSendGraph,
+	validateSendReport,
+	validateSetCurrentTask,
+	validateUpdateMemory,
+	validateUpdateTask,
+	validateWebFetch,
+	validateWebSearch,
+	validateWriteFile,
+} from "./tools/validators";
 import type { AgentError } from "./utils/errors";
 import { classifyApiError, withRetry } from "./utils/errors";
 import { commitChanges } from "./utils/git";
@@ -140,6 +175,9 @@ freeze_ask_mode —
 
 // ── AgentRunner ───────────────────────────────────────────────────────────────
 
+function isObj(v: unknown): v is Record<string, unknown> {
+	return typeof v === "object" && v !== null;
+}
 export class AgentRunner {
 	private client: Anthropic;
 	private messages: MessageParam[] = [];
@@ -221,13 +259,42 @@ export class AgentRunner {
 		});
 	}
 
+	/** Emit a "message" timeline event, filling in the boilerplate fields. */
+	private emitMessage(data: {
+		id: string;
+		role: "user" | "assistant" | "system";
+		content: unknown;
+		outputTokens?: number;
+		cacheReadTokens?: number;
+		cacheWriteTokens?: number;
+		error?: string;
+		errorDetails?: string;
+	}): void {
+		sessionEmitter.emit(this.sessionId, {
+			type: "message",
+			data: {
+				id: data.id,
+				sessionId: this.sessionId,
+				role: data.role,
+				content: data.content,
+				inputTokens: 0,
+				outputTokens: data.outputTokens ?? 0,
+				cacheReadTokens: data.cacheReadTokens ?? 0,
+				cacheWriteTokens: data.cacheWriteTokens ?? 0,
+				error: data.error,
+				errorDetails: data.errorDetails,
+				createdAt: Date.now(),
+			},
+		});
+	}
+
 	/** Append text as a user turn: merge into the last user message (to keep
 	 * strict user/assistant alternation) or push a new one. */
 	private appendUserText(text: string): void {
 		const last = this.messages[this.messages.length - 1];
 		if (last?.role === "user") {
 			if (Array.isArray(last.content)) {
-				(last.content as Anthropic.ContentBlockParam[]).push({ type: "text", text });
+				last.content.push({ type: "text", text });
 			} else {
 				last.content = `${last.content}\n\n${text}`;
 			}
@@ -242,39 +309,13 @@ export class AgentRunner {
 	 * display only and is skipped when rebuilding the Anthropic message history on resume. */
 	private recordSystemPrompt(): void {
 		const id = this.saveMessage("system", this.systemPrompt, 0, 0);
-		sessionEmitter.emit(this.sessionId, {
-			type: "message",
-			data: {
-				id,
-				sessionId: this.sessionId,
-				role: "system",
-				content: this.systemPrompt,
-				inputTokens: 0,
-				outputTokens: 0,
-				cacheReadTokens: 0,
-				cacheWriteTokens: 0,
-				createdAt: Date.now(),
-			},
-		});
+		this.emitMessage({ id, role: "system", content: this.systemPrompt });
 	}
 
 	private recordUserMessage(text: string): void {
 		const id = this.saveMessage("user", text, 0, 0);
 		this.lastUserMessageId = id;
-		sessionEmitter.emit(this.sessionId, {
-			type: "message",
-			data: {
-				id,
-				sessionId: this.sessionId,
-				role: "user",
-				content: text,
-				inputTokens: 0,
-				outputTokens: 0,
-				cacheReadTokens: 0,
-				cacheWriteTokens: 0,
-				createdAt: Date.now(),
-			},
-		});
+		this.emitMessage({ id, role: "user", content: text });
 		this.appendUserText(text);
 	}
 
@@ -326,13 +367,9 @@ export class AgentRunner {
 		// ── Build startup context ──────────────────────────────────────────
 		this.recordSystemPrompt();
 		const startupMsgs = await buildStartupContext(task, isNewProject);
-		this.messages = startupMsgs.map((content, i) => ({
-			role: (i % 2 === 0 ? "user" : "user") as "user",
-			content,
-		}));
-		// Ensure last is always 'user' role (task)
-		for (const msg of this.messages) {
-			this.saveMessage(msg.role as "user" | "assistant", msg.content as string, 0, 0);
+		this.messages = startupMsgs.map((content) => ({ role: "user", content }));
+		for (const content of startupMsgs) {
+			this.saveMessage("user", content, 0, 0);
 		}
 
 		await this.runLoop();
@@ -366,9 +403,9 @@ export class AgentRunner {
 			if (last?.role === role) {
 				// Merge into the previous turn to keep strict user/assistant alternation
 				if (Array.isArray(last.content) && Array.isArray(content)) {
-					(last.content as Anthropic.ContentBlockParam[]).push(...(content as Anthropic.ContentBlockParam[]));
+					last.content.push(...content);
 				} else if (Array.isArray(last.content)) {
-					(last.content as Anthropic.ContentBlockParam[]).push({
+					last.content.push({
 						type: "text",
 						text: String(content),
 					});
@@ -501,25 +538,12 @@ export class AgentRunner {
 					undefined,
 					cacheReadTokens
 				);
-				sessionEmitter.emit(this.sessionId, {
-					type: "message",
-					data: {
-						id: msgId,
-						sessionId: this.sessionId,
-						role: "assistant",
-						content: response.content,
-						inputTokens: 0,
-						outputTokens,
-						cacheReadTokens,
-						cacheWriteTokens: 0,
-						createdAt: Date.now(),
-					},
-				});
+				this.emitMessage({ id: msgId, role: "assistant", content: response.content, outputTokens, cacheReadTokens });
 
 				if (response.stop_reason === "end_turn") {
 					const finalText = response.content
 						.filter((b) => b.type === "text")
-						.map((b) => (b as Anthropic.TextBlock).text)
+						.map((b) => b.text)
 						.join("\n");
 
 					// Always-improve: continue instead of stopping
@@ -567,30 +591,10 @@ export class AgentRunner {
 			// Save error message to database
 			const errorMessage = classified.message;
 			const errorDetails = err instanceof Error ? err.stack : undefined;
-			const errorMsgId = this.saveMessage(
-				"assistant",
-				JSON.stringify([{ type: "text", text: `An error occurred during execution: ${classified.category}` }]),
-				0,
-				0,
-				errorMessage,
-				errorDetails
-			);
+			const errorContent = JSON.stringify([{ type: "text", text: `An error occurred during execution: ${classified.category}` }]);
+			const errorMsgId = this.saveMessage("assistant", errorContent, 0, 0, errorMessage, errorDetails);
 
-			sessionEmitter.emit(this.sessionId, {
-				type: "message",
-				data: {
-					id: errorMsgId,
-					sessionId: this.sessionId,
-					role: "assistant",
-					content: JSON.stringify([{ type: "text", text: `An error occurred during execution: ${classified.category}` }]),
-					inputTokens: 0,
-					outputTokens: 0,
-					cacheReadTokens: 0,
-					cacheWriteTokens: 0,
-					error: errorMessage,
-					errorDetails,
-				},
-			});
+			this.emitMessage({ id: errorMsgId, role: "assistant", content: errorContent, error: errorMessage, errorDetails });
 
 			// Non-retryable auth errors → "error" status; others → "stopped" (may be resumable)
 			const finalStatus = classified.retryable ? "stopped" : "error";
@@ -925,7 +929,7 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 
 			return resp.content
 				.filter((b) => b.type === "text")
-				.map((b) => (b as Anthropic.TextBlock).text)
+				.map((b) => b.text)
 				.join("\n");
 		} catch {
 			return "(summary unavailable)";
@@ -963,14 +967,14 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 
 	// ── Question helpers ────────────────────────────────────────────────────────
 
-	private makeQuestion(input: Record<string, unknown>, isUrgent: boolean): Question {
+	private makeQuestion(input: QuestionInput, isUrgent: boolean): Question {
 		const suggestions = input.suggestions ? JSON.stringify(input.suggestions) : null;
 		return {
 			id: nanoid(),
 			sessionId: this.sessionId,
 			checkinId: null,
-			text: (input.question as string) ?? (input.text as string) ?? "",
-			context: (input.context as string) ?? null,
+			text: input.question,
+			context: input.context ?? null,
 			suggestions,
 			answer: null,
 			isUrgent,
@@ -1024,53 +1028,39 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 
 	// ── Tool dispatch ──────────────────────────────────────────────────────────────
 
-	private async executeTools(blocks: Anthropic.ToolUseBlock[], parentMsgId: string): Promise<Anthropic.ToolResultBlockParam[]> {
+	private async executeTools(blocks: Anthropic.ToolUseBlock[], messageId: string): Promise<Anthropic.ToolResultBlockParam[]> {
 		const results: Anthropic.ToolResultBlockParam[] = [];
+		const sessionId = this.sessionId;
 
 		for (const block of blocks) {
 			const toolCallId = nanoid();
-			const input = block.input as Record<string, unknown>;
+			const toolName = block.name;
+			const toolUseId = block.id;
 
-			insertToolCall(this.db, {
-				id: toolCallId,
-				sessionId: this.sessionId,
-				messageId: parentMsgId,
-				toolName: block.name,
-				toolUseId: block.id,
-				input: JSON.stringify(input),
-				status: "pending",
-				createdAt: Date.now(),
-			});
+			const input = JSON.stringify(block.input);
+			const createdAt = Date.now();
+
+			insertToolCall(this.db, { id: toolCallId, sessionId, messageId, toolName, toolUseId, input, status: "pending", createdAt });
 			sessionEmitter.emit(this.sessionId, {
 				type: "tool_call",
-				data: {
-					id: toolCallId,
-					sessionId: this.sessionId,
-					toolName: block.name,
-					toolUseId: block.id,
-					input,
-					status: "pending",
-					createdAt: Date.now(),
-				},
+				data: { id: toolCallId, input: block.input, sessionId, toolName, toolUseId, status: "pending", createdAt },
 			});
 
 			let output: string;
 			let status: "success" | "error" = "success";
 
-			// Validate inputs before dispatching
-			const validationError = validateToolInput(block.name, input);
-			if (validationError) {
-				output = `Validation error:\n${validationError}`;
+			try {
+				if (!isObj(block.input)) throw new Error("Tool input is not an object.");
+				output = await this.dispatchTool(block.name, block.input);
+
+				// Truncate oversized tool results to prevent context bloat
+				output = truncateToolResult(output);
+			} catch (err) {
+				// Per-tool validators throw ToolValidationError with a descriptive,
+				// self-correctable message; surface it distinctly from runtime errors.
+				output = err instanceof ToolValidationError ? `Validation error:\n${err.message}` : `Error: ${err}`;
 				status = "error";
-			} else
-				try {
-					output = await this.dispatchTool(block.name, input);
-					// Truncate oversized tool results to prevent context bloat
-					output = truncateToolResult(output);
-				} catch (err) {
-					output = `Error: ${err}`;
-					status = "error";
-				}
+			}
 
 			completeToolCall(this.db, toolCallId, output, status);
 			sessionEmitter.emit(this.sessionId, {
@@ -1105,7 +1095,7 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 				return PLAN_MODE_BLOCKED_MESSAGE;
 			}
 			// For bash in plan mode, check if the command is read-only
-			if (name === "bash" && !isBashCommandReadOnly((input.command as string) ?? "")) {
+			if (name === "bash" && !isBashCommandReadOnly(typeof input.command === "string" ? input.command : "")) {
 				return PLAN_MODE_BASH_BLOCKED_MESSAGE;
 			}
 		}
@@ -1118,92 +1108,95 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 				return "Entered plan mode. Only read-only tools are available (grep, glob, read_file, list_directory, search_files, bash read-only commands). Call exit_plan_mode when ready to implement.";
 			}
 			case "exit_plan_mode": {
+				validateExitPlanMode(input);
 				this.planMode = false;
-				const summary = (input.plan_summary as string) ?? undefined;
+				const summary = input.plan_summary;
 				sessionEmitter.emit(this.sessionId, { type: "plan_mode", data: { active: false, summary } });
 				return summary ? `Exited plan mode. Plan summary recorded:\n${summary}` : "Exited plan mode. Full tool access restored.";
 			}
 
 			// ── File system ──────────────────────────────────────────────────────────────
 			case "bash": {
-				const r = await executeBash(input.command as string, (input.timeout_ms as number) ?? 30_000);
+				validateBash(input);
+				const r = await executeBash(input.command, input.timeout_ms ?? 30_000);
 				return [r.stdout ? `STDOUT:\n${r.stdout}` : "", r.stderr ? `STDERR:\n${r.stderr}` : "", `Exit code: ${r.exitCode}`]
 					.filter(Boolean)
 					.join("\n");
 			}
 			case "grep":
-				return await grep(
-					input.pattern as string,
-					(input.path as string) ?? ".",
-					input.include as string | undefined,
-					(input.flags as string) ?? ""
-				);
+				validateGrep(input);
+				return await grep(input.pattern, input.path ?? ".", input.include, input.flags ?? "");
 			case "glob":
-				return await glob(input.pattern as string, (input.path as string) ?? ".");
+				validateGlob(input);
+				return await glob(input.pattern, input.path ?? ".");
 			case "read_file":
-				return await readFile(input.path as string);
+				validateReadFile(input);
+				return await readFile(input.path);
 			case "write_file": {
-				const p = input.path as string;
-				await writeFile(p, input.content as string);
-				return `Written to ${p}`;
+				validateWriteFile(input);
+				await writeFile(input.path, input.content);
+				return `Written to ${input.path}`;
 			}
 			case "list_directory":
-				return await listDirectory((input.path as string) ?? "");
+				validateListDirectory(input);
+				return await listDirectory(input.path ?? "");
 			case "search_files":
+				validateSearchFiles(input);
 				return await searchFiles(
-					input.pattern as string,
-					(input.path as string) ?? ".",
-					(input.file_pattern as string) ?? "*",
-					(input.case_sensitive as boolean) ?? false,
-					(input.max_results as number) ?? 100
+					input.pattern,
+					input.path ?? ".",
+					input.file_pattern ?? "*",
+					input.case_sensitive ?? false,
+					input.max_results ?? 100
 				);
 			case "edit_file": {
-				return await editFile(
-					input.path as string,
-					input.old_string as string,
-					input.new_string as string,
-					(input.replace_all as boolean) ?? false
-				);
+				validateEditFile(input);
+				return await editFile(input.path, input.old_string, input.new_string, input.replace_all ?? false);
 			}
 			case "move_file": {
-				return await moveFile(input.source as string, input.destination as string);
+				validateMoveFile(input);
+				return await moveFile(input.source, input.destination);
 			}
 			case "delete_file":
-				return await deleteFile(input.path as string, (input.recursive as boolean) ?? false);
+				validateDeleteFile(input);
+				return await deleteFile(input.path, input.recursive ?? false);
 			case "create_directory":
-				return await createDirectory(input.path as string);
+				validateCreateDirectory(input);
+				return await createDirectory(input.path);
 			case "get_file_info":
-				return await getFileInfo(input.path as string);
+				validateGetFileInfo(input);
+				return await getFileInfo(input.path);
 			case "read_file_range":
-				return await readFileRange(input.path as string, input.start_line as number, input.end_line as number);
+				validateReadFileRange(input);
+				return await readFileRange(input.path, input.start_line, input.end_line);
 
 			// ── Memory Management ────────────────────────────────────────────────────────
 			case "remember":
-				return await remember(
-					input.type as MemoryType,
-					input.title as string,
-					input.content as string,
-					input.metadata as Record<string, unknown> | undefined
-				);
+				validateRemember(input);
+				return await remember(input.type, input.title, input.content, input.metadata);
 			case "recall": {
-				const results = await recall(input.query as string, input.type as MemoryType | undefined, (input.limit as number) ?? 10);
+				validateRecall(input);
+				const results = await recall(input.query, input.type, input.limit ?? 10);
 				return results.length > 0
 					? results.map((r) => `[${r.id}] (${r.type}) ${r.title}:\n${r.content}`).join("\n\n---\n\n")
 					: "No matching memories found.";
 			}
 			case "update_memory":
-				await updateMemory(input.id as string, {
-					title: input.title as string | undefined,
-					content: input.content as string | undefined,
-					type: input.type as MemoryType | undefined,
-					metadata: input.metadata as Record<string, unknown> | undefined,
+				validateUpdateMemory(input);
+				await updateMemory(input.id, {
+					title: input.title,
+					content: input.content,
+					type: input.type,
+					metadata: input.metadata,
 				});
 				return "Memory updated.";
 			case "delete_memory":
-				await deleteMemory(input.id as string);
+				validateDeleteMemory(input);
+				await deleteMemory(input.id);
 				return "Memory deleted.";
 			case "list_memories": {
-				const entries = await listMemories(input.type as MemoryType | undefined, (input.limit as number) ?? 100);
+				validateListMemories(input);
+				const entries = await listMemories(input.type, input.limit ?? 100);
 				return entries.length > 0
 					? entries.map((e) => `[${e.id}] (${e.type}) ${e.title}: ${e.content.slice(0, 150)}`).join("\n")
 					: "No memories found.";
@@ -1211,19 +1204,24 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 
 			// ── Questions ───────────────────────────────────────────────────────────────
 			case "queue_question":
+				validateQuestion(input);
 				return await this.handleQueueQuestion(input);
 			case "urgent_question":
+				validateQuestion(input);
 				return await this.handleUrgentQuestion(input);
 
 			// ── Reports ──────────────────────────────────────────────────────────────
 			case "send_report":
+				validateSendReport(input);
 				return await this.handleSendReport(input);
 			case "send_graph":
+				validateSendGraph(input);
 				return await this.handleSendGraph(input);
 
 			// ── Git ──────────────────────────────────────────────────────────────
 			case "commit_changes": {
-				const result = await commitChanges(WORKSPACE, input.message as string, !(input.skip_checks as boolean));
+				validateCommitChanges(input);
+				const result = await commitChanges(WORKSPACE, input.message, !input.skip_checks);
 				return result.success
 					? `Committed: ${result.commit ?? "unknown"}\n\n${result.output.slice(0, 2000)}`
 					: `Commit failed:\n\n${result.output.slice(0, 2000)}`;
@@ -1237,12 +1235,8 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 
 			// ── Checklist ───────────────────────────────────────────────────────────────
 			case "ask_checklist": {
-				const result = await sendChecklist(
-					this.sessionId,
-					(input.title as string) ?? "Implementation Checklist",
-					input.items as ChecklistItem[],
-					this.abortController.signal
-				);
+				validateAskChecklist(input);
+				const result = await sendChecklist(this.sessionId, input.title, input.items, this.abortController.signal);
 				if (result.completed) {
 					const answersText = Object.entries(result.answers)
 						.map(([id, answer]) => `- ${id}: ${answer}`)
@@ -1254,34 +1248,27 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 
 			// ── Task Management ─────────────────────────────────────────────────────────
 			case "add_task":
-				return await addTask(
-					this.db,
-					this.sessionId,
-					input.text as string,
-					input.status as "pending" | "in_progress" | "done" | "cancelled" | undefined,
-					input.dependsOn as string[] | undefined
-				);
+				validateAddTask(input);
+				return await addTask(this.db, this.sessionId, input.text, input.status, input.dependsOn);
 			case "list_tasks":
-				return await listTasks(this.db, (input.filter as string) ?? "all");
+				validateListTasks(input);
+				return await listTasks(this.db, input.filter ?? "all");
 			case "update_task":
-				return await updateTask(
-					this.db,
-					this.sessionId,
-					input.id as string,
-					input.status as "pending" | "in_progress" | "done" | "cancelled" | undefined,
-					input.text as string | undefined,
-					input.dependsOn as string[] | undefined
-				);
+				validateUpdateTask(input);
+				return await updateTask(this.db, this.sessionId, input.id, input.status, input.text, input.dependsOn);
 			case "set_current_task":
-				return await setCurrentTask(this.db, this.sessionId, input.id as string);
+				validateSetCurrentTask(input);
+				return await setCurrentTask(this.db, this.sessionId, input.id);
 			case "get_current_task":
 				return await getCurrentTask(this.db);
 
 			// ── Web ───────────────────────────────────────────────────────────────────────
 			case "web_search":
-				return await webSearch(input.query as string, (input.limit as number) ?? 8);
+				validateWebSearch(input);
+				return await webSearch(input.query, input.limit ?? 8);
 			case "web_fetch":
-				return await webFetch(input.url as string, (input.max_chars as number) ?? 20_000);
+				validateWebFetch(input);
+				return await webFetch(input.url, input.max_chars ?? 20_000);
 
 			default:
 				return `Unknown tool: ${name}`;
@@ -1290,7 +1277,7 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 
 	// ── Question handlers ──────────────────────────────────────────────────────────────
 
-	private async handleQueueQuestion(input: Record<string, unknown>): Promise<string> {
+	private async handleQueueQuestion(input: QuestionInput): Promise<string> {
 		const q = this.makeQuestion(input, false);
 		insertQuestion(this.db, q);
 		remember("question", q.text.slice(0, 100), `${q.text}${q.context ? `\n\nContext: ${q.context}` : ""}`, {
@@ -1312,7 +1299,7 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 		}
 	}
 
-	private async handleUrgentQuestion(input: Record<string, unknown>): Promise<string> {
+	private async handleUrgentQuestion(input: QuestionInput): Promise<string> {
 		const q = this.makeQuestion(input, true);
 		insertQuestion(this.db, q);
 		remember("question", `🚨 ${q.text.slice(0, 95)}`, `${q.text}${q.context ? `\n\nContext: ${q.context}` : ""}`, {
@@ -1333,7 +1320,7 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 				await this.triggerReport(
 					{
 						title: "🚨 Urgent Question",
-						sections: [{ title: "Context", content: (input.context as string) ?? "Agent is blocked." }],
+						sections: [{ title: "Context", content: input.context ?? "Agent is blocked." }],
 					},
 					"urgent",
 					true
@@ -1346,15 +1333,14 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 		}
 	}
 
-	private async handleSendReport(input: Record<string, unknown>): Promise<string> {
+	private async handleSendReport(input: SendReportInput): Promise<string> {
 		const report: ReportData = {
-			title: (input.title as string) ?? "Report",
-			sections: (input.sections as ReportData["sections"]) ?? [],
-			mermaid_diagrams: input.mermaid_diagrams as ReportData["mermaid_diagrams"],
+			title: input.title,
+			sections: input.sections,
+			mermaid_diagrams: input.mermaid_diagrams,
 		};
 
-		const freezeOverride = input.freeze_override as "freeze" | "continue" | undefined;
-		const freeze = this.shouldFreeze(freezeOverride);
+		const freeze = this.shouldFreeze(input.freeze_override);
 		const pending = this.drainPending();
 		const questionsToAsk = freeze ? pending : [];
 
@@ -1382,9 +1368,9 @@ Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep
 		return freeze ? "Report sent and user acknowledged." : "Report sent (continuing).";
 	}
 
-	private async handleSendGraph(input: Record<string, unknown>): Promise<string> {
-		const definition = input.definition as string;
-		const title = (input.title as string) || undefined;
+	private async handleSendGraph(input: SendGraphInput): Promise<string> {
+		const definition = input.definition;
+		const title = input.title || undefined;
 
 		const { renderMermaid } = await import("./mermaid");
 		const png = await renderMermaid(definition);

@@ -1,3 +1,4 @@
+import { createSessionStream } from "@agent-manager/utils";
 import { ArrowLeft, RefreshCw, Send, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -14,7 +15,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Checkin, Compaction, Message, Question, Session, ToolCall } from "@/lib/agent-api";
 import {
-	createSessionStream,
 	getCheckins,
 	getCompactions,
 	getMessages,

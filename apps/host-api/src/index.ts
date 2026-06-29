@@ -1,12 +1,12 @@
 import { join } from "node:path";
-import { HostDatabase, ProjectDatabase, ProjectDocker, ProjectManager, resolveWorkspaceRoot } from "@agent-manager/projects";
+import { ProjectDocker, ProjectManager, resolveWorkspaceRoot } from "@agent-manager/projects";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { HostDatabase, ProjectDatabase } from "./db";
 import {
 	archiveSessionChannel,
 	type ChannelStore,
 	createSessionChannel,
-	type DiscordChannel,
 	ensureProjectCategory,
 	ensureProjectPinnedChannels,
 	setChannelStore,
@@ -27,6 +27,18 @@ import { renderRouter } from "./routes/render";
 import { techStacksRouter } from "./routes/tech-stacks";
 import type { HonoHostEnv } from "./types";
 
+export type {
+	ArchivedProject,
+	ArchivedSession,
+	GlobalStats,
+	Guideline,
+	GuidelineCategory,
+	StackEntry,
+	StackLibrary,
+	TechStack,
+	Template,
+	TemplateCategory,
+} from "./db";
 export type { WorkspaceFolderStatus } from "./routes/projects";
 
 const rootDir = resolveWorkspaceRoot(import.meta.dir);
@@ -108,10 +120,10 @@ if (discordToken && discordClientId && discordGuildId) {
 	// Build a ChannelStore backed by HostDatabase
 	const discordChannelStore: ChannelStore = {
 		get(projectId, type) {
-			return hostDb.getDiscordChannelByProjectAndType(projectId, type) as DiscordChannel | undefined;
+			return hostDb.getDiscordChannelByProjectAndType(projectId, type);
 		},
 		getBySession(sessionId) {
-			return hostDb.getDiscordChannelBySession(sessionId) as DiscordChannel | undefined;
+			return hostDb.getDiscordChannelBySession(sessionId);
 		},
 		save(channel) {
 			hostDb.saveDiscordChannel(channel);
@@ -120,7 +132,7 @@ if (discordToken && discordClientId && discordGuildId) {
 			hostDb.deleteDiscordChannel(id);
 		},
 		listByProject(projectId) {
-			return hostDb.listDiscordChannelsByProject(projectId) as DiscordChannel[];
+			return hostDb.listDiscordChannelsByProject(projectId);
 		},
 	};
 

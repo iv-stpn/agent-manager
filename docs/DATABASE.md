@@ -5,126 +5,110 @@
 
 ## Host
 
-The orchestrator's own database (`host.db`): templates, archived projects/sessions, and global statistics. Defined in `packages/projects/src/host-database.ts`. On first open, the constructor runs `seedDefaults()`, which populates default rows for `guideline_categories` and `guidelines` and `tech_stacks` when those tables are empty.
+The orchestrator's own database (`host.db`): templates, archived projects/sessions, and global statistics. Defined in `apps/host-api/src/db/host-database.ts`.
 
 ### `archived_projects`
 
-Snapshot of a project kept after it is archived/removed, with rolled-up totals.
-
 | Column | Type | Constraints | Description |
 | --- | --- | --- | --- |
 | `id` | `TEXT` | PK | — |
-| `name` | `TEXT` | not null | Project name at archive time. |
-| `description` | `TEXT` | — | Project description, if any. |
-| `created_at` | `TEXT` | not null | When the project was originally created (ISO string). |
-| `archived_at` | `TEXT` | not null | When the project was archived (ISO string). |
-| `total_sessions` | `INTEGER` | not null, default `0` | Number of sessions the project had. |
-| `total_messages` | `INTEGER` | not null, default `0` | Total messages across all sessions. |
-| `total_input_tokens` | `INTEGER` | not null, default `0` | Lifetime input tokens. |
-| `total_output_tokens` | `INTEGER` | not null, default `0` | Lifetime output tokens. |
-| `total_cache_read_tokens` | `INTEGER` | not null, default `0` | Lifetime prompt-cache read tokens. |
-| `total_cache_write_tokens` | `INTEGER` | not null, default `0` | Lifetime prompt-cache write tokens. |
+| `name` | `TEXT` | not null | — |
+| `description` | `TEXT` | — | — |
+| `created_at` | `TEXT` | not null | — |
+| `archived_at` | `TEXT` | not null | — |
+| `total_sessions` | `INTEGER` | not null, default `0` | — |
+| `total_messages` | `INTEGER` | not null, default `0` | — |
+| `total_input_tokens` | `INTEGER` | not null, default `0` | — |
+| `total_output_tokens` | `INTEGER` | not null, default `0` | — |
+| `total_cache_read_tokens` | `INTEGER` | not null, default `0` | — |
+| `total_cache_write_tokens` | `INTEGER` | not null, default `0` | — |
 
 ### `archived_sessions`
 
-Per-session snapshot belonging to an archived project.
-
 | Column | Type | Constraints | Description |
 | --- | --- | --- | --- |
 | `id` | `TEXT` | PK | — |
-| `project_id` | `TEXT` | not null, → `archived_projects.id` | Owning archived project. |
-| `name` | `TEXT` | — | Session name, if any. |
-| `task` | `TEXT` | not null, default `''` | The task the session worked on. |
-| `status` | `TEXT` | not null, default `'stopped'` | Final status at archive time. |
-| `total_input_tokens` | `INTEGER` | not null, default `0` | Session input tokens. |
-| `total_output_tokens` | `INTEGER` | not null, default `0` | Session output tokens. |
-| `total_cache_read_tokens` | `INTEGER` | not null, default `0` | Session prompt-cache read tokens. |
-| `total_cache_write_tokens` | `INTEGER` | not null, default `0` | Session prompt-cache write tokens. |
-| `created_at` | `INTEGER` | not null | Session creation time (epoch ms). |
-| `updated_at` | `INTEGER` | not null | Session last update time (epoch ms). |
+| `project_id` | `TEXT` | not null, → `archived_projects.id` | — |
+| `name` | `TEXT` | — | — |
+| `task` | `TEXT` | not null, default `''` | — |
+| `status` | `TEXT` | not null, default `'stopped'` | — |
+| `total_input_tokens` | `INTEGER` | not null, default `0` | — |
+| `total_output_tokens` | `INTEGER` | not null, default `0` | — |
+| `total_cache_read_tokens` | `INTEGER` | not null, default `0` | — |
+| `total_cache_write_tokens` | `INTEGER` | not null, default `0` | — |
+| `created_at` | `INTEGER` | not null | — |
+| `updated_at` | `INTEGER` | not null | — |
 
 ### `discord_channels`
 
-Discord channel/category mappings for the global bot.
-
 | Column | Type | Constraints | Description |
 | --- | --- | --- | --- |
-| `id` | `TEXT` | PK | Discord channel or category ID. |
-| `project_id` | `TEXT` | not null | Owning project. |
-| `session_id` | `TEXT` | — | Null for category/pinned channels. |
-| `type` | `TEXT` | not null | 'category' | 'summary' | 'todos' | 'session' | 'archive'. |
-| `created_at` | `INTEGER` | not null | Creation time (epoch ms). |
+| `id` | `TEXT` | PK | — |
+| `project_id` | `TEXT` | not null | — |
+| `session_id` | `TEXT` | — | — |
+| `type` | `TEXT` | not null | — |
+| `created_at` | `INTEGER` | not null | — |
 
 ### `guideline_categories`
 
-Categories used to classify guidelines (e.g. "UI design", "Best practice").
-
 | Column | Type | Constraints | Description |
 | --- | --- | --- | --- |
 | `id` | `TEXT` | PK | — |
-| `name` | `TEXT` | not null | Unique category name. |
-| `description` | `TEXT` | not null, default `''` | Short description of what the category covers. |
-| `color` | `TEXT` | not null, default `'#6b7280'` | Hex color for UI badges/chips. |
-| `created_at` | `INTEGER` | not null | Creation time (epoch ms). |
-| `updated_at` | `INTEGER` | not null | Last update time (epoch ms). |
+| `name` | `TEXT` | not null | — |
+| `description` | `TEXT` | not null, default `''` | — |
+| `color` | `TEXT` | not null, default `'#6b7280'` | — |
+| `created_at` | `INTEGER` | not null | — |
+| `updated_at` | `INTEGER` | not null | — |
 
 ### `guidelines`
 
-Reusable guidelines, optionally classified under a guideline category.
-
 | Column | Type | Constraints | Description |
 | --- | --- | --- | --- |
 | `id` | `TEXT` | PK | — |
-| `name` | `TEXT` | not null | Display name of the guideline. |
-| `description` | `TEXT` | not null, default `''` | Short description shown in the picker. |
-| `category_id` | `TEXT` | → `guideline_categories.id` | Owning guideline category, if any. |
-| `content` | `TEXT` | not null, default `''` | The guideline body injected into a project. |
-| `created_at` | `INTEGER` | not null | Creation time (epoch ms). |
-| `updated_at` | `INTEGER` | not null | Last update time (epoch ms). |
+| `name` | `TEXT` | not null | — |
+| `description` | `TEXT` | not null, default `''` | — |
+| `category_id` | `TEXT` | → `guideline_categories.id` | — |
+| `content` | `TEXT` | not null, default `''` | — |
+| `created_at` | `INTEGER` | not null | — |
+| `updated_at` | `INTEGER` | not null | — |
 
 ### `statistics`
 
-Single-row ('global') lifetime counters across the whole orchestrator.
-
 | Column | Type | Constraints | Description |
 | --- | --- | --- | --- |
-| `id` | `TEXT` | PK, default `'global'` | Always 'global'; one row. |
-| `total_projects_created` | `INTEGER` | not null, default `0` | Projects ever created. |
-| `total_sessions_started` | `INTEGER` | not null, default `0` | Sessions ever started. |
-| `total_messages_sent` | `INTEGER` | not null, default `0` | Messages ever sent. |
-| `total_input_tokens` | `INTEGER` | not null, default `0` | Lifetime input tokens. |
-| `total_output_tokens` | `INTEGER` | not null, default `0` | Lifetime output tokens. |
-| `total_cache_read_tokens` | `INTEGER` | not null, default `0` | Lifetime prompt-cache read tokens. |
-| `total_cache_write_tokens` | `INTEGER` | not null, default `0` | Lifetime prompt-cache write tokens. |
-| `updated_at` | `INTEGER` | not null | Last time the counters changed (epoch ms). |
+| `id` | `TEXT` | PK, default `'global'` | — |
+| `total_projects_created` | `INTEGER` | not null, default `0` | — |
+| `total_sessions_started` | `INTEGER` | not null, default `0` | — |
+| `total_messages_sent` | `INTEGER` | not null, default `0` | — |
+| `total_input_tokens` | `INTEGER` | not null, default `0` | — |
+| `total_output_tokens` | `INTEGER` | not null, default `0` | — |
+| `total_cache_read_tokens` | `INTEGER` | not null, default `0` | — |
+| `total_cache_write_tokens` | `INTEGER` | not null, default `0` | — |
+| `updated_at` | `INTEGER` | not null | — |
 
 ### `tech_stacks`
 
-Reusable tech stacks scoped to a programming language. The stack column holds a JSON array of { label, libraries: [{ name, version? }], usagePatterns: string[] }.
-
 | Column | Type | Constraints | Description |
 | --- | --- | --- | --- |
 | `id` | `TEXT` | PK | — |
-| `language` | `TEXT` | not null | Programming language the stack targets (e.g. "TypeScript"). |
-| `name` | `TEXT` | not null | Display name of the stack. |
-| `description` | `TEXT` | not null, default `''` | Short description shown in the picker. |
-| `stack` | `TEXT` | not null, default `'[]'` | JSON array of labelled library/usage-pattern groups. |
-| `created_at` | `INTEGER` | not null | Creation time (epoch ms). |
-| `updated_at` | `INTEGER` | not null | Last update time (epoch ms). |
+| `language` | `TEXT` | not null | — |
+| `name` | `TEXT` | not null | — |
+| `description` | `TEXT` | not null, default `''` | — |
+| `stack` | `TEXT` | not null, default `'[]'` | — |
+| `created_at` | `INTEGER` | not null | — |
+| `updated_at` | `INTEGER` | not null | — |
 
 ### `templates`
 
-Reusable prompt/config templates users can apply when creating projects.
-
 | Column | Type | Constraints | Description |
 | --- | --- | --- | --- |
 | `id` | `TEXT` | PK | — |
-| `name` | `TEXT` | not null | Display name of the template. |
-| `description` | `TEXT` | not null, default `''` | Short description shown in the picker. |
-| `category` | `TEXT` | not null | One of: tech-stack, ui-design, best-practices, system-prompt. |
-| `content` | `TEXT` | not null, default `''` | The template body injected into a project. |
-| `created_at` | `INTEGER` | not null | Creation time (epoch ms). |
-| `updated_at` | `INTEGER` | not null | Last update time (epoch ms). |
+| `name` | `TEXT` | not null | — |
+| `description` | `TEXT` | not null, default `''` | — |
+| `category` | `TEXT` | not null | — |
+| `content` | `TEXT` | not null, default `''` | — |
+| `created_at` | `INTEGER` | not null | — |
+| `updated_at` | `INTEGER` | not null | — |
 
 ## Project
 

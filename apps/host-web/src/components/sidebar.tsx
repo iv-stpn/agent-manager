@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { NewProjectDialog } from "@/components/new-project-dialog";
 import type { EnrichedProject } from "@/lib/agent-api";
-import { createHostStream, getProjects } from "@/lib/agent-api";
+import { getProjects } from "@/lib/agent-api";
+import { createHostStream } from "@/lib/host-stream";
 import { mutateCache, setCache, useQuery } from "@/lib/query-cache";
 import { cn } from "@/lib/utils";
 
@@ -14,7 +15,7 @@ export function Sidebar() {
 	const { data: projects = [] } = useQuery("projects", () => getProjects());
 
 	useEffect(() => {
-		const es = createHostStream(
+		const es = createHostStream<EnrichedProject>(
 			(type, { projectId, data }) => {
 				if (type === "project_status") {
 					const running = Boolean((data as { running?: boolean }).running);
@@ -27,7 +28,7 @@ export function Sidebar() {
 					);
 				}
 			},
-			(snapshot) => setCache("projects", snapshot as EnrichedProject[])
+			(snapshot) => setCache("projects", snapshot)
 		);
 		return () => es.close();
 	}, []);

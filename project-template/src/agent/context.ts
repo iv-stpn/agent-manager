@@ -28,10 +28,10 @@ function extractConversationText(messages: MessageParam[]): string {
 
 		const textParts: string[] = [];
 		for (const block of msg.content) {
-			if (block.type === "text" && (block as Anthropic.TextBlock).text?.trim()) {
-				textParts.push((block as Anthropic.TextBlock).text.trim());
+			if (block.type === "text" && block.text?.trim()) {
+				textParts.push(block.text.trim());
 			} else if (block.type === "tool_use") {
-				const toolBlock = block as Anthropic.ToolUseBlock;
+				const toolBlock = block;
 				textParts.push(`[Tool call: ${toolBlock.name}]`);
 			} else if (block.type === "tool_result") {
 				const resultBlock = block as { type: "tool_result"; is_error?: boolean };

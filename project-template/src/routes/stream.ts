@@ -55,7 +55,7 @@ export const globalStreamRouter = new Hono<HonoProjectEnv>().get("/", (c) => {
 				const { sessionId, type, data } = event;
 				await stream.writeSSE({
 					event: type,
-					data: JSON.stringify({ sessionId, ...(data as Record<string, unknown>) }),
+					data: JSON.stringify({ sessionId, ...data }),
 				});
 			} catch {
 				// Client disconnected

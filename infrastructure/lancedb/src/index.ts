@@ -24,7 +24,10 @@ const VECTOR_DIM = 384;
 
 async function embed(text: string): Promise<number[]> {
 	const output = await embedder(text, { pooling: "mean", normalize: true });
-	return Array.from(output.data as Float32Array).slice(0, VECTOR_DIM);
+	if (!(output.data instanceof Float32Array)) {
+		throw new Error(`Expected Float32Array from embedder, got ${Object.prototype.toString.call(output.data)}`);
+	}
+	return Array.from(output.data).slice(0, VECTOR_DIM);
 }
 
 async function getOrCreateTable(name: string): Promise<Table> {

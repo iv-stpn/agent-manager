@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { ChannelStore } from "../discord/channels";
-import { type Question, type ReportData, sendChecklist, sendReport } from "../discord/interactions";
+import { sendChecklist, sendReport } from "../discord/interactions";
 import type { HonoHostEnv } from "../types";
 
 const ReportSchema = z.object({
@@ -61,11 +61,11 @@ export const discordRouter = new Hono<HonoHostEnv>()
 		try {
 			const result = await sendReport(
 				channelRecord.id,
-				body.report as ReportData,
+				body.report,
 				body.sessionId,
 				body.trigger,
 				body.freeze,
-				body.pendingQuestions as Question[],
+				body.pendingQuestions,
 				controller.signal
 			);
 			return c.json({ answers: result?.answers ?? [], confirmed: result?.confirmed ?? false });
@@ -113,7 +113,8 @@ export const discordRouter = new Hono<HonoHostEnv>()
 		const formData = await c.req.formData();
 		const sessionId = formData.get("sessionId") as string;
 		const title = formData.get("title") as string | null;
-		const file = formData.get("file") as File | null;
+		const fileEntry = formData.get("file");
+		const file = fileEntry instanceof File ? fileEntry : null;
 
 		if (!sessionId || !file) return c.json({ error: "Missing sessionId or file" }, 400);
 		if (!channelStore) return c.json({ error: "Discord not configured" }, 503);

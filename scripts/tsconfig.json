@@ -1,0 +1,11 @@
+{
+	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		"types": ["../apps/host-api/node_modules/bun-types"],
+		"paths": {
+			"drizzle-orm/*": ["../project-template/node_modules/drizzle-orm/*"]
+		},
+		"noEmit": true
+	},
+	"include": ["./**/*", "../project-template/src/agent/tools/definitions.ts"]
+}

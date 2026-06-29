@@ -22,7 +22,7 @@
 		"projects": "bun run apps/cli/projects.ts",
 		"stop-all": "bun run scripts/stop-all-projects.ts",
 		"test": "bun test",
-		"typecheck": "bun run --cwd apps/host-api build:types && bun run --cwd project-template build:types && (cd apps/host-api && tsc --noEmit) && (cd apps/host-web && tsc --noEmit) && tsc -p packages/projects/tsconfig.json --noEmit && (cd project-template && tsc --noEmit)",
+		"typecheck": "bun run --cwd apps/host-api build:types && bun run --cwd project-template build:types && (cd apps/host-api && tsc --noEmit) && (cd apps/host-web && tsc --noEmit) && tsc -p packages/projects/tsconfig.json --noEmit && (cd project-template && tsc --noEmit) && tsc -p scripts/tsconfig.json --noEmit",
 		"test:setup": "bun run tests/setup.test.ts",
 		"test:e2e": "bun run tests/e2e.test.ts",
 		"test:integration": "scripts/run-integration.sh"
