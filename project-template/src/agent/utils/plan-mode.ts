@@ -2,21 +2,23 @@
  * Plan mode: restricts the agent to read-only tools during planning phases.
  */
 
+import { ToolName } from "../tools/definitions";
+
 // Tools allowed in plan mode (read-only operations)
 export const PLAN_MODE_TOOLS = new Set<string>([
-	"grep",
-	"glob",
-	"read_file",
-	"list_directory",
-	"search_files",
-	"get_file_info",
-	"read_file_range",
-	"recall",
-	"list_memories",
-	"list_tasks",
-	"compact_context",
-	"exit_plan_mode",
-	"bash", // conditionally allowed — checked separately
+	ToolName.Grep,
+	ToolName.Glob,
+	ToolName.ReadFile,
+	ToolName.ListDirectory,
+	ToolName.SearchFiles,
+	ToolName.GetFileInfo,
+	ToolName.ReadFileRange,
+	ToolName.Recall,
+	ToolName.ListMemories,
+	ToolName.ListTasks,
+	ToolName.CompactContext,
+	ToolName.ExitPlanMode,
+	ToolName.Bash, // conditionally allowed — checked separately
 ]);
 
 // Bash commands that are allowed in plan mode (read-only patterns)

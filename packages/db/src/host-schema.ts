@@ -17,6 +17,21 @@ function json<T>(name: string) {
 
 // ── Nested types (JSON columns) ──────────────────────────────────────────────
 
+/**
+ * Recursively allow optional properties to also be explicitly `undefined`.
+ *
+ * Under `exactOptionalPropertyTypes`, a target `{ x?: string }` rejects a value
+ * `{ x: string | undefined }`. Zod's `.optional()` / `.partial()` infer exactly
+ * the latter shape, so values parsed from request bodies don't line up with our
+ * hand-written row types. Wrapping a boundary param in `LooseOptional<T>` keeps
+ * the strictness everywhere internal while accepting zod-parsed inputs.
+ */
+export type LooseOptional<T> = T extends (infer U)[]
+	? LooseOptional<U>[]
+	: T extends object
+		? { [K in keyof T]: undefined extends T[K] ? LooseOptional<Exclude<T[K], undefined>> | undefined : LooseOptional<T[K]> }
+		: T;
+
 export interface StackLibrary {
 	name: string;
 	version?: string;

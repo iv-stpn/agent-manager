@@ -143,7 +143,7 @@ export async function archiveSessionChannel(sessionId: string): Promise<void> {
 			archiveChannel = await guild.channels.create({
 				name: "sessions-archive",
 				type: ChannelType.GuildText,
-				parent: category?.id,
+				...(category?.id && { parent: category.id }),
 				topic: "Archived session threads",
 			});
 			store.save({ id: archiveChannel.id, projectId: record.projectId, sessionId: null, type: "archive", createdAt: Date.now() });

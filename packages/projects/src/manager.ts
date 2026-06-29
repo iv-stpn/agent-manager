@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { CreateProjectInput, ProjectConfig, ProjectContext } from "./types";
+import type { CreateProjectInput, LooseOptional, ProjectConfig, ProjectContext } from "./types";
 import { ProjectContextSchema } from "./types";
 
 const PROJECTS_DIR = ".projects";
@@ -225,14 +225,17 @@ export class ProjectManager {
 	 * Update project configuration.
 	 * All changes rewrite docker-compose.yml directly.
 	 */
-	async updateProject(projectId: string, updates: Partial<Omit<ProjectConfig, "id" | "createdAt">>): Promise<ProjectConfig> {
+	async updateProject(
+		projectId: string,
+		updates: LooseOptional<Partial<Omit<ProjectConfig, "id" | "createdAt">>>
+	): Promise<ProjectConfig> {
 		const current = await this.getProject(projectId);
-		const merged: ProjectConfig = {
+		const merged = {
 			...current,
 			...updates,
 			agent: updates.agent !== undefined ? updates.agent : current.agent,
 			updatedAt: new Date().toISOString(),
-		};
+		} as ProjectConfig;
 
 		await this.generateDockerCompose(projectId, merged);
 		return this.getProject(projectId);

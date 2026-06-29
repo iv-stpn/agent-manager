@@ -5,7 +5,7 @@ export type LogEntry = {
 	message: string;
 	timestamp: string;
 	data?: unknown;
-	error?: { name: string; message: string; stack?: string };
+	error?: { name: string; message: string; stack?: string | undefined };
 	requestId?: string;
 	userId?: string;
 	path?: string;
@@ -150,7 +150,7 @@ export class Logger {
 	}
 }
 
-export function createLogger(env: { DISCORD_WEBHOOK_URL?: string }): Logger {
+export function createLogger(env: { DISCORD_WEBHOOK_URL?: string | undefined }): Logger {
 	const transports: LogTransport[] = [new ConsoleTransport()];
 	if (env.DISCORD_WEBHOOK_URL) {
 		transports.push(new DiscordTransport(env.DISCORD_WEBHOOK_URL));

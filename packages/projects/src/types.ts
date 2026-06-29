@@ -1,5 +1,17 @@
 import { z } from "zod";
 
+/**
+ * Recursively allow optional properties to also be explicitly `undefined`.
+ * Under `exactOptionalPropertyTypes`, hand-written row types reject the
+ * `T | undefined` shape that zod's `.optional()` / `.partial()` infer; wrap a
+ * boundary param in `LooseOptional<T>` to accept zod-parsed inputs.
+ */
+export type LooseOptional<T> = T extends (infer U)[]
+	? LooseOptional<U>[]
+	: T extends object
+		? { [K in keyof T]: undefined extends T[K] ? LooseOptional<Exclude<T[K], undefined>> | undefined : LooseOptional<T[K]> }
+		: T;
+
 export const AgentConfigSchema = z.object({
 	anthropicApiKey: z.string().optional(),
 	anthropicBaseUrl: z.string().optional(),

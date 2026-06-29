@@ -1,5 +1,48 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
+export enum ToolName {
+	Bash = "bash",
+	Grep = "grep",
+	Glob = "glob",
+	ReadFile = "read_file",
+	WriteFile = "write_file",
+	ListDirectory = "list_directory",
+	SearchFiles = "search_files",
+	EditFile = "edit_file",
+	MoveFile = "move_file",
+	DeleteFile = "delete_file",
+	CreateDirectory = "create_directory",
+	GetFileInfo = "get_file_info",
+	ReadFileRange = "read_file_range",
+	WebSearch = "web_search",
+	WebFetch = "web_fetch",
+	Remember = "remember",
+	Recall = "recall",
+	UpdateMemory = "update_memory",
+	DeleteMemory = "delete_memory",
+	ListMemories = "list_memories",
+	AddTask = "add_task",
+	ListTasks = "list_tasks",
+	UpdateTask = "update_task",
+	GetCurrentTask = "get_current_task",
+	SetCurrentTask = "set_current_task",
+	QueueQuestion = "queue_question",
+	UrgentQuestion = "urgent_question",
+	SendReport = "send_report",
+	SendGraph = "send_graph",
+	CommitChanges = "commit_changes",
+	CompactContext = "compact_context",
+	AskChecklist = "ask_checklist",
+	EnterPlanMode = "enter_plan_mode",
+	ExitPlanMode = "exit_plan_mode",
+}
+
+const VALID_TOOL_NAMES = new Set<string>(Object.values(ToolName));
+
+export function isToolName(value: string): value is ToolName {
+	return VALID_TOOL_NAMES.has(value);
+}
+
 export const AGENT_TOOLS: Anthropic.Tool[] = [
 	// ── Commands ─────────────────────────────────────────────────────────────────
 	{

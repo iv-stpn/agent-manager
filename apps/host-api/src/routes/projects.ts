@@ -45,7 +45,7 @@ async function proxyToAgent(c: Context<HonoHostEnv>, projectId: string, upstream
 	const body = method === "GET" || method === "HEAD" ? undefined : await c.req.text();
 
 	try {
-		const upstream = await fetch(url, { method, headers, body });
+		const upstream = await fetch(url, { method, headers, ...(body !== undefined && { body }) });
 		const respHeaders = new Headers();
 		for (const key of ["content-type", "cache-control", "connection", "x-accel-buffering"]) {
 			const v = upstream.headers.get(key);

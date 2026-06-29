@@ -4,5 +4,6 @@
 		"types": ["bun-types"],
 		"typeRoots": ["./node_modules", "../node_modules"]
 	},
-	"include": ["src"]
+	"include": ["src"],
+	"exclude": ["src/agent/dist", "node_modules", "dist"]
 }

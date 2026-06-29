@@ -54,7 +54,7 @@ export async function sendReport(
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ sessionId, report, trigger, freeze, pendingQuestions }),
-			signal,
+			signal: signal ?? null,
 		});
 		if (!res.ok) return null;
 		const data = (await res.json()) as CheckinFormResult;
@@ -78,7 +78,7 @@ export async function sendChecklist(
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ sessionId, title, items }),
-			signal,
+			signal: signal ?? null,
 		});
 		if (!res.ok) return { answers: {}, completed: false };
 		const data = (await res.json()) as { answers: Record<string, string> };

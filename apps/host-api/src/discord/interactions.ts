@@ -1,3 +1,4 @@
+import type { LooseOptional } from "@agent-manager/db/host-schema";
 import {
 	ActionRowBuilder,
 	ButtonBuilder,
@@ -16,8 +17,8 @@ import { getChannel } from "./bot";
 export interface Question {
 	id: string;
 	text: string;
-	context?: string | null;
-	suggestions?: string | null;
+	context?: string | null | undefined;
+	suggestions?: string | null | undefined;
 }
 
 export interface Suggestion {
@@ -54,7 +55,7 @@ const CHECKIN_TIMEOUT_MS = 10 * 60 * 1000;
  */
 export async function sendReport(
 	channelId: string,
-	report: ReportData,
+	report: LooseOptional<ReportData>,
 	sessionId: string,
 	trigger: string,
 	freeze: boolean,
@@ -361,7 +362,7 @@ export async function sendChecklist(
 	channelId: string,
 	sessionId: string,
 	title: string,
-	items: Array<{ id: string; question: string; description?: string }>,
+	items: Array<{ id: string; question: string; description?: string | undefined }>,
 	signal?: AbortSignal
 ): Promise<Record<string, string>> {
 	const channel = await getChannel(channelId);
@@ -452,7 +453,7 @@ type ModalShowable = Pick<ButtonInteraction, "showModal">;
 
 async function showChecklistModal(
 	interaction: ModalShowable,
-	item: { id: string; question: string; description?: string },
+	item: { id: string; question: string; description?: string | undefined },
 	step: number,
 	total: number,
 	sessionId: string

@@ -8,7 +8,13 @@
 		"esModuleInterop": true,
 		"resolveJsonModule": true,
 		"isolatedModules": true,
-		"noEmit": true
+		"noEmit": true,
+		"jsx": "react-jsx",
+		"baseUrl": ".",
+		"paths": {
+			"@/*": ["./apps/host-web/src/*"]
+		},
+		"exactOptionalPropertyTypes": true
 	},
-	"exclude": ["node_modules", "dist", ".next"]
+	"exclude": ["node_modules", "dist", ".next", "scripts"]
 }

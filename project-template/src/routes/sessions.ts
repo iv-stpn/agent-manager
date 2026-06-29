@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { z } from "zod";
-import { AgentRunner } from "../agent/runner";
+import { createAgentRunner, type AgentRunner } from "../agent/runner";
 import {
 	createSession,
 	type Db,
@@ -145,7 +145,7 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 			updatedAt: createdAt,
 		});
 
-		const runner = new AgentRunner({
+		const runner = createAgentRunner({
 			db,
 			sessionId: id,
 			reportIntervalMins,
@@ -210,7 +210,7 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 			return c.json({ ok: true });
 		}
 
-		const runner = new AgentRunner({
+		const runner = createAgentRunner({
 			db,
 			sessionId: id,
 			reportIntervalMins: session.reportIntervalMins,

@@ -10,6 +10,7 @@ import type {
 	GlobalStats,
 	Guideline,
 	GuidelineCategory,
+	LooseOptional,
 	TechStack,
 	Template,
 } from "./schema";
@@ -308,16 +309,16 @@ export class HostDatabase {
 		return this.db.select().from(techStacks).where(eq(techStacks.id, id)).get() ?? undefined;
 	}
 
-	createTechStack(data: Omit<TechStack, "id" | "createdAt" | "updatedAt">): TechStack {
-		const row = { ...data, id: randomUUID(), createdAt: Date.now(), updatedAt: Date.now() };
+	createTechStack(data: LooseOptional<Omit<TechStack, "id" | "createdAt" | "updatedAt">>): TechStack {
+		const row = { ...data, id: randomUUID(), createdAt: Date.now(), updatedAt: Date.now() } as TechStack;
 		this.db.insert(techStacks).values(row).run();
 		return row;
 	}
 
-	updateTechStack(id: string, data: Partial<Omit<TechStack, "id" | "createdAt">>): TechStack {
+	updateTechStack(id: string, data: LooseOptional<Partial<Omit<TechStack, "id" | "createdAt">>>): TechStack {
 		const [row] = this.db
 			.update(techStacks)
-			.set({ ...data, updatedAt: Date.now() })
+			.set({ ...(data as Partial<TechStack>), updatedAt: Date.now() })
 			.where(eq(techStacks.id, id))
 			.returning()
 			.all();
@@ -345,10 +346,13 @@ export class HostDatabase {
 		return row;
 	}
 
-	updateGuidelineCategory(id: string, data: Partial<Omit<GuidelineCategory, "id" | "createdAt">>): GuidelineCategory {
+	updateGuidelineCategory(
+		id: string,
+		data: LooseOptional<Partial<Omit<GuidelineCategory, "id" | "createdAt">>>
+	): GuidelineCategory {
 		const [row] = this.db
 			.update(guidelineCategories)
-			.set({ ...data, updatedAt: Date.now() })
+			.set({ ...(data as Partial<GuidelineCategory>), updatedAt: Date.now() })
 			.where(eq(guidelineCategories.id, id))
 			.returning()
 			.all();
@@ -376,10 +380,10 @@ export class HostDatabase {
 		return row;
 	}
 
-	updateGuideline(id: string, data: Partial<Omit<Guideline, "id" | "createdAt">>): Guideline {
+	updateGuideline(id: string, data: LooseOptional<Partial<Omit<Guideline, "id" | "createdAt">>>): Guideline {
 		const [row] = this.db
 			.update(guidelines)
-			.set({ ...data, updatedAt: Date.now() })
+			.set({ ...(data as Partial<Guideline>), updatedAt: Date.now() })
 			.where(eq(guidelines.id, id))
 			.returning()
 			.all();

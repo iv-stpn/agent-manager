@@ -7,6 +7,7 @@
 		"project-template"
 	],
 	"scripts": {
+		"clean": "find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +",
 		"dev": "scripts/dev.sh",
 		"reset:host-db": "bun run scripts/reset-host-db.ts",
 		"gen:db-md": "bun run scripts/gen-db-md.ts",
@@ -21,7 +22,7 @@
 		"format": "biome format --write .",
 		"projects": "bun run apps/cli/projects.ts",
 		"stop-all": "bun run scripts/stop-all-projects.ts",
-		"typecheck": "bun run --cwd apps/host-api build:types && bun run --cwd project-template build:types && (cd apps/host-api && tsc --noEmit) && (cd apps/host-web && tsc --noEmit) && tsc -p packages/db/tsconfig.json --noEmit && tsc -p packages/projects/tsconfig.json --noEmit && (cd project-template && tsc --noEmit) && tsc -p scripts/tsconfig.json --noEmit"
+		"typecheck": "bun run --cwd apps/host-api build:types && bun run --cwd project-template build:types && (cd apps/host-api && tsc --noEmit) && (cd apps/host-web && tsc --noEmit) && (cd project-template && tsc --noEmit) && tsc -p packages/db/tsconfig.json --noEmit && tsc -p packages/projects/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.4.16",

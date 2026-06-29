@@ -67,14 +67,14 @@ app.post("/tables/:table/add", async (c) => {
 			...doc,
 			vector: await embed(`${doc.title ?? ""} ${doc.content ?? ""}`),
 			createdAt: doc.createdAt ?? Date.now(),
-			createdAtStr: doc.createdAtStr ?? new Date(doc.createdAt ?? Date.now()).toISOString(),
+			createdAtStr: (doc.createdAtStr as string) ?? new Date(Number(doc.createdAt) || Date.now()).toISOString(),
 			updatedAt: Date.now(),
 			updatedAtStr: new Date().toISOString(),
 		}))
 	);
 
 	// Overwrite existing docs with same id
-	const existingIds = docs.map((d) => d.id);
+	const existingIds = docs.map((d) => (d as Record<string, unknown>).id);
 	try {
 		await table.delete(`id IN ('${existingIds.join("','")}')`);
 	} catch {
