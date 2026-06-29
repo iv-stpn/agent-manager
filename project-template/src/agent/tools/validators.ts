@@ -288,15 +288,7 @@ export function validateWebFetch(input: Input): asserts input is WebFetchInput {
 // ── Memory ────────────────────────────────────────────────────────────────────
 
 const REMEMBER_TYPES = ["decision", "plan", "memory", "context"] as const satisfies readonly MemoryType[];
-const ALL_MEMORY_TYPES = [
-	"decision",
-	"todo",
-	"plan",
-	"question",
-	"memory",
-	"report",
-	"context",
-] as const satisfies readonly MemoryType[];
+const ALL_MEMORY_TYPES = ["decision", "plan", "question", "memory", "report", "context"] as const satisfies readonly MemoryType[];
 
 export interface RememberInput extends Input {
 	type: MemoryType;

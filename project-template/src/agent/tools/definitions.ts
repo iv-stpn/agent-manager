@@ -234,14 +234,14 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 	{
 		name: "remember",
 		description:
-			"Store a new entry in the project's persistent vector memory. Use to record architecture decisions, conventions, context, plans, or any knowledge that should persist across sessions. Entries are semantically searchable. Do NOT use for todos (use task tools), reports (use send_report), or questions (use queue_question/urgent_question).",
+			"Store a new entry in the project's persistent vector memory. Use to record architecture decisions, conventions, context, plans, or any knowledge that should persist across sessions. Entries are semantically searchable. Do NOT use for tasks (use task tools), reports (use send_report), or questions (use queue_question/urgent_question). When working on a task, include {taskId} in metadata to link the memory to the active task.",
 		input_schema: {
 			type: "object",
 			properties: {
 				type: {
 					type: "string",
 					enum: ["decision", "plan", "memory", "context"],
-					description: "Category of the memory entry",
+					description: "Category of the memory entry. Do NOT use for tasks (use task tools instead).",
 				},
 				title: { type: "string", description: "Short descriptive title (used for search ranking)" },
 				content: { type: "string", description: "Full content of the memory entry" },
@@ -256,14 +256,14 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 	{
 		name: "recall",
 		description:
-			"Semantically search project memory. Returns entries ranked by relevance to your query. Use natural language queries for best results (e.g. 'how is authentication implemented' rather than 'auth'). Searches across all entry types including auto-recorded todos, reports, and questions.",
+			"Semantically search project memory. Returns entries ranked by relevance to your query. Use natural language queries for best results (e.g. 'how is authentication implemented' rather than 'auth'). Searches across all entry types including auto-recorded reports and questions.",
 		input_schema: {
 			type: "object",
 			properties: {
 				query: { type: "string", description: "Natural language search query" },
 				type: {
 					type: "string",
-					enum: ["decision", "todo", "plan", "question", "memory", "report", "context"],
+					enum: ["decision", "plan", "question", "memory", "report", "context"],
 					description: "Optional: filter results to a specific type",
 				},
 				limit: { type: "number", description: "Max results to return (default: 10)" },
@@ -310,7 +310,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 			properties: {
 				type: {
 					type: "string",
-					enum: ["decision", "todo", "plan", "question", "memory", "report", "context"],
+					enum: ["decision", "plan", "question", "memory", "report", "context"],
 					description: "Filter by type (optional, lists all if omitted)",
 				},
 				limit: { type: "number", description: "Max results (default: 100)" },

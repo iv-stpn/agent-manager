@@ -19,7 +19,7 @@ async function memoryRequest(path: string, opts: RequestInit = {}): Promise<Reco
 	return res.json() as Promise<Record<string, unknown>>;
 }
 
-export type MemoryType = "decision" | "todo" | "plan" | "question" | "memory" | "report" | "context";
+export type MemoryType = "decision" | "plan" | "question" | "memory" | "report" | "context";
 
 export interface MemoryEntry {
 	id: string;

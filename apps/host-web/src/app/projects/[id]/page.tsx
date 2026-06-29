@@ -899,7 +899,6 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 		}
 	}
 
-	// PLACEHOLDER_CONTEXT_CARD_JSX
 	if (loading) {
 		return (
 			<Card>

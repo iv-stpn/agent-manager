@@ -5,7 +5,7 @@ export interface DiscordChannel {
 	id: string;
 	projectId: string;
 	sessionId: string | null;
-	type: "category" | "summary" | "todos" | "session" | "archive";
+	type: "category" | "summary" | "tasks" | "session" | "archive";
 	createdAt: number;
 }
 
@@ -48,7 +48,7 @@ export async function ensureProjectCategory(projectId: string, projectName: stri
 	return category.id;
 }
 
-/** Create pinned channels (#summary, #todos) at the top of a project category. */
+/** Create pinned channels (#summary, #tasks) at the top of a project category. */
 export async function ensureProjectPinnedChannels(projectId: string, categoryId: string): Promise<void> {
 	const guild = getGuild();
 	if (!guild || !store) return;
@@ -65,16 +65,16 @@ export async function ensureProjectPinnedChannels(projectId: string, categoryId:
 		store.save({ id: ch.id, projectId, sessionId: null, type: "summary", createdAt: Date.now() });
 	}
 
-	// Todos channel
-	if (!store.get(projectId, "todos")) {
+	// Tasks channel
+	if (!store.get(projectId, "tasks")) {
 		const ch = await guild.channels.create({
-			name: "todos",
+			name: "tasks",
 			type: ChannelType.GuildText,
 			parent: categoryId,
 			position: 1,
 			topic: "Project tasks and action items",
 		});
-		store.save({ id: ch.id, projectId, sessionId: null, type: "todos", createdAt: Date.now() });
+		store.save({ id: ch.id, projectId, sessionId: null, type: "tasks", createdAt: Date.now() });
 	}
 }
 

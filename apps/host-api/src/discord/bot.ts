@@ -1,4 +1,4 @@
-import { ChannelType, Client, GatewayIntentBits, Guild, Partials, type TextChannel } from "discord.js";
+import { ChannelType, Client, GatewayIntentBits, type Guild, Partials, type TextChannel } from "discord.js";
 
 let client: Client | null = null;
 let guildId: string | null = null;

@@ -8,6 +8,11 @@ import { ProjectContextSchema } from "./types";
 const PROJECTS_DIR = ".projects";
 const BASE_SERVER_PORT = 4000;
 
+/** Expand a leading `~` / `~/` in a path to the user's home directory. */
+function expandHome(path: string): string {
+	return path === "~" || path.startsWith("~/") ? path.replace("~", homedir()) : path;
+}
+
 /**
  * Resolve the monorepo workspace root, independent of the process cwd.
  *
@@ -183,13 +188,8 @@ export class ProjectManager {
 		const ports = { server: input.ports?.server ?? defaultServerPort };
 
 		// Determine workspace configuration
-		const expandedPath = input.workspacePath
-			? input.workspacePath.startsWith("~/") || input.workspacePath === "~"
-				? input.workspacePath.replace("~", homedir())
-				: input.workspacePath
-			: undefined;
-		const workspace = expandedPath
-			? { path: resolve(expandedPath), type: "external" as const }
+		const workspace = input.workspacePath
+			? { path: resolve(expandHome(input.workspacePath)), type: "external" as const }
 			: { path: join(projectDir, "workspace"), type: "internal" as const };
 
 		const now = new Date().toISOString();
@@ -263,10 +263,7 @@ export class ProjectManager {
 	 * removes the file so the prompt stays clean.
 	 */
 	async setProjectContext(projectId: string, context: ProjectContext, renderedMarkdown: string): Promise<ProjectContext> {
-		const projectDir = this.getProjectDir(projectId);
-		if (!existsSync(projectDir)) {
-			throw new Error(`Project "${projectId}" does not exist`);
-		}
+		const projectDir = this.requireProjectDir(projectId);
 		const parsed = ProjectContextSchema.parse(context);
 		await writeFile(this.getProjectContextPath(projectId), `${JSON.stringify(parsed, null, 2)}\n`);
 
@@ -283,14 +280,19 @@ export class ProjectManager {
 	// ── Delete ───────────────────────────────────────────────────────────────
 
 	async deleteProject(projectId: string): Promise<void> {
+		await rm(this.requireProjectDir(projectId), { recursive: true, force: true });
+	}
+
+	// ── Helpers ──────────────────────────────────────────────────────────────
+
+	/** Assert a project directory exists, returning its path. Throws otherwise. */
+	private requireProjectDir(projectId: string): string {
 		const projectDir = this.getProjectDir(projectId);
 		if (!existsSync(projectDir)) {
 			throw new Error(`Project "${projectId}" does not exist`);
 		}
-		await rm(projectDir, { recursive: true, force: true });
+		return projectDir;
 	}
-
-	// ── Helpers ──────────────────────────────────────────────────────────────
 
 	/**
 	 * Derive a Docker-valid project/network name from a project ID.

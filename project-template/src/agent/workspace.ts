@@ -28,7 +28,7 @@ You interact with it through these tools:
 - **context** — Project goals, constraints, stakeholders
 
 ### Guidelines
-- At session start: \`recall\` your previous context with queries like "project overview", "current plan", "active todos"
+- At session start: \`recall\` your previous context with queries like "project overview", "current plan", "active tasks"
 - Record decisions as you make them — future sessions depend on this
 - Use descriptive titles — they're weighted in search ranking
 - Prefer semantic search (\`recall\`) over listing when looking for specific knowledge
@@ -71,7 +71,7 @@ export function buildExplorationPrompt(hasExistingMemories: boolean): string {
 The workspace already contains code. Explore and document it:
 
 1. **Recall** previous memory with \`recall("project overview")\` — restore context from prior sessions.
-2. **Check** for active todos: \`list_memories("todo")\` and plans: \`list_memories("plan")\` — carry over unfinished work.
+2. **Check** for active tasks: \`list_tasks\` and plans: \`list_memories("plan")\` — carry over unfinished work.
 3. **Explore** anything that's changed or unfamiliar — read key files, check for new modules.
 4. **Update** memory if you discover anything new or outdated.
 
@@ -118,13 +118,6 @@ export async function buildStartupContext(task: string, isNewProject: boolean): 
 				const planSummary = plans.map((e) => `- **${e.title}:** ${e.content.slice(0, 200)}`).join("\n");
 				msgs.push(`**Active plans:**\n\n${planSummary}`);
 			}
-
-			const todos = await listMemories("todo", 10);
-			if (todos.length > 0) {
-				hasExistingMemories = true;
-				const todoSummary = todos.map((e) => `- ${e.title}: ${e.content.slice(0, 100)}`).join("\n");
-				msgs.push(`**Pending todos:**\n\n${todoSummary}`);
-			}
 		} catch {
 			// LanceDB not available — proceed without memory context
 		}
@@ -135,7 +128,7 @@ export async function buildStartupContext(task: string, isNewProject: boolean): 
 
 	// Main task
 	msgs.push(
-		`**Main task:**\n\n${task}\n\nBefore coding:\n1. Use \`ask_checklist\` to surface all ambiguities.\n2. \`remember("todo", "Task Title", "description")\` to track the task.\n3. \`remember("plan", "Plan: Task Title", "step-by-step plan")\` with a detailed plan.\n4. Then begin implementation.`
+		`**Main task:**\n\n${task}\n\nBefore coding:\n1. Use \`ask_checklist\` to surface all ambiguities.\n2. Use \`add_task\` to track the task in the project database.\n3. \`remember("plan", "Plan: Task Title", "step-by-step plan")\` with a detailed plan.\n4. Then begin implementation.`
 	);
 
 	return msgs;

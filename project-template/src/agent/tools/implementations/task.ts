@@ -1,7 +1,6 @@
 import { eq, inArray } from "drizzle-orm";
 import type { Db } from "../../../db/client";
 import { type TaskMetadata, tasks } from "../../../db/schema";
-import { recall, remember, updateMemory } from "./memory";
 
 type TaskStatus = "pending" | "in_progress" | "done" | "cancelled";
 
@@ -48,7 +47,6 @@ export async function addTask(
 		.values({ id, sessionId, text, status, metadata: serializeMeta(meta) })
 		.run();
 	const depNote = dependsOn && dependsOn.length > 0 ? ` (depends on: ${dependsOn.join(", ")})` : "";
-	remember("todo", text, `Status: ${status}${depNote}`, { taskId: id, status }).catch(() => {});
 	return `Added [${id}]: ${text}${depNote}`;
 }
 
@@ -115,16 +113,5 @@ export async function updateTask(
 		updates.metadata = serializeMeta(meta);
 	}
 	db.update(tasks).set(updates).where(eq(tasks.id, id)).run();
-	// Sync to vector memory
-	recall(task.text, "todo", 1)
-		.then((results) => {
-			if (results.length > 0) {
-				updateMemory(results[0].id, {
-					content: `Status: ${status ?? task.status}${text ? `\nTask: ${text}` : ""}`,
-					metadata: { taskId: id, status: status ?? task.status },
-				}).catch(() => {});
-			}
-		})
-		.catch(() => {});
 	return `Updated [${id}]: ${text ?? task.text} → ${status ?? task.status}`;
 }

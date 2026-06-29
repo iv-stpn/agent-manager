@@ -4,7 +4,7 @@ WORKDIR /app
 COPY package.json bun.lock* ./
 RUN bun install --frozen-lockfile 2>/dev/null || bun install
 
-COPY src ./src
+COPY index.ts ./src/index.ts
 
 EXPOSE 3200
 

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { initDb, stopRunningSessions } from "./db";
+import { getTasks, initDb, stopRunningSessions } from "./db";
 import { env } from "./env";
 import { sessionsRouter } from "./routes/sessions";
 import { globalStreamRouter, streamRouter } from "./routes/stream";
@@ -24,6 +24,11 @@ app.use("*", (c, next) => {
 
 app
 	.get("/health", (c) => c.json({ ok: true, ts: Date.now() }))
+	.get("/api/tasks", (c) => {
+		const sessionId = c.req.query("sessionId");
+		const rows = getTasks(db, sessionId || undefined);
+		return c.json(rows);
+	})
 	// Project-wide event stream (every session). host-api restreams this.
 	.route("/api/stream", globalStreamRouter)
 	.route("/api/sessions", sessionsRouter)

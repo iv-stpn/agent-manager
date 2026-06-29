@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { CheckinTimeline } from "@/components/checkin-timeline";
 import { CompactionTimeline } from "@/components/compaction-timeline";
 import { MessageFeed } from "@/components/message-feed";
+import { TaskTree } from "@/components/task-tree";
 import { TokenChart } from "@/components/token-chart";
 import { ToolCallCard } from "@/components/tool-call-card";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { Checkin, Compaction, Message, Question, Session, ToolCall } from "@/lib/agent-api";
+import type { Checkin, Compaction, Message, Question, Session, Task, ToolCall } from "@/lib/agent-api";
 import {
 	getCheckins,
 	getCompactions,
@@ -21,6 +22,7 @@ import {
 	getProject,
 	getQuestions,
 	getSession,
+	getTasks,
 	getToolCalls,
 	sendSessionMessage,
 	stopSession,
@@ -56,6 +58,7 @@ export default function SessionPage() {
 	const cKey = `checkins:${projectId}:${sessionId}`;
 	const qKey = `questions:${projectId}:${sessionId}`;
 	const xKey = `compactions:${projectId}:${sessionId}`;
+	const tkKey = `tasks:${projectId}`;
 	const rKey = `project:${projectId}`;
 
 	function wrapQueryList<T>(
@@ -86,6 +89,7 @@ export default function SessionPage() {
 		xKey,
 		wrapQueryList(getCompactions, projectId, sessionId)
 	);
+	const { data: tasks = [] } = useQuery<Task[]>(tkKey, async () => (projectId ? await getTasks(projectId) : []));
 
 	const refreshAll = useCallback(() => {
 		refetchSession();
@@ -392,6 +396,9 @@ export default function SessionPage() {
 									</div>
 								</CardContent>
 							</Card>
+							<div className="mt-3">
+								<TaskTree tasks={tasks} />
+							</div>
 						</TabsContent>
 
 						<TabsContent value="tokens" className="flex-1 overflow-auto p-3 mt-0">

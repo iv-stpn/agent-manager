@@ -548,6 +548,14 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 		if (upstream) return c.json(upstream);
 		return c.json(await c.var.projectDatabaseManager.getCompactions(projectId, sessionId));
 	})
+	.get("/:projectId/tasks", async (c) => {
+		const { projectId } = c.req.param();
+		const sessionId = c.req.query("sessionId");
+		const query = sessionId ? `?sessionId=${sessionId}` : "";
+		const upstream = await fetchAgentJson<unknown[]>(c, projectId, `/api/tasks${query}`);
+		if (upstream) return c.json(upstream);
+		return c.json([]);
+	})
 	.post("/:projectId/sessions/:sessionId/stop", async (c) => {
 		const { projectId, sessionId } = c.req.param();
 		return proxyToAgent(c, projectId, `/api/sessions/${sessionId}/stop`);

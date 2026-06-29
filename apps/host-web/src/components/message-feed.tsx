@@ -187,13 +187,7 @@ function MessageBubble({
 						);
 					}
 					if (block.type === "tool_use" && block.name) {
-						return (
-							<ToolCallBubble
-								key={block.id ?? `tool-${index}-${block.name}`}
-								name={block.name}
-								input={block.input ?? {}}
-							/>
-						);
+						return <ToolCallBubble key={block.id ?? `tool-${index}-${block.name}`} name={block.name} input={block.input ?? {}} />;
 					}
 					if (block.type === "tool_result") {
 						const tc = block.tool_use_id ? toolCallByUseId.get(block.tool_use_id) : undefined;

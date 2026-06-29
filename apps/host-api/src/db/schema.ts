@@ -108,7 +108,7 @@ export const discordChannels = sqliteTable("discord_channels", {
 	id: text("id").primaryKey(),
 	projectId: text("project_id").notNull(),
 	sessionId: text("session_id"),
-	type: text("type").notNull().$type<"category" | "summary" | "todos" | "session" | "archive">(),
+	type: text("type").notNull().$type<"category" | "summary" | "tasks" | "session" | "archive">(),
 	createdAt: integer("created_at").notNull(),
 });
 

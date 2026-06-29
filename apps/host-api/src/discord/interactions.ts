@@ -416,8 +416,8 @@ export async function sendChecklist(
 				channel.client.removeListener("interactionCreate", modalListener);
 				resolve(results);
 			} else {
-								// ModalSubmitInteraction has showModal at runtime but not in discord.js types
-					await showChecklistModal(i as unknown as ModalShowable, items[currentStep], currentStep, items.length, sessionId);
+				// ModalSubmitInteraction has showModal at runtime but not in discord.js types
+				await showChecklistModal(i as unknown as ModalShowable, items[currentStep], currentStep, items.length, sessionId);
 			}
 		};
 

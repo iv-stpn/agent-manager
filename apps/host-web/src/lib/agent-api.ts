@@ -184,6 +184,23 @@ export async function getCompactions(projectId: string, id: string) {
 	return await res.json();
 }
 
+export interface Task {
+	id: string;
+	sessionId: string | null;
+	text: string;
+	status: "pending" | "in_progress" | "done" | "cancelled";
+	metadata: string | null;
+	createdAt: number;
+	updatedAt: number;
+}
+
+export async function getTasks(projectId: string, sessionId?: string): Promise<Task[]> {
+	const params = sessionId ? `?sessionId=${sessionId}` : "";
+	const res = await fetch(`${API_URL}/api/projects/${projectId}/tasks${params}`);
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as Task[];
+}
+
 export async function createSession(
 	projectId: string,
 	data: {

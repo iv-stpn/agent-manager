@@ -108,7 +108,6 @@ export interface QueryOptions {
 	refetchInterval?: number;
 }
 
-
 /**
  * Subscribe to a cached query. Identical keys share one entry, so mounting the
  * same query in two places (or remounting after navigation) issues at most one
