@@ -1,13 +1,13 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { addTokens, getSession, updateMessageTokens } from "../../db";
+import { nanoid } from "nanoid";
+import { addTokens, getSession, insertMessage, updateMessageTokens } from "../../db";
 import { sessionEmitter } from "../../emitter";
 import { env } from "../../env";
-import type { AgentState } from "../runner-types";
 import { BASE_MAX_TOKENS, ESCALATED_MAX_TOKENS } from "../token-budget";
 import { AGENT_TOOLS } from "../tools/definitions";
+import type { AgentState } from "../types";
 import type { AgentError } from "../utils/errors";
 import { withRetry } from "../utils/errors";
-import { saveMessage } from "./messages";
 import { emitMessage } from "./status";
 
 export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Messages.Message> {
@@ -133,7 +133,14 @@ export function recordAssistantMessage(
 	outputTokens: number,
 	cacheReadTokens: number
 ): string {
-	const msgId = saveMessage(agent, "assistant", JSON.stringify(content), 0, outputTokens, undefined, undefined, cacheReadTokens);
-	emitMessage(agent, { id: msgId, role: "assistant", content, outputTokens, cacheReadTokens });
-	return msgId;
+	const message = insertMessage(agent.db, {
+		sessionId: agent.sessionId,
+		role: "assistant",
+		content: JSON.stringify(content),
+		outputTokens,
+		cacheReadTokens,
+		createdAt: Date.now(),
+	});
+	emitMessage(agent, { id: message.id, role: "assistant", content, outputTokens, cacheReadTokens });
+	return message.id;
 }

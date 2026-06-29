@@ -5,12 +5,12 @@ import { executeBash } from "./commands";
 const WORKSPACE = env.WORKSPACE_PATH;
 
 /** Resolve a path to an absolute path within the workspace sandbox */
-export function sandboxPath(p: string): string {
-	if (p.startsWith("/")) {
-		if (!p.startsWith(WORKSPACE)) return join(WORKSPACE, p.replace(/^\/+/, ""));
-		return p;
+function sandboxPath(path: string): string {
+	if (path.startsWith("/")) {
+		if (!path.startsWith(WORKSPACE)) return join(WORKSPACE, path.replace(/^\/+/, ""));
+		return path;
 	}
-	return join(WORKSPACE, p);
+	return join(WORKSPACE, path);
 }
 
 export async function readFile(path: string): Promise<string> {

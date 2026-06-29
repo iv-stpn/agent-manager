@@ -1,17 +1,18 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import { nanoid } from "nanoid";
-import { getMessages, getSession, insertCompaction, updateSession } from "../../db";
+import { getMessages, getSession, insertCompaction, insertMessage, updateSession } from "../../db";
 import { sessionEmitter } from "../../emitter";
 import { env } from "../../env";
 import { compactMessages, estimateTokens } from "../context";
-import type { AgentState } from "../runner-types";
 import { calculateTokenWarningState, MODEL_CONTEXT_WINDOW } from "../token-budget";
+import type { AgentState } from "../types";
 import { classifyApiError } from "../utils/errors";
 import { bootstrapWorkspace, buildStartupContext } from "../workspace";
 import { callAnthropicApi, recordApiTokens, recordAssistantMessage, requestSummary } from "./api";
-import { recordSystemPrompt, recordUserMessage, saveMessage } from "./messages";
+import { pushOrMergeMessage, recordUserMessage } from "./messages";
 import { buildImproveMessage, flushQuestionsToDiscord, handleStopThreshold, handleTotalTimeout, triggerReport } from "./reports";
-import { setStatus } from "./status";
+import { emitMessage, setStatus } from "./status";
 import { executeTools } from "./tools";
 
 // ── Context compaction ─────────────────────────────────────────────────────────────
@@ -167,7 +168,7 @@ export async function runLoop(agent: AgentState): Promise<void> {
 
 			recordApiTokens(agent, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens);
 
-			const msgId = recordAssistantMessage(agent, response.content, outputTokens, cacheReadTokens);
+			const messageId = recordAssistantMessage(agent, response.content, outputTokens, cacheReadTokens);
 
 			if (response.stop_reason === "end_turn") {
 				const finalText = response.content
@@ -180,7 +181,17 @@ export async function runLoop(agent: AgentState): Promise<void> {
 					const continueMessage = buildImproveMessage(agent);
 					agent.messages.push({ role: "assistant", content: response.content });
 					agent.messages.push({ role: "user", content: continueMessage });
-					agent.lastUserMessageId = saveMessage(agent, "user", continueMessage, 0, 0);
+					const message = insertMessage(agent.db, {
+						sessionId: agent.sessionId,
+						role: "user",
+						content: continueMessage,
+						inputTokens: 0,
+						outputTokens: 0,
+						cacheReadTokens: 0,
+						cacheWriteTokens: 0,
+						createdAt: Date.now(),
+					});
+					agent.lastUserMessageId = message.id;
 					continue;
 				}
 
@@ -202,9 +213,18 @@ export async function runLoop(agent: AgentState): Promise<void> {
 				const toolBlocks = response.content.filter((b) => b.type === "tool_use");
 				agent.messages.push({ role: "assistant", content: response.content });
 
-				const toolResults = await executeTools(agent, toolBlocks, msgId);
+				const toolResults = await executeTools(agent, toolBlocks, messageId);
 				agent.messages.push({ role: "user", content: toolResults });
-				agent.lastUserMessageId = saveMessage(agent, "user", JSON.stringify(toolResults), 0, 0);
+
+				const message = insertMessage(agent.db, {
+					sessionId: agent.sessionId,
+					role: "user",
+					content: JSON.stringify(toolResults),
+					inputTokens,
+					cacheReadTokens,
+					createdAt: Date.now(),
+				});
+				agent.lastUserMessageId = message.id;
 
 				// In 'always' mode: flush pending questions after each tool batch
 				if (agent.config.freezeAskMode === "always" && agent.pendingQuestions.length > 0) {
@@ -224,11 +244,23 @@ export async function runLoop(agent: AgentState): Promise<void> {
 			...(errorStack !== undefined && { errorDetails: errorStack }),
 		};
 
-		const errorMessageId = saveMessage(agent, "assistant", errorData.content, 0, 0, errorData.error, errorData.errorDetails);
+		const message = insertMessage(agent.db, {
+			sessionId: agent.sessionId,
+			role: "assistant",
+			content: errorData.content,
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			error: errorData.error,
+			errorDetails: errorData.errorDetails,
+			createdAt: Date.now(),
+		});
+
 		sessionEmitter.emit(agent.sessionId, {
 			type: "message",
 			data: {
-				id: errorMessageId,
+				id: message.id,
 				sessionId: agent.sessionId,
 				role: "assistant",
 				content: errorData.content,
@@ -258,11 +290,32 @@ export async function run(agent: AgentState, task: string): Promise<void> {
 	const { isNewProject } = await bootstrapWorkspace(WORKSPACE);
 
 	// ── Build startup context ──────────────────────────────────────────
-	recordSystemPrompt(agent);
+	// Persist the system prompt as a display-only "system" row (skipped when rebuilding
+	// Anthropic message history on resume — the prompt is sent as a separate API param).
+	const sysMsg = insertMessage(agent.db, {
+		sessionId: agent.sessionId,
+		role: "system",
+		content: agent.systemPrompt,
+		inputTokens: 0,
+		outputTokens: 0,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		createdAt: Date.now(),
+	});
+	emitMessage(agent, { id: sysMsg.id, role: "system", content: agent.systemPrompt });
 	const startupMsgs = await buildStartupContext(task, isNewProject);
 	agent.messages = startupMsgs.map((content) => ({ role: "user", content }));
 	for (const content of startupMsgs) {
-		saveMessage(agent, "user", content, 0, 0);
+		insertMessage(agent.db, {
+			sessionId: agent.sessionId,
+			role: "user",
+			content,
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			createdAt: Date.now(),
+		});
 	}
 
 	await runLoop(agent);
@@ -291,20 +344,7 @@ export async function resume(agent: AgentState, message: string): Promise<void> 
 			content = row.content;
 		}
 		const role = row.role as "user" | "assistant";
-		const last = agent.messages[agent.messages.length - 1];
-
-		if (last?.role === role) {
-			// Merge into the previous turn to keep strict user/assistant alternation
-			if (Array.isArray(last.content) && Array.isArray(content)) {
-				last.content.push(...content);
-			} else if (Array.isArray(last.content)) {
-				last.content.push({ type: "text", text: String(content) });
-			} else {
-				last.content = `${last.content}\n\n${String(content)}`;
-			}
-		} else {
-			agent.messages.push({ role, content: content as import("@anthropic-ai/sdk/resources").MessageParam["content"] });
-		}
+		pushOrMergeMessage(agent.messages, role, content as MessageParam["content"]);
 	}
 
 	// Append and persist the new user message

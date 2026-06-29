@@ -1,12 +1,5 @@
 import type { ProjectConfig, ProjectStats } from "@agent-manager/projects";
 
-export type {
-	AgentConfig,
-	ProjectConfig,
-	ProjectStats,
-	SessionRecord,
-} from "@agent-manager/projects";
-
 // Docker status — mirrors the inline return type of ProjectDocker.getProjectStatus().
 export interface ProjectDockerContainer {
 	name: string;

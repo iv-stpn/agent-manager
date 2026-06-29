@@ -27,6 +27,7 @@ export function getEffectiveContextWindow(): number {
 
 const AUTOCOMPACT_BUFFER_TOKENS = 13_000;
 const WARNING_THRESHOLD_BUFFER_TOKENS = 20_000;
+
 const BLOCKING_BUFFER_TOKENS = 3_000;
 const REFERENCE_WINDOW = 180_000;
 

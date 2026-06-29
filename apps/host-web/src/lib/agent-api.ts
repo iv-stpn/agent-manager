@@ -7,25 +7,6 @@ import type { CreateProjectInput } from "@agent-manager/projects";
 import { hc } from "hono/client";
 import { API_URL } from "@/constants";
 
-export type { Guideline, GuidelineCategory, StackEntry, StackLibrary, TechStack } from "@agent-manager/host-api";
-export type {
-	CheckinRecord as Checkin,
-	CompactionRecord as Compaction,
-	MessageRecord as Message,
-	QuestionRecord as Question,
-	ReportRecord as Report,
-	SessionRecord as Session,
-	ToolCallRecord as ToolCall,
-} from "@agent-manager/projects";
-export type {
-	AgentConfig,
-	EnrichedProject,
-	ProjectConfig,
-	ProjectDockerContainer,
-	ProjectDockerStatus,
-	ProjectStats,
-} from "./types";
-
 const api = hc<AppType>(API_URL);
 
 // ── Project endpoints ─────────────────────────────────────────────────────────

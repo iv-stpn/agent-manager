@@ -2,9 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { z } from "zod";
-import { initAgent, interjectAgent, runners, stopAgent } from "../agent/runner";
-import type { AgentStateConfig } from "../agent/runner-types";
+import { initAgent, interjectAgent, runners, stopAgent } from "../agent/definition";
 import { resume, run } from "../agent/runner-utils/loop";
+import type { AgentStateConfig } from "../agent/types";
 import {
 	createSession,
 	type Db,

@@ -1,12 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { env } from "../env";
-
-import type { AgentState, AgentStateConfig } from "./runner-types";
-
-import { handleQueueQuestion, handleSendGraph, handleSendReport, handleUrgentQuestion } from "./runner-utils/question-handlers";
 import { buildSystemPrompt } from "./system-prompt";
 import { CompactionCircuitBreaker } from "./token-budget";
-import { buildToolTable } from "./tool-table";
+import type { AgentState, AgentStateConfig } from "./types";
 
 /** All active agent sessions, keyed by session ID. */
 export const runners = new Map<string, AgentState>();
@@ -18,7 +14,6 @@ export function initAgent({ config, sessionId, db }: InitAgentParams): AgentStat
 	const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, baseURL: env.ANTHROPIC_BASE_URL });
 	const systemPrompt = buildSystemPrompt(config);
 
-	// Build a partial agent first so we can pass it to buildToolTable handlers
 	const agent: AgentState = {
 		db,
 		sessionId,
@@ -27,7 +22,6 @@ export function initAgent({ config, sessionId, db }: InitAgentParams): AgentStat
 		//
 		messages: [],
 		systemPrompt,
-		toolTable: {}, // filled in below
 		//
 		startTime: Date.now(),
 		lastReportTime: null,
@@ -46,14 +40,6 @@ export function initAgent({ config, sessionId, db }: InitAgentParams): AgentStat
 		//
 		injectedMessage: null,
 	};
-
-	// Wire the tool table after the agent exists so handlers can close over it
-	agent.toolTable = buildToolTable(db, sessionId, {
-		queueQuestion: (i) => handleQueueQuestion(agent, i),
-		urgentQuestion: (i) => handleUrgentQuestion(agent, i),
-		sendReport: (i) => handleSendReport(agent, i),
-		sendGraph: (i) => handleSendGraph(agent, i),
-	});
 
 	return agent;
 }

@@ -3,6 +3,7 @@ import { ProjectDocker, ProjectManager, resolveWorkspaceRoot } from "@agent-mana
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HostDatabase, ProjectDatabase } from "./db";
+import { startDiscordBot } from "./discord/bot";
 import {
 	archiveSessionChannel,
 	type ChannelStore,
@@ -10,9 +11,8 @@ import {
 	ensureProjectCategory,
 	ensureProjectPinnedChannels,
 	setChannelStore,
-	setProjectResolver,
-	startDiscordBot,
-} from "./discord";
+} from "./discord/channels";
+import { setProjectResolver } from "./discord/commands";
 import { env } from "./env";
 import { EventHub } from "./lib/event-hub";
 import { createLogger } from "./lib/logger";

@@ -4,7 +4,7 @@ import { getPendingQuestions, getSession, insertCheckin, insertReport, updateChe
 import { sessionEmitter } from "../../emitter";
 import type { ReportData } from "../../external/discord";
 import { sendReport } from "../../external/discord";
-import type { AgentState } from "../runner-types";
+import type { AgentState } from "../types";
 import { requestSummary } from "./api";
 import { drainPending, injectAnswers } from "./questions";
 import { setStatus } from "./status";

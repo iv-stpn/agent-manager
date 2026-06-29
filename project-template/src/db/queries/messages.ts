@@ -1,10 +1,14 @@
 import { messages, type NewMessage, type NewToolCall, toolCalls } from "@agent-manager/db/project-schema";
 import { asc, eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import type { Db } from "../client";
 
-export function insertMessage(db: Db, data: NewMessage) {
-	db.insert(messages).values(data).run();
-	const result = db.select().from(messages).where(eq(messages.id, data.id)).get();
+export function insertMessage(db: Db, data: Omit<NewMessage, "id">) {
+	const id = nanoid();
+	db.insert(messages)
+		.values({ id, ...data })
+		.run();
+	const result = db.select().from(messages).where(eq(messages.id, id)).get();
 	if (!result) throw new Error("Message not found after insert");
 	return result;
 }

@@ -6,29 +6,71 @@ import { env } from "../../env";
 import type { ChecklistItem } from "../../external/discord";
 import { sendChecklist } from "../../external/discord";
 import { compactMessages } from "../context";
-import type { AgentState } from "../runner-types";
 import { truncateToolResult } from "../token-budget";
-import { buildToolTable } from "../tool-table";
 import { isToolName, ToolName } from "../tools/definitions";
-import { executeBash } from "../tools/implementations/commands";
-import { listMemories, recall } from "../tools/implementations/memory";
+import { executeBash, glob, grep } from "../tools/implementations/commands";
+import {
+	createDirectory,
+	deleteFile,
+	editFile,
+	getFileInfo,
+	listDirectory,
+	moveFile,
+	readFile,
+	readFileRange,
+	searchFiles,
+	writeFile,
+} from "../tools/implementations/filesystem";
+import { deleteMemory, listMemories, recall, remember, updateMemory } from "../tools/implementations/memory";
+import { addTask, getCurrentTask, listTasks, setCurrentTask, updateTask } from "../tools/implementations/task";
+import { webFetch, webSearch } from "../tools/implementations/web";
 import {
 	ToolValidationError,
+	validateAddTask,
 	validateAskChecklist,
 	validateBash,
 	validateCommitChanges,
+	validateCreateDirectory,
+	validateDeleteFile,
+	validateDeleteMemory,
+	validateEditFile,
 	validateExitPlanMode,
+	validateGetFileInfo,
+	validateGlob,
+	validateGrep,
+	validateListDirectory,
 	validateListMemories,
+	validateListTasks,
+	validateMoveFile,
+	validateQuestion,
+	validateReadFile,
+	validateReadFileRange,
 	validateRecall,
+	validateRemember,
+	validateSearchFiles,
+	validateSendGraph,
+	validateSendReport,
+	validateSetCurrentTask,
+	validateUpdateMemory,
+	validateUpdateTask,
+	validateWebFetch,
+	validateWebSearch,
+	validateWriteFile,
 } from "../tools/validators";
+import type { AgentState } from "../types";
 import { commitChanges } from "../utils/git";
 import {
 	isBashCommandReadOnly,
-	isPlanModeToolAllowed,
 	PLAN_MODE_BASH_BLOCKED_MESSAGE,
 	PLAN_MODE_BLOCKED_MESSAGE,
+	PLAN_MODE_TOOLS,
 } from "../utils/plan-mode";
-import { handleQueueQuestion, handleSendGraph, handleSendReport, handleUrgentQuestion } from "./question-handlers";
+import {
+	handleQueueQuestion,
+	handleSendGraph,
+	handleSendReport,
+	handleUrgentQuestion,
+} from "./question-handlers";
 
 function isObj(v: unknown): v is Record<string, unknown> {
 	return typeof v === "object" && v !== null;
@@ -115,39 +157,89 @@ export async function executeTools(
 export async function dispatchTool(agent: AgentState, name: ToolName, input: Record<string, unknown>): Promise<string> {
 	// ── Plan mode enforcement ────────────────────────────────────────────────────
 	if (agent.planMode) {
-		if (!isPlanModeToolAllowed(name)) return PLAN_MODE_BLOCKED_MESSAGE;
+		if (!PLAN_MODE_TOOLS.has(name)) return PLAN_MODE_BLOCKED_MESSAGE;
 		if (name === ToolName.Bash && !isBashCommandReadOnly(typeof input.command === "string" ? input.command : "")) {
 			return PLAN_MODE_BASH_BLOCKED_MESSAGE;
 		}
 	}
 
-	// ── Table-driven dispatch for simple validate → execute tools ─────────────
-	const entry = agent.toolTable[name];
-	if (entry) {
-		entry.validate(input);
-		return await entry.execute(input);
-	}
-
-	// ── Tools requiring custom control flow ──────────────────────────────────────
 	switch (name) {
-		case ToolName.EnterPlanMode: {
-			agent.planMode = true;
-			sessionEmitter.emit(agent.sessionId, { type: "plan_mode", data: { active: true } });
-			return "Entered plan mode. Only read-only tools are available (grep, glob, read_file, list_directory, search_files, bash read-only commands). Call exit_plan_mode when ready to implement.";
+		// ── File system ────────────────────────────────────────────────────────
+		case ToolName.Grep: {
+			validateGrep(input);
+			return await grep(input.pattern, input.path ?? ".", input.include, input.flags ?? "");
 		}
-		case ToolName.ExitPlanMode: {
-			validateExitPlanMode(input);
-			agent.planMode = false;
-			const summary = input.plan_summary;
-			sessionEmitter.emit(agent.sessionId, { type: "plan_mode", data: { active: false, summary } });
-			return summary ? `Exited plan mode. Plan summary recorded:\n${summary}` : "Exited plan mode. Full tool access restored.";
+		case ToolName.Glob: {
+			validateGlob(input);
+			return await glob(input.pattern, input.path ?? ".");
 		}
-		case ToolName.Bash: {
-			validateBash(input);
-			const r = await executeBash(input.command, input.timeout_ms ?? 30_000);
-			return [r.stdout ? `STDOUT:\n${r.stdout}` : "", r.stderr ? `STDERR:\n${r.stderr}` : "", `Exit code: ${r.exitCode}`]
-				.filter(Boolean)
-				.join("\n");
+		case ToolName.ReadFile: {
+			validateReadFile(input);
+			return await readFile(input.path);
+		}
+		case ToolName.WriteFile: {
+			validateWriteFile(input);
+			await writeFile(input.path, input.content);
+			return `Written to ${input.path}`;
+		}
+		case ToolName.ListDirectory: {
+			validateListDirectory(input);
+			return await listDirectory(input.path ?? "");
+		}
+		case ToolName.SearchFiles: {
+			validateSearchFiles(input);
+			return await searchFiles(
+				input.pattern,
+				input.path ?? ".",
+				input.file_pattern ?? "*",
+				input.case_sensitive ?? false,
+				input.max_results ?? 100
+			);
+		}
+		case ToolName.EditFile: {
+			validateEditFile(input);
+			return await editFile(input.path, input.old_string, input.new_string, input.replace_all ?? false);
+		}
+		case ToolName.MoveFile: {
+			validateMoveFile(input);
+			return await moveFile(input.source, input.destination);
+		}
+		case ToolName.DeleteFile: {
+			validateDeleteFile(input);
+			return await deleteFile(input.path, input.recursive ?? false);
+		}
+		case ToolName.CreateDirectory: {
+			validateCreateDirectory(input);
+			return await createDirectory(input.path);
+		}
+		case ToolName.GetFileInfo: {
+			validateGetFileInfo(input);
+			return await getFileInfo(input.path);
+		}
+		case ToolName.ReadFileRange: {
+			validateReadFileRange(input);
+			return await readFileRange(input.path, input.start_line, input.end_line);
+		}
+
+		// ── Memory ─────────────────────────────────────────────────────────────
+		case ToolName.Remember: {
+			validateRemember(input);
+			return await remember(input.type, input.title, input.content, input.metadata);
+		}
+		case ToolName.UpdateMemory: {
+			validateUpdateMemory(input);
+			await updateMemory(input.id, {
+				...(input.title !== undefined && { title: input.title }),
+				...(input.content !== undefined && { content: input.content }),
+				...(input.type !== undefined && { type: input.type }),
+				...(input.metadata !== undefined && { metadata: input.metadata }),
+			});
+			return "Memory updated.";
+		}
+		case ToolName.DeleteMemory: {
+			validateDeleteMemory(input);
+			await deleteMemory(input.id);
+			return "Memory deleted.";
 		}
 		case ToolName.Recall: {
 			validateRecall(input);
@@ -163,6 +255,82 @@ export async function dispatchTool(agent: AgentState, name: ToolName, input: Rec
 				? entries.map((e) => `[${e.id}] (${e.type}) ${e.title}: ${e.content.slice(0, 150)}`).join("\n")
 				: "No memories found.";
 		}
+
+		// ── Questions ──────────────────────────────────────────────────────────
+		case ToolName.QueueQuestion: {
+			validateQuestion(input);
+			return await handleQueueQuestion(agent, input);
+		}
+		case ToolName.UrgentQuestion: {
+			validateQuestion(input);
+			return await handleUrgentQuestion(agent, input);
+		}
+
+		// ── Reports ────────────────────────────────────────────────────────────
+		case ToolName.SendReport: {
+			validateSendReport(input);
+			return await handleSendReport(agent, input);
+		}
+		case ToolName.SendGraph: {
+			validateSendGraph(input);
+			return await handleSendGraph(agent, input);
+		}
+
+		// ── Task management ────────────────────────────────────────────────────
+		case ToolName.AddTask: {
+			validateAddTask(input);
+			return await addTask(agent.db, agent.sessionId, input.text, input.status, input.dependsOn);
+		}
+		case ToolName.ListTasks: {
+			validateListTasks(input);
+			return await listTasks(agent.db, input.filter ?? "all");
+		}
+		case ToolName.UpdateTask: {
+			validateUpdateTask(input);
+			return await updateTask(agent.db, agent.sessionId, input.id, input.status, input.text, input.dependsOn);
+		}
+		case ToolName.SetCurrentTask: {
+			validateSetCurrentTask(input);
+			return await setCurrentTask(agent.db, agent.sessionId, input.id);
+		}
+		case ToolName.GetCurrentTask: {
+			return await getCurrentTask(agent.db);
+		}
+
+		// ── Web ────────────────────────────────────────────────────────────────
+		case ToolName.WebSearch: {
+			validateWebSearch(input);
+			return await webSearch(input.query, input.limit ?? 8);
+		}
+		case ToolName.WebFetch: {
+			validateWebFetch(input);
+			return await webFetch(input.url, input.max_chars ?? 20_000);
+		}
+
+		// ── Plan mode ──────────────────────────────────────────────────────────
+		case ToolName.EnterPlanMode: {
+			agent.planMode = true;
+			sessionEmitter.emit(agent.sessionId, { type: "plan_mode", data: { active: true } });
+			return "Entered plan mode. Only read-only tools are available (grep, glob, read_file, list_directory, search_files, bash read-only commands). Call exit_plan_mode when ready to implement.";
+		}
+		case ToolName.ExitPlanMode: {
+			validateExitPlanMode(input);
+			agent.planMode = false;
+			const summary = input.plan_summary;
+			sessionEmitter.emit(agent.sessionId, { type: "plan_mode", data: { active: false, summary } });
+			return summary ? `Exited plan mode. Plan summary recorded:\n${summary}` : "Exited plan mode. Full tool access restored.";
+		}
+
+		// ── Shell ──────────────────────────────────────────────────────────────
+		case ToolName.Bash: {
+			validateBash(input);
+			const r = await executeBash(input.command, input.timeout_ms ?? 30_000);
+			return [r.stdout ? `STDOUT:\n${r.stdout}` : "", r.stderr ? `STDERR:\n${r.stderr}` : "", `Exit code: ${r.exitCode}`]
+				.filter(Boolean)
+				.join("\n");
+		}
+
+		// ── Utilities ──────────────────────────────────────────────────────────
 		case ToolName.CommitChanges: {
 			validateCommitChanges(input);
 			const result = await commitChanges(WORKSPACE, input.message, !(input.skip_checks as boolean));
@@ -192,17 +360,8 @@ export async function dispatchTool(agent: AgentState, name: ToolName, input: Rec
 			}
 			return "Checklist sent but no response received — proceeding with best judgment.";
 		}
+
 		default:
 			return `Unknown tool: ${name}`;
 	}
-}
-
-/** Build a fresh tool table bound to this agent's question/report handlers. */
-export function buildAgentToolTable(agent: AgentState): import("../tool-table").ToolTable {
-	return buildToolTable(agent.db, agent.sessionId, {
-		queueQuestion: (i) => handleQueueQuestion(agent, i),
-		urgentQuestion: (i) => handleUrgentQuestion(agent, i),
-		sendReport: (i) => handleSendReport(agent, i),
-		sendGraph: (i) => handleSendGraph(agent, i),
-	});
 }

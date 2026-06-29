@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { env } from "../env";
-import type { AgentStateConfig } from "./runner-types";
+import type { AgentStateConfig } from "./types";
 import { MEMORY_SYSTEM_DESCRIPTION } from "./workspace";
 
 /**

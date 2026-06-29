@@ -3,7 +3,6 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import type { Db } from "../db";
 import type { CompactionCircuitBreaker, TokenWarningState } from "./token-budget";
-import type { ToolTable } from "./tool-table";
 
 export type AlwaysImproveMode = "yes" | "no" | "custom";
 export type FreezeAskMode = "always" | "requiredOnly" | "onReportOnly" | "never";
@@ -34,7 +33,6 @@ export type AgentState = {
 	//
 	messages: MessageParam[];
 	systemPrompt: string;
-	toolTable: ToolTable;
 	//
 	startTime: number;
 	lastReportTime: number | null;

@@ -1,6 +1,6 @@
 import { updateSession } from "../../db";
 import { sessionEmitter } from "../../emitter";
-import type { AgentState } from "../runner-types";
+import type { AgentState } from "../types";
 
 export function setStatus(
 	agent: AgentState,

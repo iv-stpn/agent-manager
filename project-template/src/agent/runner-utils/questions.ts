@@ -1,9 +1,9 @@
 import type { Question } from "@agent-manager/db/project-schema";
 import { nanoid } from "nanoid";
 import { answerQuestion, getPendingQuestions, insertQuestion } from "../../db";
-import type { AgentState } from "../runner-types";
 import { recall, remember, updateMemory } from "../tools/implementations/memory";
 import type { QuestionInput } from "../tools/validators";
+import type { AgentState } from "../types";
 
 export function makeQuestion(agent: AgentState, input: QuestionInput, isUrgent: boolean): Question {
 	const suggestions = input.suggestions ? JSON.stringify(input.suggestions) : null;
