@@ -71,6 +71,21 @@ The orchestrator's own database (`host.db`): templates, archived projects/sessio
 | `content` | `TEXT` | not null, default `''` | — |
 | `created_at` | `INTEGER` | not null | — |
 | `updated_at` | `INTEGER` | not null | — |
+| `language` | `TEXT` | — | — |
+
+### `llm_clients`
+
+| Column | Type | Constraints | Description |
+| --- | --- | --- | --- |
+| `id` | `TEXT` | PK | — |
+| `name` | `TEXT` | not null | — |
+| `provider` | `TEXT` | not null | — |
+| `api_key` | `TEXT` | not null, default `''` | — |
+| `base_url` | `TEXT` | not null, default `''` | — |
+| `model` | `TEXT` | not null, default `''` | — |
+| `small_model` | `TEXT` | not null, default `''` | — |
+| `created_at` | `INTEGER` | not null | — |
+| `updated_at` | `INTEGER` | not null | — |
 
 ### `statistics`
 
@@ -202,14 +217,14 @@ An autonomous agent run within a project. Holds the task, its runtime configurat
 | `id` | `text` | PK | — |
 | `name` | `text` | — | Human-friendly session label; null until named. |
 | `task` | `text` | not null | The task prompt the agent is working on. |
-| `status` | `text` | not null, default `running` | Current lifecycle state of the session. One of: `running`, `paused`, `compacting`, `completed`, `stopped`, `error` |
+| `status` | `text` | not null, default `running` | Current lifecycle state of the session. One of: `running`, `paused`, `compacting`, `completed`, `aborted`, `error` |
 | `report_interval_mins` | `integer` | not null, default `15` | Minutes between automatic progress reports. |
 | `total_timeout_mins` | `integer` | not null, default `240` | Hard wall-clock cap before the session is stopped. |
 | `freeze_report_mode` | `text` | not null, default `never` | When to pause for a report before continuing. One of: `always`, `never`, `custom` |
 | `freeze_report_custom_rule` | `text` | — | Natural-language rule used when freezeReportMode is "custom". |
 | `freeze_ask_mode` | `text` | not null, default `always` | When the agent is allowed to block on a question. One of: `always`, `requiredOnly`, `onReportOnly`, `never` |
 | `compact_threshold_tokens` | `integer` | not null, default `80000` | Context size that triggers a compaction. |
-| `stop_threshold_tokens` | `integer` | not null, default `400000` | Context size that force-stops the session. |
+| `stop_threshold_tokens` | `integer` | not null, default `2000000` | Context size that force-stops the session. |
 | `always_improve_mode` | `text` | not null, default `no` | Whether the agent keeps improving after the task is "done". One of: `yes`, `no`, `custom` |
 | `always_improve_scope` | `text` | — | Scope describing what to keep improving when mode is "custom". |
 | `total_input_tokens` | `integer` | not null, default `0` | Cumulative input tokens across the session. |
