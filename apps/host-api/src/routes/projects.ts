@@ -13,10 +13,20 @@ import {
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { env } from "../env";
 import { getErrorMessage } from "../lib/errors";
 import type { HonoHostEnv } from "../types";
 
 export type WorkspaceFolderStatus = "not_found" | "empty" | "not_empty" | "not_directory";
+
+function lanceTableName(projectId: string): string {
+	return `project_${projectId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
+
+async function dropLanceTable(projectId: string): Promise<void> {
+	const name = lanceTableName(projectId);
+	await fetch(`${env.LANCEDB_URL}/tables/${name}`, { method: "DELETE" });
+}
 
 async function enrichProject(
 	ctx: Context<HonoHostEnv>,
@@ -218,7 +228,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			} catch {
 				// Ignore if already stopped
 			}
-			await manager.deleteProject(projectId);
+			await Promise.all([manager.deleteProject(projectId), dropLanceTable(projectId)]);
 			hub.projectStopped(projectId);
 			return c.json({ success: true });
 		} catch (error) {
@@ -265,7 +275,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 
 				// Delete project data
 				await send("delete-project", "running", "Deleting project...");
-				await manager.deleteProject(projectId);
+				await Promise.all([manager.deleteProject(projectId), dropLanceTable(projectId)]);
 				hub.projectStopped(projectId);
 				await send("delete-project", "done", "Project deleted");
 

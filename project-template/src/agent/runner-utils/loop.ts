@@ -303,6 +303,10 @@ export async function runLoop(agent: AgentState): Promise<void> {
 					createdAt: Date.now(),
 				});
 				agent.lastUserMessageId = message.id;
+				// Push the tool-result turn over SSE so live viewers see it without a
+				// refetch. Without this emit, the message is persisted but invisible
+				// until the next full reload — the intermittent "missing tool results".
+				emitMessage(agent, { id: message.id, role: "user", content: toolResults, inputTokens, cacheReadTokens });
 
 				// In 'always' mode: flush pending questions after each tool batch
 				if (agent.config.freezeAskMode === "always" && agent.pendingQuestions.length > 0) {

@@ -128,6 +128,16 @@ app.post("/tables/:table/delete", async (c) => {
 	return c.json({ deleted: true });
 });
 
+// Drop table entirely
+app.delete("/tables/:table", async (c) => {
+	const tableName = c.req.param("table");
+	const tables = await db.tableNames();
+	if (tables.includes(tableName)) {
+		await db.dropTable(tableName);
+	}
+	return c.json({ dropped: true });
+});
+
 // Update by id
 app.put("/tables/:table/update", async (c) => {
 	const tableName = c.req.param("table");

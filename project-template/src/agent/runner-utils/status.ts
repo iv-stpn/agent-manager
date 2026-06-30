@@ -16,6 +16,7 @@ export function emitMessage(
 		id: string;
 		role: "user" | "assistant" | "system";
 		content: unknown;
+		inputTokens?: number;
 		outputTokens?: number;
 		cacheReadTokens?: number;
 		cacheWriteTokens?: number;
@@ -30,7 +31,7 @@ export function emitMessage(
 			sessionId: agent.sessionId,
 			role: data.role,
 			content: data.content,
-			inputTokens: 0,
+			inputTokens: data.inputTokens ?? 0,
 			outputTokens: data.outputTokens ?? 0,
 			cacheReadTokens: data.cacheReadTokens ?? 0,
 			cacheWriteTokens: data.cacheWriteTokens ?? 0,
