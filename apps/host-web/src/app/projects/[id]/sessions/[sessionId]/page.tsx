@@ -1,14 +1,15 @@
 import { createSessionStream } from "@agent-manager/utils";
-import { ArrowLeft, RefreshCw, Send, Square } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft, Pause, RefreshCw, RotateCcw, Send, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { CheckinTimeline } from "@/components/checkin-timeline";
-import { CompactionTimeline } from "@/components/compaction-timeline";
-import { MessageFeed } from "@/components/message-feed";
+import { StartupProgressModal } from "@/components/dialog/docker-progress-modal";
 import { TaskTree } from "@/components/task-tree";
+import { CheckinTimeline } from "@/components/timeline/checkin-timeline";
+import { CompactionTimeline } from "@/components/timeline/compaction-timeline";
+import { MessageFeed } from "@/components/timeline/message-feed";
+import { ToolCallCard } from "@/components/timeline/tool-call-card";
 import { TokenChart } from "@/components/token-chart";
-import { ToolCallCard } from "@/components/tool-call-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +25,8 @@ import {
 	getSession,
 	getTasks,
 	getToolCalls,
+	pauseSession,
+	restartSession,
 	sendSessionMessage,
 	stopSession,
 } from "@/lib/agent-api";
@@ -38,9 +41,13 @@ export default function SessionPage() {
 	const sessionId = params.sessionId;
 
 	const [stopping, setStopping] = useState(false);
+	const [pausing, setPausing] = useState(false);
+	const [restarting, setRestarting] = useState(false);
 	const [chatInput, setChatInput] = useState("");
 	const [sending, setSending] = useState(false);
 	const [streamingText, setStreamingText] = useState("");
+	const [streamingThinking, setStreamingThinking] = useState("");
+	const [streamingToolcall, setStreamingToolcall] = useState<{ name: string; inputDelta: string } | null>(null);
 	const [planMode, setPlanMode] = useState(false);
 	const [tokenWarning, setTokenWarning] = useState<{
 		state: string;
@@ -49,6 +56,31 @@ export default function SessionPage() {
 		contextWindow: number;
 	} | null>(null);
 	const chatRef = useRef<HTMLTextAreaElement>(null);
+	const [viewport, setViewport] = useState<HTMLElement | null>(null);
+	const [isAtBottom, setIsAtBottom] = useState(true);
+	const scrollAreaRef = useCallback((node: HTMLDivElement | null) => {
+		setViewport(node?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]") ?? null);
+	}, []);
+
+	useEffect(() => {
+		if (!viewport) return;
+		const handleScroll = () => {
+			const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+			setIsAtBottom(distanceFromBottom < 80);
+		};
+		handleScroll();
+		viewport.addEventListener("scroll", handleScroll);
+		return () => viewport.removeEventListener("scroll", handleScroll);
+	}, [viewport]);
+
+	function scrollToBottom() {
+		viewport?.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
+	}
+
+	// When the project is stopped, sending a message starts it first (via the
+	// startup progress modal) and the message is delivered once startup succeeds.
+	const [progressOpen, setProgressOpen] = useState(false);
+	const pendingMessageRef = useRef<string | null>(null);
 
 	// Cache keys — shared across mounts so navigating away and back reuses what
 	// we already fetched instead of re-querying.
@@ -91,6 +123,14 @@ export default function SessionPage() {
 	);
 	const { data: tasks = [] } = useQuery<Task[]>(tkKey, async () => (projectId ? await getTasks(projectId) : []));
 
+	// A pending pause clears itself once the session actually stops (status
+	// leaves the active set) — there's no separate confirmation event, the
+	// agent finishes its in-flight message asynchronously before that happens.
+	useEffect(() => {
+		const active = session?.status === "running" || session?.status === "paused" || session?.status === "compacting";
+		if (!active) setPausing(false);
+	}, [session?.status]);
+
 	const refreshAll = useCallback(() => {
 		refetchSession();
 		refetchMessages();
@@ -103,7 +143,7 @@ export default function SessionPage() {
 	// Reuse the shared project cache populated by the project page. If arriving
 	// directly on this URL, fetch it once here; the project page's SSE stream
 	// will keep it live if both pages are mounted simultaneously.
-	const { data: project } = useQuery<Project | null>(rKey, () => getProject(projectId));
+	const { data: project, refetch: refetchProject } = useQuery<Project | null>(rKey, () => getProject(projectId));
 	const running = project?.dockerStatus?.running ?? false;
 	const serverPort = project?.ports?.server;
 
@@ -115,19 +155,33 @@ export default function SessionPage() {
 		const es = createSessionStream(
 			sessionId,
 			(event) => {
-				if (event.type === "text_delta") {
+				if (event.type === "turn_start") {
+					// New LLM turn beginning — clear all live streaming state
+					setStreamingThinking("");
+					setStreamingToolcall(null);
+				} else if (event.type === "text_delta") {
 					setStreamingText((prev) => prev + event.data.text);
+				} else if (event.type === "thinking_delta") {
+					setStreamingThinking((prev) => prev + event.data.thinking);
+				} else if (event.type === "toolcall_start") {
+					setStreamingToolcall({ name: event.data.name, inputDelta: "" });
+				} else if (event.type === "toolcall_delta") {
+					setStreamingToolcall((prev) => (prev ? { ...prev, inputDelta: prev.inputDelta + event.data.inputDelta } : prev));
 				} else if (event.type === "session_updated") {
 					mutateCache<Session>(sKey, (s) => (s ? { ...s, ...event.data } : s));
 				} else if (event.type === "message") {
-					if ((event.data as { role?: string }).role === "assistant") setStreamingText("");
+					if ((event.data as { role?: string }).role === "assistant") {
+						setStreamingText("");
+						setStreamingThinking("");
+						setStreamingToolcall(null);
+					}
 					mutateCache<Message[]>(mKey, (prev = []) => (prev.some((m) => m.id === event.data.id) ? prev : [...prev, event.data]));
 				} else if (event.type === "tool_call") {
 					mutateCache<ToolCall[]>(tKey, (prev = []) => {
 						const idx = prev.findIndex((t) => t.id === event.data.id);
 						if (idx < 0) return [...prev, event.data];
 						const next = [...prev];
-						next[idx] = event.data;
+						next[idx] = { ...next[idx], ...event.data };
 						return next;
 					});
 				} else if (event.type === "token_update") {
@@ -200,8 +254,14 @@ export default function SessionPage() {
 			refreshAll();
 		};
 		es.onerror = () => {
-			mutateCache<Project>(rKey, (p) => (p ? { ...p, dockerStatus: { ...p.dockerStatus, running: false } } : p));
-			es.close();
+			// The browser auto-reconnects on a transient drop (readyState goes back
+			// to CONNECTING). Only treat this as "the project stopped" once the
+			// browser itself has given up (CLOSED) — otherwise closing here would
+			// permanently kill the stream on a one-off blip, with no way back short
+			// of a full page reload.
+			if (es.readyState === EventSource.CLOSED) {
+				mutateCache<Project>(rKey, (p) => (p ? { ...p, dockerStatus: { ...p.dockerStatus, running: false } } : p));
+			}
 		};
 
 		return () => es.close();
@@ -214,7 +274,34 @@ export default function SessionPage() {
 		}
 		setStopping(true);
 		await stopSession(projectId, sessionId);
+		// Don't wait on the SSE round-trip for the badge/buttons to reflect this —
+		// update locally now; the eventual session_updated event is a no-op merge.
+		mutateCache<Session>(sKey, (s) => (s ? { ...s, status: "aborted" } : s));
 		setStopping(false);
+	}
+
+	async function handlePause() {
+		if (!projectId || !sessionId) {
+			toast.info("No session is loaded.");
+			return;
+		}
+		setPausing(true);
+		await pauseSession(projectId, sessionId);
+		toast.info("Agent will stop after its current message");
+		// No optimistic status update here — the agent is still actively running
+		// until it finishes its in-flight message; `pausing` resets itself (see
+		// the effect above) once the session_updated event reports it stopped.
+	}
+
+	async function handleRestart() {
+		if (!projectId || !sessionId) {
+			toast.info("No session is loaded.");
+			return;
+		}
+		setRestarting(true);
+		await restartSession(projectId, sessionId);
+		mutateCache<Session>(sKey, (s) => (s ? { ...s, status: "running" } : s));
+		setRestarting(false);
 	}
 
 	async function handleSendMessage() {
@@ -225,8 +312,32 @@ export default function SessionPage() {
 
 		const text = chatInput.trim();
 		if (!text || sending) return;
-		setSending(true);
 		setChatInput("");
+
+		if (!running) {
+			// Project is stopped — start it first, then deliver the message once
+			// startup succeeds (see handleStartupComplete).
+			pendingMessageRef.current = text;
+			setProgressOpen(true);
+			return;
+		}
+
+		setSending(true);
+		try {
+			await sendSessionMessage(projectId, sessionId, text);
+		} finally {
+			setSending(false);
+			chatRef.current?.focus();
+		}
+	}
+
+	async function handleStartupComplete(success: boolean) {
+		setProgressOpen(false);
+		refetchProject();
+		const text = pendingMessageRef.current;
+		pendingMessageRef.current = null;
+		if (!success || !text || !projectId || !sessionId) return;
+		setSending(true);
 		try {
 			await sendSessionMessage(projectId, sessionId, text);
 		} finally {
@@ -268,13 +379,19 @@ export default function SessionPage() {
 	return (
 		<div className="h-full flex flex-col  overflow-x-hidden">
 			{/* Top bar */}
-			<div className="border-b shrink-0 py-4 h-[110px]">
+			<div className="border-b shrink-0 py-4 h-[72px]">
 				<div className={containerClassName}>
 					<div className="flex items-center gap-4">
 						<div className="flex-1 min-w-0">
 							{session.name && <p className="text-lg font-semibold truncate mb-1">{session.name}</p>}
 						</div>
 						<Badge className={cn("capitalize shrink-0", statusBg(session.status))}>{session.status}</Badge>
+						{(session.status === "error" || session.status === "aborted") && (
+							<Button variant="outline" size="sm" onClick={handleRestart} disabled={restarting}>
+								<RotateCcw className="h-3 w-3" />
+								{restarting ? "Restarting..." : "Restart"}
+							</Button>
+						)}
 						{planMode && (
 							<Badge className="shrink-0 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">📋 Plan Mode</Badge>
 						)}
@@ -297,6 +414,18 @@ export default function SessionPage() {
 							<RefreshCw className="h-4 w-4" />
 						</Button>
 						{isActive && (
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={handlePause}
+								disabled={pausing || stopping}
+								title="Stop the agent after it finishes its current message"
+							>
+								<Pause className="h-3 w-3" />
+								{pausing ? "Pausing..." : "Pause"}
+							</Button>
+						)}
+						{isActive && (
 							<Button variant="destructive" size="sm" onClick={handleStop} disabled={stopping}>
 								<Square className="h-3 w-3" />
 								{stopping ? "Stopping..." : "Stop"}
@@ -307,56 +436,73 @@ export default function SessionPage() {
 			</div>
 
 			{/* Main layout */}
-			<div className={cn("flex h-[calc(100vh-110px)]", containerClassName)}>
+			<div className={cn("flex h-[calc(100vh-72px)]", containerClassName)}>
 				{/* Left: message feed + chat input */}
 				<div className="flex-1 flex flex-col overflow-hidden border-r">
-					<ScrollArea className="flex-1">
+					{tasks.length > 0 && (
+						<div className="shrink-0 border-b bg-background px-4 py-2 max-h-[30vh] overflow-y-auto">
+							<TaskTree tasks={tasks} />
+						</div>
+					)}
+					<ScrollArea className="flex-1" ref={scrollAreaRef}>
 						<MessageFeed
 							messages={messages}
 							toolCalls={toolCalls}
 							sessionStatus={session.status}
 							pendingToolCalls={toolCalls.filter((tc) => tc.status === "pending").length}
 							streamingText={streamingText}
+							streamingThinking={streamingThinking}
+							streamingToolcall={streamingToolcall}
+							autoScroll={isAtBottom}
 						/>
 					</ScrollArea>
-					{/* Chat input — active sessions: interrupt; inactive: resume */}
-					{running !== false && (
-						<div className="border-t p-3 shrink-0 flex gap-2 items-end">
-							<textarea
-								ref={chatRef}
-								className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring min-h-[38px] max-h-[120px]"
-								rows={1}
-								placeholder={
-									session.status === "running" || session.status === "paused" || session.status === "compacting"
+					{/* Chat input — always visible: interrupt while active, resume when idle,
+					    or start the project when stopped */}
+					<div className="border-t p-3 shrink-0 relative flex gap-2 items-end">
+						{!isAtBottom && (
+							<Button
+								variant="secondary"
+								size="icon"
+								onClick={scrollToBottom}
+								title="Scroll to bottom"
+								className="absolute -top-12 right-6 shadow-md"
+							>
+								<ArrowDownToLine className="h-4 w-4" />
+							</Button>
+						)}
+						<textarea
+							ref={chatRef}
+							className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring min-h-[38px] max-h-[120px]"
+							rows={1}
+							placeholder={
+								!running
+									? "Project is stopped — sending a message will start it… (⌘↵ to send)"
+									: session.status === "running" || session.status === "paused" || session.status === "compacting"
 										? "Interrupt agent… (⌘↵ to send)"
 										: "Resume session with a message… (⌘↵ to send)"
+							}
+							value={chatInput}
+							onChange={(e) => setChatInput(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+									e.preventDefault();
+									handleSendMessage();
 								}
-								value={chatInput}
-								onChange={(e) => setChatInput(e.target.value)}
-								onKeyDown={(e) => {
-									if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-										e.preventDefault();
-										handleSendMessage();
-									}
-								}}
-								disabled={sending}
-							/>
-							<Button size="sm" onClick={handleSendMessage} disabled={!chatInput.trim() || sending} className="shrink-0 self-end">
-								<Send className="h-3 w-3" />
-							</Button>
-						</div>
-					)}
+							}}
+							disabled={sending}
+						/>
+						<Button size="sm" onClick={handleSendMessage} disabled={!chatInput.trim() || sending} className="shrink-0 self-end">
+							<Send className="h-3 w-3" />
+						</Button>
+					</div>
 				</div>
 
 				{/* Right: sidebar */}
 				<div className="w-[448px] shrink-0 flex flex-col overflow-hidden">
-					<Tabs defaultValue="tokens" className="flex flex-col flex-1 overflow-hidden">
+					<Tabs defaultValue="summary" className="flex flex-col flex-1 overflow-hidden">
 						<TabsList className="m-3 shrink-0">
 							<TabsTrigger value="summary" className="flex-1">
 								Summary
-							</TabsTrigger>
-							<TabsTrigger value="tokens" className="flex-1">
-								Tokens
 							</TabsTrigger>
 							<TabsTrigger value="tools" className="flex-1">
 								Tools
@@ -380,29 +526,23 @@ export default function SessionPage() {
 						</TabsList>
 
 						<TabsContent value="summary" className="flex-1 overflow-auto p-3 mt-0">
-							<Card>
-								<CardContent className="pt-4 pb-3 space-y-3 text-sm">
-									<div>
-										<p className="text-xs text-muted-foreground mb-0.5">Session ID</p>
-										<p className="font-mono text-xs break-all">{sessionId}</p>
-									</div>
-									<div>
-										<p className="text-xs text-muted-foreground mb-0.5">Task</p>
-										<p>{session.task}</p>
-									</div>
-									<div className="flex justify-between">
-										<span className="text-muted-foreground">Messages</span>
-										<span>{messages.length}</span>
-									</div>
-								</CardContent>
-							</Card>
-							<div className="mt-3">
-								<TaskTree tasks={tasks} />
-							</div>
-						</TabsContent>
-
-						<TabsContent value="tokens" className="flex-1 overflow-auto p-3 mt-0">
 							<div className="space-y-4">
+								<Card>
+									<CardContent className="pt-4 pb-3 space-y-3 text-sm">
+										<div>
+											<p className="text-xs text-muted-foreground mb-0.5">Session ID</p>
+											<p className="font-mono text-xs break-all">{sessionId}</p>
+										</div>
+										<div>
+											<p className="text-xs text-muted-foreground mb-0.5">Task</p>
+											<p>{session.task}</p>
+										</div>
+										<div className="flex justify-between">
+											<span className="text-muted-foreground">Messages</span>
+											<span>{messages.length}</span>
+										</div>
+									</CardContent>
+								</Card>
 								<div className="grid grid-cols-2 gap-3">
 									<Card>
 										<CardContent className="pt-4 pb-3">
@@ -522,6 +662,16 @@ export default function SessionPage() {
 					</Tabs>
 				</div>
 			</div>
+
+			{projectId && (
+				<StartupProgressModal
+					open={progressOpen}
+					onOpenChange={setProgressOpen}
+					projectId={projectId}
+					action="start"
+					onComplete={handleStartupComplete}
+				/>
+			)}
 		</div>
 	);
 }

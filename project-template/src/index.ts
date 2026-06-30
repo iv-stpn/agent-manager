@@ -35,7 +35,7 @@ app
 	.route("/api/sessions", streamRouter);
 
 try {
-	Bun.serve({ port: env.PORT, fetch: app.fetch });
+	Bun.serve({ port: env.PORT, fetch: app.fetch, idleTimeout: 0 });
 	console.log(`[Server] API running on http://localhost:${env.PORT}`);
 } catch (err) {
 	console.error("[Server] Failed to bind:", err);

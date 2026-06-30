@@ -360,4 +360,55 @@ export class ProjectDocker {
 
 		await $`docker compose -f ${composePath} build --no-cache --pull`.cwd(projectDir);
 	}
+
+	/**
+	 * Build with captured output — used to stream `docker compose build` logs
+	 * to the UI, since a no-cache image rebuild can take a while.
+	 */
+	async buildProjectWithOutput(projectId: string, onLine?: (line: string) => void | Promise<void>): Promise<string> {
+		const projectDir = this.manager.getProjectDir(projectId);
+		const composePath = join(projectDir, "docker-compose.yml");
+
+		if (!existsSync(composePath)) {
+			throw new Error(`Project "${projectId}" docker-compose.yml not found`);
+		}
+
+		const proc = Bun.spawn(["docker", "compose", "-f", composePath, "build", "--no-cache", "--pull"], {
+			cwd: projectDir,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+
+		const lines: string[] = [];
+		const readStream = async (stream: ReadableStream<Uint8Array>) => {
+			const reader = stream.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				buffer += decoder.decode(value, { stream: true });
+				const parts = buffer.split("\n");
+				buffer = parts.pop() || "";
+				for (const line of parts) {
+					if (line.trim()) {
+						lines.push(line);
+						await onLine?.(line);
+					}
+				}
+			}
+			if (buffer.trim()) {
+				lines.push(buffer);
+				await onLine?.(buffer);
+			}
+		};
+
+		await Promise.all([readStream(proc.stdout), readStream(proc.stderr)]);
+		const exitCode = await proc.exited;
+		if (exitCode !== 0) {
+			throw new Error(lines.join("\n") || `docker compose build failed with exit code ${exitCode}`);
+		}
+
+		return lines.join("\n");
+	}
 }

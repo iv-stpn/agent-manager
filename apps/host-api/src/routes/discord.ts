@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { ChannelStore } from "../discord/channels";
-import { sendChecklist, sendReport } from "../discord/interactions";
+import { sendQuestions, sendReport } from "../discord/interactions";
 import type { HonoHostEnv } from "../types";
 
 const ReportSchema = z.object({
@@ -23,16 +23,23 @@ const ReportSchema = z.object({
 	),
 });
 
-const ChecklistSchema = z.object({
+const QuestionsSchema = z.object({
 	sessionId: z.string().min(1),
 	title: z.string(),
-	items: z.array(
+	questions: z.array(
 		z.object({
-			id: z.string(),
 			question: z.string(),
-			description: z.string().optional(),
+			header: z.string(),
+			options: z.array(
+				z.object({
+					label: z.string(),
+					description: z.string(),
+				})
+			),
+			multiSelect: z.boolean().optional(),
 		})
 	),
+	urgent: z.boolean().default(false),
 });
 
 const MessageSchema = z.object({
@@ -74,8 +81,8 @@ export const discordRouter = new Hono<HonoHostEnv>()
 		}
 	})
 
-	.post("/:id/discord/checklist", async (c) => {
-		const body = ChecklistSchema.parse(await c.req.json());
+	.post("/:id/discord/questions", async (c) => {
+		const body = QuestionsSchema.parse(await c.req.json());
 
 		if (!channelStore) return c.json({ error: "Discord not configured" }, 503);
 
@@ -86,7 +93,7 @@ export const discordRouter = new Hono<HonoHostEnv>()
 		const timeout = setTimeout(() => controller.abort(), 10 * 60 * 1000);
 
 		try {
-			const answers = await sendChecklist(channelRecord.id, body.sessionId, body.title, body.items, controller.signal);
+			const answers = await sendQuestions(channelRecord.id, body.sessionId, body.title, body.questions, body.urgent, controller.signal);
 			return c.json({ answers });
 		} finally {
 			clearTimeout(timeout);

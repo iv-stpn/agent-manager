@@ -25,7 +25,7 @@ export async function startDiscordBot(token: string, guild: string, clientId: st
 		partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 	});
 
-	client.on("ready", () => {
+	client.on("clientReady", () => {
 		console.log(`[Discord] Logged in as ${client?.user?.tag}`);
 	});
 

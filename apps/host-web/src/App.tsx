@@ -2,6 +2,7 @@ import { Route, Routes } from "react-router-dom";
 import GuidelineCategoriesPage from "./app/guideline-categories/page";
 import GuidelinesPage from "./app/guidelines/page";
 import Layout from "./app/layout";
+import LlmClientsPage from "./app/llm-clients/page";
 import Home from "./app/page";
 import ProjectDetailPage from "./app/projects/[id]/page";
 import SessionPage from "./app/projects/[id]/sessions/[sessionId]/page";
@@ -16,6 +17,7 @@ export default function App() {
 				<Route path="/projects/:id" element={<ProjectDetailPage />} />
 				<Route path="/projects/:id/sessions/:sessionId" element={<SessionPage />} />
 				<Route path="/statistics" element={<StatisticsPage />} />
+				<Route path="/llm-clients" element={<LlmClientsPage />} />
 				<Route path="/tech-stacks" element={<TechStacksPage />} />
 				<Route path="/guidelines" element={<GuidelinesPage />} />
 				<Route path="/guideline-categories" element={<GuidelineCategoriesPage />} />

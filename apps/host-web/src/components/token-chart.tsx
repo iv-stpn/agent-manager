@@ -20,7 +20,7 @@ export function TokenChart({ messages }: Props) {
 	let cumulativeCacheWrite = 0;
 
 	const data = messages
-		.filter((m) => (m.role === "assistant" || m.role === "system") && (m.inputTokens ?? 0) > 0)
+		.filter((m) => (m.inputTokens ?? 0) + (m.outputTokens ?? 0) + (m.cacheReadTokens ?? 0) + (m.cacheWriteTokens ?? 0) > 0)
 		.map((m, i) => {
 			cumulativeInput += m.inputTokens ?? 0;
 			cumulativeOutput += m.outputTokens ?? 0;

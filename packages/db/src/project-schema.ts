@@ -14,7 +14,7 @@ export const sessions = sqliteTable("sessions", {
 	name: text("name"), // Human-friendly session label; null until named.
 	task: text("task").notNull(), // The task prompt the agent is working on.
 	status: text("status", {
-		enum: ["running", "paused", "compacting", "completed", "stopped", "error"],
+		enum: ["running", "paused", "compacting", "completed", "aborted", "error"],
 	})
 		.notNull()
 		.default("running"), // Current lifecycle state of the session.
@@ -36,7 +36,7 @@ export const sessions = sqliteTable("sessions", {
 
 	// Token thresholds
 	compactThresholdTokens: integer("compact_threshold_tokens").notNull().default(80_000), // Context size that triggers a compaction.
-	stopThresholdTokens: integer("stop_threshold_tokens").notNull().default(400_000), // Context size that force-stops the session.
+	stopThresholdTokens: integer("stop_threshold_tokens").notNull().default(2_000_000), // Context size that force-stops the session.
 
 	// Always-improve
 	alwaysImproveMode: text("always_improve_mode", { enum: ["yes", "no", "custom"] })

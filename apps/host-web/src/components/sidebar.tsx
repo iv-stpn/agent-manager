@@ -1,7 +1,7 @@
-import { BarChart2, BookOpen, Home, Layers, Plus, Tags } from "lucide-react";
+import { BarChart2, BookOpen, Home, Key, Layers, Plus, Tags } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { NewProjectDialog } from "@/components/new-project-dialog";
+import { NewProjectDialog } from "@/components/dialog/new-project-dialog";
 import type { EnrichedProject } from "@/lib/agent-api";
 import { getProjects } from "@/lib/agent-api";
 import { createHostStream } from "@/lib/host-stream";
@@ -37,6 +37,7 @@ export function Sidebar() {
 
 	const bottomLinks = [
 		{ href: "/statistics", icon: BarChart2, label: "Statistics" },
+		{ href: "/llm-clients", icon: Key, label: "LLM Clients" },
 		{ href: "/tech-stacks", icon: Layers, label: "Tech Stacks" },
 		{ href: "/guidelines", icon: BookOpen, label: "Guidelines" },
 		{ href: "/guideline-categories", icon: Tags, label: "Guideline Categories" },

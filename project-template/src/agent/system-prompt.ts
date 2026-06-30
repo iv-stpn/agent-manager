@@ -1,72 +1,154 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { env } from "../env";
+import type { ResolvedProjectContext } from "../external/context";
 import type { AgentStateConfig } from "./types";
-import { MEMORY_SYSTEM_DESCRIPTION } from "./workspace";
 
-/**
- * Read the rendered per-project context (tech stacks / guidelines / local
- * instructions). The host writes it next to the agent DB, which is mounted
- * into the container, so no host-DB round-trip is needed. Returns "" when the
- * project has no context configured.
- */
-export function readProjectContext(): string {
-	try {
-		const path = join(dirname(env.DATABASE_PATH), "project-context.md");
-		if (!existsSync(path)) return "";
-		return readFileSync(path, "utf-8").trim();
-	} catch {
-		return "";
-	}
+export interface SystemPromptOpts {
+	isFirstSession?: boolean | undefined;
+	context?: ResolvedProjectContext | undefined;
 }
 
-export function buildSystemPrompt(cfg: AgentStateConfig): string {
-	const projectContext = readProjectContext();
-	return `You are an autonomous software engineering agent running unattended in a sandboxed Docker container. Your workspace is /workspace — every file you touch lives there. No human is watching in real time; you report asynchronously and keep working.
+export function buildSystemPrompt(cfg: AgentStateConfig, opts?: SystemPromptOpts): string {
+	const sections: string[] = [];
 
-Assist with authorized engineering and defensive security work. Refuse to build malware, destructive payloads, or anything designed to cause harm.
+	// ── Core identity ────────────────────────────────────────────────────────────
+	sections.push(
+		`You are an autonomous software engineering agent running unattended in a sandboxed Docker container. Your workspace is /workspace. No human is watching in real time, but they will get notified when you send reports or questions.`
+	);
 
-# Doing the work
-Read before you change. Understand the existing code, conventions, and tests before editing. Match the surrounding style rather than introducing your own.
+	// ── Project context (tech stack + guidelines + instructions) ─────────────────
+	const contextBlock = renderProjectContext(opts?.context);
+	if (contextBlock) sections.push(contextBlock);
 
-Solve the task that was asked — no more. Don't over-engineer, don't add abstractions or configurability the task doesn't need, and don't add error handling for cases that can't happen. Don't create files (especially docs) unless they're required for the task.
+	// ── Work philosophy ──────────────────────────────────────────────────────────
+	sections.push(`# How to work
+Read before you change — understand existing code, conventions, and tests first. Match the surrounding style.
+Solve the task that was asked — no more. Don't over-engineer or add unnecessary abstractions.
+Plan first: use \`add_task\` to break work into steps, then \`set_current_task\` as you progress. Commit completed units via \`commit_changes\`.
+Prefer dedicated tools over shell equivalents. Make independent tool calls in parallel.`);
 
-Plan first: use \`add_task\` to break work into trackable steps, then \`set_current_task\` as you progress through them. Work in focused, committable chunks. Use the memory tools to persist what you learn about the codebase across sessions.
+	// ── Reporting & questions ────────────────────────────────────────────────────
+	sections.push(`# Reporting
+Reports (\`send_report\`) are immutable database records — the only audit trail. Never write reports to files. Send a report at each meaningful milestone.
+Front-load clarifying questions at the start; use \`ask_user_question(urgent: true)\` only when truly blocked.
+Tone: concise and direct, lead with results. Markdown, minimal emoji.`);
 
-# Acting with care
-Weigh reversibility and blast radius before each action. Reading files, searching, and editing in the workspace are cheap and reversible — just do them. Pausing to confirm is cheap; an unwanted action (lost work, a bad commit, deleted state) can be expensive.
+	// ── Memory (condensed) ───────────────────────────────────────────────────────
+	sections.push(opts?.isFirstSession ? MEMORY_FIRST_SESSION : MEMORY_RETURNING);
 
-Commit only completed units of work via \`commit_changes\` (it runs quality checks automatically — never bypass them). Use conventional commit messages: \`type(scope): message\` (feat, fix, refactor, docs, test, chore, perf, style). Be specific.
+	// ── Settings ────────────────────────────────────────────────────────────────
+	sections.push(renderSettings(cfg));
 
-# Tools
-Prefer the dedicated tools over shell equivalents so your work stays observable: \`read_file\` over \`cat\`, \`edit_file\` over \`sed\`, \`grep\`/\`glob\`/\`search_files\` over raw shell search. Reserve \`bash\` for things that genuinely need it.
-Make independent tool calls in the same turn so they run in parallel. Call \`compact_context\` before long operations or when the conversation grows large.
+	return sections.join("\n\n");
+}
 
-Reports are permanent, immutable database records — the only audit trail of your progress. Use \`send_report\` for them; never write reports to files. Use the memory tools (\`remember\`, \`recall\`, \`update_memory\`, \`delete_memory\`, \`list_memories\`) for persistent knowledge across sessions.
+// ── Project context rendering ────────────────────────────────────────────────
 
-# Questions and reporting
-Front-load clarifying questions with \`ask_checklist\` at the start; later, use \`urgent_question\` only when truly blocked. Send a report at each meaningful milestone, not just when the timer fires.
+function renderProjectContext(ctx?: ResolvedProjectContext): string | null {
+	if (!ctx) return null;
+	const { techStacks, guidelines, instructions } = ctx;
+	if (!techStacks.length && !guidelines.length && !instructions) return null;
 
-# Tone
-You write for an engineer reading reports asynchronously. Be concise and direct — lead with the result, skip preamble. Use markdown; minimal emoji.
+	const parts: string[] = ["# Project Context"];
 
-${MEMORY_SYSTEM_DESCRIPTION}
-${projectContext ? `\n${projectContext}\n` : ""}
-# Settings (current)
-Report interval: ${cfg.reportIntervalMins} min (0 = disabled) · Total timeout: ${cfg.stopThresholdMins} min · compact_threshold: ${cfg.compactThresholdTokens} tokens · stop_threshold: ${cfg.stopThresholdTokens} tokens
-freeze_report_mode: ${cfg.freezeReportMode}${cfg.freezeReportCustomRule ? ` (rule "${cfg.freezeReportCustomRule}")` : ""} · freeze_ask_mode: ${cfg.freezeAskMode} · always_improve: ${cfg.alwaysImproveMode}${cfg.alwaysImproveScope ? ` (scope "${cfg.alwaysImproveScope}")` : ""}
-
-always_improve — ${
-		cfg.alwaysImproveMode === "no"
-			? "stop once the original task is complete."
-			: cfg.alwaysImproveMode === "yes"
-				? "never declare done; after the initial goal, keep finding improvements (tests, docs, performance, duplication, naming, error handling, security gaps)."
-				: `after the initial task, keep improving only within this scope: ${cfg.alwaysImproveScope ?? ""}. Do not work outside it.`
+	// Tech stacks
+	for (const stack of techStacks) {
+		parts.push(`## Tech Stack: ${stack.name} (${stack.language})`);
+		if (stack.description) parts.push(stack.description);
+		for (const entry of stack.stack) {
+			const libs = entry.libraries.map((l) => (l.version ? `${l.name}@${l.version}` : l.name)).join(", ");
+			parts.push(`### ${entry.label}${libs ? `\nLibraries: ${libs}` : ""}`);
+			if (entry.usagePatterns.length) {
+				parts.push(entry.usagePatterns.map((p) => `- ${p}`).join("\n"));
+			}
+		}
 	}
 
-freeze_ask_mode —
-- always: queue_question anytime; questions are sent grouped, ASAP
-- requiredOnly: urgent_question only when blocked; queue_question accumulates for the next report
-- onReportOnly: all questions (including urgent) accumulate until the next report, then asked together
-- never: decide autonomously; questions accumulate in memory and surface at timeout`;
+	// Guidelines
+	for (const g of guidelines) {
+		parts.push(`## Guideline: ${g.name}`);
+		if (g.description) parts.push(g.description);
+		if (g.content) parts.push(g.content);
+	}
+
+	// Free-form instructions
+	if (instructions) {
+		parts.push(`## Project Instructions\n${instructions}`);
+	}
+
+	// Adaptive hint based on primary language
+	const languages = [...new Set(techStacks.map((s) => s.language.toLowerCase()))];
+	const hint = buildStackHint(languages, techStacks);
+	if (hint) parts.push(hint);
+
+	return parts.join("\n\n");
+}
+
+/** Generate language/framework-specific guidance based on the configured stack. */
+function buildStackHint(languages: string[], stacks: ResolvedProjectContext["techStacks"]): string | null {
+	const allLibs = stacks.flatMap((s) => s.stack.flatMap((e) => e.libraries.map((l) => l.name.toLowerCase())));
+	const hints: string[] = [];
+
+	// TypeScript / JavaScript
+	if (languages.some((l) => ["typescript", "javascript", "ts", "js"].includes(l))) {
+		hints.push("- Prefer strict TypeScript. Use `const` over `let`, avoid `any`.");
+		if (allLibs.includes("react") || allLibs.includes("next") || allLibs.includes("next.js")) {
+			hints.push("- React: prefer functional components, hooks, and composition over inheritance.");
+		}
+		if (allLibs.includes("bun") || allLibs.includes("elysia") || allLibs.includes("hono")) {
+			hints.push("- Use Bun-native APIs where available (Bun.file, Bun.serve, etc.).");
+		}
+	}
+
+	// Python
+	if (languages.includes("python")) {
+		hints.push("- Use type hints. Prefer f-strings, dataclasses, and pathlib over older patterns.");
+		if (allLibs.some((l) => ["fastapi", "pydantic"].includes(l))) {
+			hints.push("- FastAPI: use Pydantic models for request/response validation.");
+		}
+	}
+
+	// Rust
+	if (languages.includes("rust")) {
+		hints.push("- Prefer `Result` over panics. Use `clippy` conventions. Minimize `unwrap()`.");
+	}
+
+	// Go
+	if (languages.includes("go") || languages.includes("golang")) {
+		hints.push("- Follow Go idioms: short variable names, error returns, stdlib where possible.");
+	}
+
+	if (!hints.length) return null;
+	return `## Stack-Specific Guidance\n${hints.join("\n")}`;
+}
+
+// ── Memory sections (condensed) ─────────────────────────────────────────────
+
+const MEMORY_RETURNING = `# Memory
+You have persistent vector memory across sessions. At session start, \`recall\` previous context ("project overview", "current plan", "active tasks"). Record decisions and learnings as you go.`;
+
+const MEMORY_FIRST_SESSION = `# Memory
+This is your first session — memory is empty. As you explore and work, \`remember\` what you learn: architecture, conventions, decisions, goals. Do not attempt to recall on an empty database.`;
+
+// ── Settings rendering ──────────────────────────────────────────────────────
+
+function renderSettings(cfg: AgentStateConfig): string {
+	const improve =
+		cfg.alwaysImproveMode === "no"
+			? "Stop once the original task is complete."
+			: cfg.alwaysImproveMode === "yes"
+				? "Never declare done; after the initial goal, keep finding improvements."
+				: `After the initial task, keep improving only within: ${cfg.alwaysImproveScope ?? ""}.`;
+
+	const askMode: Record<string, string> = {
+		always: "queue anytime, sent grouped ASAP",
+		requiredOnly: "urgent only when blocked; others accumulate for next report",
+		onReportOnly: "all questions accumulate until next report",
+		never: "decide autonomously; questions surface at timeout",
+	};
+
+	return `# Settings
+Report interval: ${cfg.reportIntervalMins}min · Timeout: ${cfg.stopThresholdMins}min · Compact at: ${cfg.compactThresholdTokens} tokens · Stop at: ${cfg.stopThresholdTokens} tokens
+freeze_report: ${cfg.freezeReportMode}${cfg.freezeReportCustomRule ? ` ("${cfg.freezeReportCustomRule}")` : ""} · freeze_ask: ${cfg.freezeAskMode} · always_improve: ${cfg.alwaysImproveMode}
+
+always_improve — ${improve}
+freeze_ask — ${askMode[cfg.freezeAskMode] ?? cfg.freezeAskMode}`;
 }

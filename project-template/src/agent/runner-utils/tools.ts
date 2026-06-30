@@ -3,8 +3,6 @@ import { nanoid } from "nanoid";
 import { completeToolCall, insertToolCall } from "../../db";
 import { sessionEmitter } from "../../emitter";
 import { env } from "../../env";
-import type { ChecklistItem } from "../../external/discord";
-import { sendChecklist } from "../../external/discord";
 import { compactMessages } from "../context";
 import { truncateToolResult } from "../token-budget";
 import { isToolName, ToolName } from "../tools/definitions";
@@ -27,7 +25,7 @@ import { webFetch, webSearch } from "../tools/implementations/web";
 import {
 	ToolValidationError,
 	validateAddTask,
-	validateAskChecklist,
+	validateAskUserQuestion,
 	validateBash,
 	validateCommitChanges,
 	validateCreateDirectory,
@@ -65,7 +63,7 @@ import {
 	PLAN_MODE_BLOCKED_MESSAGE,
 	PLAN_MODE_TOOLS,
 } from "../utils/plan-mode";
-import { handleQueueQuestion, handleSendGraph, handleSendReport, handleUrgentQuestion } from "./question-handlers";
+import { handleAskUserQuestion, handleQueueQuestion, handleSendGraph, handleSendReport } from "./question-handlers";
 
 function isObj(v: unknown): v is Record<string, unknown> {
 	return typeof v === "object" && v !== null;
@@ -102,7 +100,7 @@ export async function executeTools(
 			type: "tool_call",
 			data: {
 				id: toolCallId,
-				input: block.input,
+				input,
 				sessionId: agent.sessionId,
 				toolName,
 				toolUseId,
@@ -256,9 +254,9 @@ export async function dispatchTool(agent: AgentState, name: ToolName, input: Rec
 			validateQuestion(input);
 			return await handleQueueQuestion(agent, input);
 		}
-		case ToolName.UrgentQuestion: {
-			validateQuestion(input);
-			return await handleUrgentQuestion(agent, input);
+		case ToolName.AskUserQuestion: {
+			validateAskUserQuestion(input);
+			return await handleAskUserQuestion(agent, input);
 		}
 
 		// ── Reports ────────────────────────────────────────────────────────────
@@ -338,22 +336,6 @@ export async function dispatchTool(agent: AgentState, name: ToolName, input: Rec
 			const { messages: compacted } = await compactMessages(agent.messages, agent.client);
 			agent.messages = compacted;
 			return `Context compacted: ${before} → ${compacted.length} messages.`;
-		}
-		case ToolName.AskChecklist: {
-			validateAskChecklist(input);
-			const result = await sendChecklist(
-				agent.sessionId,
-				input.title,
-				input.items as ChecklistItem[],
-				agent.abortController.signal
-			);
-			if (result.completed) {
-				const answersText = Object.entries(result.answers)
-					.map(([id, answer]) => `- ${id}: ${answer}`)
-					.join("\n");
-				return `Checklist answers received:\n${answersText}`;
-			}
-			return "Checklist sent but no response received — proceeding with best judgment.";
 		}
 
 		default:

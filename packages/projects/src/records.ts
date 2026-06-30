@@ -12,7 +12,7 @@ export interface SessionRecord {
 	id: string;
 	name: string | null;
 	task: string;
-	status: "running" | "paused" | "compacting" | "completed" | "stopped" | "error";
+	status: "running" | "paused" | "compacting" | "completed" | "aborted" | "error";
 	reportIntervalMins: number;
 	stopThresholdMins: number;
 	freezeReportMode: "always" | "never" | "custom";

@@ -24,6 +24,18 @@ services:
     networks:
       - shared
 
+  lance-data-viewer:
+    image: ghcr.io/lance-format/lance-data-viewer:lancedb-0.33.0
+    environment:
+      DATA_PATH: /data
+    volumes:
+      - ./data/lancedb:/data:ro
+    ports:
+      - "3202:8080"
+    restart: unless-stopped
+    networks:
+      - shared
+
   chromium:
     image: ghcr.io/browserless/chromium
     environment:

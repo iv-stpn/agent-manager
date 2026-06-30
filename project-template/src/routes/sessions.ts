@@ -2,8 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { z } from "zod";
-import { initAgent, interjectAgent, runners, stopAgent } from "../agent/definition";
-import { resume, run } from "../agent/runner-utils/loop";
+import { initAgent, interjectAgent, pauseAgent, queueFollowUp, runners, steerAgent, stopAgent } from "../agent/definition";
+import { restart, resume, run } from "../agent/runner-utils/loop";
 import type { AgentStateConfig } from "../agent/types";
 import {
 	createSession,
@@ -19,6 +19,7 @@ import {
 } from "../db";
 import { sessionEmitter } from "../emitter";
 import { env } from "../env";
+import { fetchProjectContext } from "../external/context";
 import type { HonoProjectEnv } from "../types";
 
 const CreateSessionSchema = z.object({
@@ -129,7 +130,7 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 			freezeAskMode: body.freezeAskMode ?? "always",
 			freezeReportCustomRule: body.freezeReportCustomRule ?? null,
 			compactThresholdTokens: body.compactThresholdTokens ?? 80_000,
-			stopThresholdTokens: body.stopThresholdTokens ?? 400_000,
+			stopThresholdTokens: body.stopThresholdTokens ?? 2_000_000,
 			alwaysImproveMode: body.alwaysImproveMode ?? "no",
 			alwaysImproveScope: body.alwaysImproveScope ?? null,
 		};
@@ -138,7 +139,8 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 		const name = body.name ?? defaultChatName();
 		const session = createSession(db, { id, name, task: body.task, status: "running", createdAt, ...config });
 
-		const runner = initAgent({ db, sessionId: id, config });
+		const context = await fetchProjectContext();
+		const runner = initAgent({ db, sessionId: id, config, context });
 		runners.set(id, runner);
 
 		sessionEmitter.emit(id, { type: "session_created", data: session });
@@ -167,8 +169,96 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 			runners.delete(id);
 		}
 
-		updateSession(db, id, { status: "stopped" });
-		sessionEmitter.emit(id, { type: "session_updated", data: { id, status: "stopped" } });
+		updateSession(db, id, { status: "aborted" });
+		sessionEmitter.emit(id, { type: "session_updated", data: { id, status: "aborted" } });
+		return c.json({ ok: true });
+	})
+
+	.post("/:id/pause", (c) => {
+		const id = c.req.param("id");
+		const db = c.get("db");
+		const session = getSession(db, id);
+		if (!session) return c.json({ error: "Not found" }, 404);
+
+		const runner = runners.get(id);
+		if (!runner) return c.json({ error: "Agent is not running" }, 409);
+
+		// Unlike /stop, the session stays "running" until the agent's
+		// in-flight message actually finishes — the loop flips the status to
+		// "aborted" itself once it stops (see runLoop's pauseRequested check),
+		// which arrives over SSE as a normal session_updated event.
+		pauseAgent(runner);
+		return c.json({ ok: true });
+	})
+
+	.post("/:id/restart", async (c) => {
+		const id = c.req.param("id");
+		const db = c.get("db");
+		const session = getSession(db, id);
+		if (!session) return c.json({ error: "Not found" }, 404);
+		if (session.status !== "error" && session.status !== "aborted") {
+			return c.json({ error: "Session is not in a restartable state" }, 409);
+		}
+		if (runners.get(id)) return c.json({ error: "Agent is already running" }, 409);
+
+		const config: AgentStateConfig = {
+			reportIntervalMins: session.reportIntervalMins,
+			stopThresholdMins: session.stopThresholdMins,
+			freezeReportMode: session.freezeReportMode,
+			freezeReportCustomRule: session.freezeReportCustomRule,
+			freezeAskMode: session.freezeAskMode,
+			compactThresholdTokens: session.compactThresholdTokens,
+			stopThresholdTokens: session.stopThresholdTokens,
+			alwaysImproveMode: session.alwaysImproveMode,
+			alwaysImproveScope: session.alwaysImproveScope,
+		};
+
+		const context = await fetchProjectContext();
+		const runner = initAgent({ db, sessionId: id, config, context });
+
+		runners.set(id, runner);
+		restart(runner).finally(() => runners.delete(id));
+
+		return c.json({ ok: true });
+	})
+
+	.post("/:id/steer", async (c) => {
+		const id = c.req.param("id");
+		const db = c.get("db");
+		const session = getSession(db, id);
+		if (!session) return c.json({ error: "Not found" }, 404);
+
+		let message: string;
+		try {
+			({ message } = MessageSchema.parse(await c.req.json()));
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : "Invalid request" }, 400);
+		}
+
+		const existing = runners.get(id);
+		if (!existing) return c.json({ error: "Agent is not running" }, 409);
+
+		steerAgent(existing, message);
+		return c.json({ ok: true });
+	})
+
+	.post("/:id/follow-up", async (c) => {
+		const id = c.req.param("id");
+		const db = c.get("db");
+		const session = getSession(db, id);
+		if (!session) return c.json({ error: "Not found" }, 404);
+
+		let message: string;
+		try {
+			({ message } = MessageSchema.parse(await c.req.json()));
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : "Invalid request" }, 400);
+		}
+
+		const existing = runners.get(id);
+		if (!existing) return c.json({ error: "Agent is not running" }, 409);
+
+		queueFollowUp(existing, message);
 		return c.json({ ok: true });
 	})
 
@@ -203,7 +293,8 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 			alwaysImproveScope: session.alwaysImproveScope,
 		};
 
-		const runner = initAgent({ db, sessionId: id, config });
+		const context = await fetchProjectContext();
+		const runner = initAgent({ db, sessionId: id, config, context });
 
 		runners.set(id, runner);
 		resume(runner, message).finally(() => runners.delete(id));

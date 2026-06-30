@@ -81,14 +81,6 @@ export class ProjectManager {
 		return join(this.getProjectDir(projectId), "context.json");
 	}
 
-	/**
-	 * Path to the rendered context markdown. Lives under `data/`, which is
-	 * mounted into the container as `/data`, so the agent can read it at
-	 * runtime without reaching back to the host DB.
-	 */
-	getRenderedContextPath(projectId: string): string {
-		return join(this.getProjectDir(projectId), "data", "project-context.md");
-	}
 
 	// ── Read ─────────────────────────────────────────────────────────────────
 
@@ -260,23 +252,12 @@ export class ProjectManager {
 	}
 
 	/**
-	 * Persist the project's context selection and the markdown the agent reads
-	 * at runtime. The caller resolves selected IDs to text (only the host has
-	 * the library DB) and passes the rendered markdown here. Empty markdown
-	 * removes the file so the prompt stays clean.
+	 * Persist the project's context selection.
 	 */
-	async setProjectContext(projectId: string, context: ProjectContext, renderedMarkdown: string): Promise<ProjectContext> {
-		const projectDir = this.requireProjectDir(projectId);
+	async setProjectContext(projectId: string, context: ProjectContext): Promise<ProjectContext> {
+		this.requireProjectDir(projectId);
 		const parsed = ProjectContextSchema.parse(context);
 		await writeFile(this.getProjectContextPath(projectId), `${JSON.stringify(parsed, null, 2)}\n`);
-
-		await mkdir(join(projectDir, "data"), { recursive: true });
-		const renderedPath = this.getRenderedContextPath(projectId);
-		if (renderedMarkdown.trim() === "") {
-			if (existsSync(renderedPath)) await rm(renderedPath, { force: true });
-		} else {
-			await writeFile(renderedPath, renderedMarkdown);
-		}
 		return parsed;
 	}
 

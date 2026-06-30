@@ -1,8 +1,18 @@
-import { AlertCircle, ArrowDownToLine, Bot, ChevronDown, ChevronRight, MessageCircle, Settings, User } from "lucide-react";
+import {
+	AlertCircle,
+	ArrowDownToLine,
+	Bot,
+	ChevronDown,
+	ChevronRight,
+	MessageCircle,
+	Settings,
+	Square,
+	User,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { JsonView } from "@/components/json-view";
 import { Markdown } from "@/components/markdown";
-import { ToolIconBox } from "@/components/tool-icons";
+import { JsonView } from "@/components/timeline/json-view";
+import { ToolIconBox } from "@/components/timeline/tool-icons";
 import type { Message, ToolCall } from "@/lib/agent-api";
 import { cn, formatRelativeTime } from "@/lib/utils";
 
@@ -236,7 +246,7 @@ function MessageBubble({
 
 // ── Status indicators ─────────────────────────────────────────────────────────
 
-function ThinkingBubble({ label }: { label: string }) {
+function ThinkingBubble({ label }: { label?: string }) {
 	return (
 		<div className="flex gap-3 items-start animate-msg-in">
 			<div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-violet-500/20 mt-1">
@@ -246,7 +256,61 @@ function ThinkingBubble({ label }: { label: string }) {
 				<span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: "0ms" }} />
 				<span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: "150ms" }} />
 				<span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: "300ms" }} />
-				<span className="ml-2">{label}</span>
+				{label && <span className="ml-2">{label}</span>}
+			</div>
+		</div>
+	);
+}
+
+/** Live extended-thinking bubble: collapsible, shows streaming reasoning text. */
+function LiveThinkingBubble({ thinking }: { thinking: string }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<div className="flex gap-3 items-start animate-msg-in">
+			<div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-violet-500/20 mt-1">
+				<Bot className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+			</div>
+			<div className="bg-muted/60 border border-violet-300/40 dark:border-violet-700/40 rounded-lg text-sm max-w-[85%] overflow-hidden">
+				<button
+					type="button"
+					onClick={() => setOpen((x) => !x)}
+					className="flex items-center gap-2 w-full px-3 py-2 text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300"
+				>
+					{open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+					<span className="flex items-center gap-1.5">
+						<span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
+						<span className="font-medium text-xs">Thinking…</span>
+					</span>
+					{!open && <span className="ml-1 text-xs text-muted-foreground truncate max-w-[300px]">{thinking.slice(0, 80)}</span>}
+				</button>
+				{open && (
+					<pre className="px-3 pb-3 text-[11px] text-muted-foreground whitespace-pre-wrap break-words leading-relaxed max-h-64 overflow-y-auto">
+						{thinking}
+					</pre>
+				)}
+			</div>
+		</div>
+	);
+}
+
+/** Live tool call bubble: shows the tool name and streaming JSON input. */
+function LiveToolCallBubble({ name, inputDelta }: { name: string; inputDelta: string }) {
+	return (
+		<div className="flex gap-3 items-start animate-msg-in">
+			<div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-violet-500/20 mt-1">
+				<Bot className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+			</div>
+			<div className="rounded-md border border-dashed border-border bg-muted/40 text-xs font-mono max-w-[85%]">
+				<div className="flex items-center gap-2 px-3 py-2 text-muted-foreground">
+					<span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+					<ToolIconBox name={name} className="h-5 w-5" />
+					<span className="font-semibold text-foreground">{name}</span>
+				</div>
+				{inputDelta && (
+					<pre className="px-3 pb-3 text-[11px] text-foreground/70 whitespace-pre-wrap break-all max-h-32 overflow-y-auto streaming-cursor">
+						{inputDelta}
+					</pre>
+				)}
 			</div>
 		</div>
 	);
@@ -266,6 +330,22 @@ function AwaitingAnswerBubble() {
 	);
 }
 
+/** Neutral (non-error) notice shown when a session was intentionally stopped —
+ * distinct from the red per-message error box, which is reserved for actual
+ * agent/API failures. */
+function AbortedBubble() {
+	return (
+		<div className="flex gap-3 items-start animate-msg-in">
+			<div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-gray-500/15 mt-1">
+				<Square className="h-3.5 w-3.5 text-gray-600 dark:text-gray-400" />
+			</div>
+			<div className="bg-gray-500/10 border border-gray-400/30 rounded-lg px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+				Request aborted by user.
+			</div>
+		</div>
+	);
+}
+
 // ── Public component ──────────────────────────────────────────────────────────
 
 interface Props {
@@ -274,9 +354,21 @@ interface Props {
 	sessionStatus?: string;
 	pendingToolCalls?: number;
 	streamingText?: string;
+	streamingThinking?: string;
+	streamingToolcall?: { name: string; inputDelta: string } | null;
+	autoScroll?: boolean;
 }
 
-export function MessageFeed({ messages, toolCalls, sessionStatus, pendingToolCalls = 0, streamingText = "" }: Props) {
+export function MessageFeed({
+	messages,
+	toolCalls,
+	sessionStatus,
+	pendingToolCalls = 0,
+	streamingText = "",
+	streamingThinking = "",
+	streamingToolcall = null,
+	autoScroll = true,
+}: Props) {
 	const bottomRef = useRef<HTMLDivElement>(null);
 
 	// Track which message IDs are "new" so we can apply entrance animation
@@ -300,14 +392,15 @@ export function MessageFeed({ messages, toolCalls, sessionStatus, pendingToolCal
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-run when messages array grows or streaming text arrives
 	useEffect(() => {
-		bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [messages.length, sessionStatus, streamingText]);
+		if (autoScroll) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+	}, [messages.length, sessionStatus, streamingText, autoScroll]);
 
 	const isRunning = sessionStatus === "running";
 	const isPaused = sessionStatus === "paused";
 	const isCompacting = sessionStatus === "compacting";
+	const isAborted = sessionStatus === "aborted";
 
-	if (messages.length === 0 && !isRunning && !isPaused && !isCompacting) {
+	if (messages.length === 0 && !isRunning && !isPaused && !isCompacting && !isAborted) {
 		return (
 			<div className="flex items-center justify-center h-full text-sm text-muted-foreground">Waiting for agent to start...</div>
 		);
@@ -325,6 +418,7 @@ export function MessageFeed({ messages, toolCalls, sessionStatus, pendingToolCal
 				/>
 			))}
 
+			{/* Live streaming text from the assistant */}
 			{isRunning && streamingText && (
 				<div className="flex gap-3 group">
 					<div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-violet-500/20 text-violet-600 dark:text-violet-400 mt-1">
@@ -335,12 +429,22 @@ export function MessageFeed({ messages, toolCalls, sessionStatus, pendingToolCal
 					</div>
 				</div>
 			)}
-			{isRunning && !streamingText && pendingToolCalls > 0 && (
+			{/* Live streaming tool call being constructed */}
+			{isRunning && !streamingText && streamingToolcall && (
+				<LiveToolCallBubble name={streamingToolcall.name} inputDelta={streamingToolcall.inputDelta} />
+			)}
+			{/* Live extended-thinking text */}
+			{isRunning && !streamingText && !streamingToolcall && streamingThinking && (
+				<LiveThinkingBubble thinking={streamingThinking} />
+			)}
+			{/* Fallback status bubbles when no streaming content */}
+			{isRunning && !streamingText && !streamingToolcall && !streamingThinking && pendingToolCalls > 0 && (
 				<ThinkingBubble label={`Running ${pendingToolCalls} tool${pendingToolCalls > 1 ? "s" : ""}…`} />
 			)}
-			{isRunning && !streamingText && pendingToolCalls === 0 && <ThinkingBubble label="Thinking…" />}
+			{isRunning && !streamingText && !streamingToolcall && !streamingThinking && pendingToolCalls === 0 && <ThinkingBubble />}
 			{isPaused && <AwaitingAnswerBubble />}
 			{isCompacting && <ThinkingBubble label="Compacting context…" />}
+			{isAborted && <AbortedBubble />}
 
 			<div ref={bottomRef} />
 		</div>

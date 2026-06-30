@@ -1,7 +1,7 @@
 import { CheckCircle2, ChevronDown, ChevronRight, Clock, XCircle } from "lucide-react";
 import { useState } from "react";
-import { JsonView } from "@/components/json-view";
-import { ToolIconBox } from "@/components/tool-icons";
+import { JsonView } from "@/components/timeline/json-view";
+import { ToolIconBox } from "@/components/timeline/tool-icons";
 import type { ToolCall } from "@/lib/agent-api";
 import { formatRelativeTime } from "@/lib/utils";
 

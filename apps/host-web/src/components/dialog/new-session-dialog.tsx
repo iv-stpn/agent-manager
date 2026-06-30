@@ -23,7 +23,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 	const [freezeReportCustomRule, setFreezeReportCustomRule] = useState("");
 	const [freezeAskMode, setFreezeAskMode] = useState<"always" | "requiredOnly" | "onReportOnly" | "never">("always");
 	const [compactThreshold, setCompactThreshold] = useState("80000");
-	const [stopThreshold, setStopThreshold] = useState("400000");
+	const [stopThreshold, setStopThreshold] = useState("10000000");
 	const [alwaysImproveMode, setAlwaysImproveMode] = useState<"yes" | "no" | "custom">("no");
 	const [alwaysImproveScope, setAlwaysImproveScope] = useState("");
 	const [loading, setLoading] = useState(false);
@@ -41,7 +41,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 				freezeReportCustomRule: freezeReportCustomRule || undefined,
 				freezeAskMode,
 				compactThresholdTokens: Number(compactThreshold) || 80_000,
-				stopThresholdTokens: Number(stopThreshold) || 400_000,
+				stopThresholdTokens: Number(stopThreshold) || 2_000_000,
 				alwaysImproveMode,
 				alwaysImproveScope: alwaysImproveScope || undefined,
 			});
@@ -57,7 +57,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent open={open} className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
+			<DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>New Agent Session</DialogTitle>
 				</DialogHeader>
@@ -155,7 +155,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 								<option value="always">always — ask immediately</option>
 								<option value="requiredOnly">requiredOnly — only when blocked</option>
 								<option value="onReportOnly">onReportOnly — defer to reports</option>
-								<option value="never">never — QUESTIONS.md only</option>
+								<option value="never">never — append all questions for later, and proceed on other tasks</option>
 							</select>
 						</div>
 					</div>

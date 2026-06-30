@@ -28,7 +28,7 @@ export function updateSession(db: Db, id: string, data: Partial<Omit<Session, "i
 
 export function stopRunningSessions(db: Db): void {
 	db.update(sessions)
-		.set({ status: "stopped", updatedAt: Date.now() })
+		.set({ status: "aborted", updatedAt: Date.now() })
 		.where(inArray(sessions.status, ["running", "compacting"]))
 		.run();
 }

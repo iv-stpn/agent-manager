@@ -38,6 +38,8 @@ export type AgentState = {
 	lastReportTime: number | null;
 	//
 	stopped: boolean;
+	/** Set by pauseAgent(): stop the loop after the in-flight message finishes, without aborting it. */
+	pauseRequested: boolean;
 	circuitBreaker: CompactionCircuitBreaker;
 	abortController: AbortController;
 	//
@@ -50,4 +52,10 @@ export type AgentState = {
 	pendingQuestions: Question[];
 	//
 	injectedMessage: string | null;
+	/** Messages queued to be injected at the start of the next turn (non-disruptive, no abort). */
+	steeringQueue: string[];
+	/** Messages queued to continue the agent after it reaches end_turn. */
+	followUpQueue: string[];
+	/** Monotonically increasing turn counter, emitted with turn_start/turn_end. */
+	turnNumber: number;
 };

@@ -21,6 +21,7 @@ import { checkChromium } from "./render/chromium";
 import { discordRouter, setDiscordRouteChannelStore } from "./routes/discord";
 import { guidelineCategoriesRouter } from "./routes/guideline-categories";
 import { guidelinesRouter } from "./routes/guidelines";
+import { llmClientsRouter } from "./routes/llm-clients";
 import { memoryRouter } from "./routes/memory";
 import { projectsRouter } from "./routes/projects";
 import { renderRouter } from "./routes/render";
@@ -33,6 +34,8 @@ export type {
 	GlobalStats,
 	Guideline,
 	GuidelineCategory,
+	LlmClient,
+	LlmProvider,
 	StackEntry,
 	StackLibrary,
 	TechStack,
@@ -82,6 +85,7 @@ const app = new Hono<HonoHostEnv>()
 	.route("/api/tech-stacks", techStacksRouter)
 	.route("/api/guideline-categories", guidelineCategoriesRouter)
 	.route("/api/guidelines", guidelinesRouter)
+	.route("/api/llm-clients", llmClientsRouter)
 	.route("/api/render", renderRouter)
 	.route("/api/memory", memoryRouter);
 
@@ -111,7 +115,7 @@ logger.info(`Workspace root: ${rootDir}`);
 logger.info(`Projects dir: ${join(rootDir, ".projects")}`);
 
 // ── Discord bot ──────────────────────────────────────────────────────────────
-
+console.log(env);
 const discordToken = env.DISCORD_TOKEN;
 const discordClientId = env.DISCORD_CLIENT_ID;
 const discordGuildId = env.DISCORD_GUILD_ID;
@@ -166,7 +170,7 @@ if (discordToken && discordClientId && discordGuildId) {
 
 			if (event.type === "session_updated") {
 				const data = event.data as { id: string; status?: string };
-				if (data.status === "stopped" || data.status === "completed") {
+				if (data.status === "aborted" || data.status === "completed") {
 					await archiveSessionChannel(data.id);
 				}
 			}

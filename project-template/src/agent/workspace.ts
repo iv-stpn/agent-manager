@@ -2,42 +2,12 @@ import { executeBash } from "./tools/implementations/commands";
 import { listMemories, recall, remember } from "./tools/implementations/memory";
 import { initGitRepo, isGitRepo } from "./utils/git";
 
-// ── Role documentation injected into the system prompt ───────────────────────
-
-export const MEMORY_SYSTEM_DESCRIPTION = `
-## Persistent Vector Memory
-
-Your memory is stored in a shared vector database and persists across sessions.
-You interact with it through these tools:
-
-| Tool | Purpose |
-|---|---|
-| \`remember\` | Store a new entry (decision, plan, memory, context) |
-| \`recall\` | Semantic search — find relevant entries by natural language query |
-| \`update_memory\` | Modify an existing entry by ID |
-| \`delete_memory\` | Remove an outdated entry by ID |
-| \`list_memories\` | Browse all entries, optionally filtered by type |
-
-### Entry Types
-- **decision** — Architectural or design decisions (append-only mindset: prefer adding new over deleting old)
-- **plan** — Implementation plans (current and archived)
-- **question** — Accumulated questions for the user
-- **memory** — General project knowledge (architecture, conventions, tech stack, codebase notes)
-- **report** — Progress report summaries
-- **context** — Project goals, constraints, stakeholders
-
-### Guidelines
-- At session start: \`recall\` your previous context with queries like "project overview", "current plan", "active tasks"
-- Record decisions as you make them — future sessions depend on this
-- Use descriptive titles — they're weighted in search ranking
-- Prefer semantic search (\`recall\`) over listing when looking for specific knowledge
-`;
-
 // ── Workspace bootstrap ────────────────────────────────────────────────────────
 
 export async function bootstrapWorkspace(workspace: string): Promise<{
 	isNewRepo: boolean;
 	isNewProject: boolean;
+	isFirstSession: boolean;
 }> {
 	const isNew = !(await isGitRepo(workspace));
 	if (isNew) await initGitRepo(workspace);
@@ -49,16 +19,19 @@ export async function bootstrapWorkspace(workspace: string): Promise<{
 	const isNewProject = stdout.trim().split("\n").filter(Boolean).length === 0;
 
 	// Seed initial memory entries if the project has no memories yet
+	let isFirstSession = false;
 	try {
 		const existing = await listMemories(undefined, 1);
 		if (!existing || existing.length === 0) {
+			isFirstSession = true;
 			await remember("context", "Project initialized", "New project workspace created. No context recorded yet.");
 		}
 	} catch {
 		// LanceDB might not be ready yet on first boot — non-fatal
+		isFirstSession = true;
 	}
 
-	return { isNewRepo: isNew, isNewProject };
+	return { isNewRepo: isNew, isNewProject, isFirstSession };
 }
 
 // ── Exploration prompt ─────────────────────────────────────────────────────────
@@ -98,7 +71,7 @@ Then proceed to the main task.`;
 // ── Startup context ────────────────────────────────────────────────────────────
 
 export async function buildStartupContext(task: string, isNewProject: boolean): Promise<string[]> {
-	const msgs: string[] = [];
+	const messages: string[] = [];
 
 	// Load relevant memories from vector DB (skip for brand-new projects — nothing to recall)
 	let hasExistingMemories = false;
@@ -108,27 +81,24 @@ export async function buildStartupContext(task: string, isNewProject: boolean): 
 			if (context.length > 0) {
 				hasExistingMemories = true;
 				const summary = context.map((e) => `**[${e.type}] ${e.title}:**\n${e.content.slice(0, 500)}`).join("\n\n");
-				msgs.push(`**Recalled project context:**\n\n${summary}`);
+				messages.push(`**Recalled project context:**\n\n${summary}`);
 			}
 
 			const plans = await listMemories("plan", 3);
 			if (plans.length > 0) {
 				hasExistingMemories = true;
 				const planSummary = plans.map((e) => `- **${e.title}:** ${e.content.slice(0, 200)}`).join("\n");
-				msgs.push(`**Active plans:**\n\n${planSummary}`);
+				messages.push(`**Active plans:**\n\n${planSummary}`);
 			}
 		} catch {
 			// LanceDB not available — proceed without memory context
 		}
 
 		// Exploration prompt for existing projects
-		msgs.push(buildExplorationPrompt(hasExistingMemories));
+		messages.push(buildExplorationPrompt(hasExistingMemories));
 	}
 
 	// Main task
-	msgs.push(
-		`**Main task:**\n\n${task}\n\nBefore coding:\n1. Use \`ask_checklist\` to surface all ambiguities.\n2. Use \`add_task\` to track the task in the project database.\n3. \`remember("plan", "Plan: Task Title", "step-by-step plan")\` with a detailed plan.\n4. Then begin implementation.`
-	);
-
-	return msgs;
+	messages.push(task);
+	return messages;
 }

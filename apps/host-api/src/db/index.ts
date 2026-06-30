@@ -5,6 +5,8 @@ export type {
 	GlobalStats,
 	Guideline,
 	GuidelineCategory,
+	LlmClient,
+	LlmProvider,
 	StackEntry,
 	StackLibrary,
 	TechStack,

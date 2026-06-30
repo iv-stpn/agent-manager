@@ -27,10 +27,16 @@ export interface CheckinFormResult {
 	confirmed: boolean;
 }
 
-export interface ChecklistItem {
-	id: string;
+export interface QuestionOption {
+	label: string;
+	description: string;
+}
+
+export interface QuestionItem {
 	question: string;
-	description?: string;
+	header: string;
+	options: QuestionOption[];
+	multiSelect?: boolean;
 }
 
 export interface ChecklistResult {
@@ -65,19 +71,20 @@ export async function sendReport(
 }
 
 /**
- * Send a checklist to Discord via host-api and wait for responses.
+ * Send questions to Discord via host-api and wait for responses.
  */
-export async function sendChecklist(
+export async function sendQuestions(
 	sessionId: string,
 	title: string,
-	items: ChecklistItem[],
+	questions: QuestionItem[],
+	urgent?: boolean,
 	signal?: AbortSignal
 ): Promise<ChecklistResult> {
 	try {
-		const res = await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/checklist`, {
+		const res = await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/questions`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ sessionId, title, items }),
+			body: JSON.stringify({ sessionId, title, questions, urgent: urgent ?? false }),
 			signal: signal ?? null,
 		});
 		if (!res.ok) return { answers: {}, completed: false };

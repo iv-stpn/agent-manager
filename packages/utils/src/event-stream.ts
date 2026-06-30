@@ -59,13 +59,16 @@ export interface ProgressStep {
 	log?: string;
 }
 
-export type ProgressStreamAction = "start" | "restart" | "stop";
+export type ProgressStreamAction = "start" | "restart" | "stop" | "delete" | "build";
 
 export const PROGRESS_STEP_LABELS: Record<string, string> = {
 	stop: "Stopping containers",
 	start: "Starting containers",
 	health: "Health check",
 	logs: "Container logs",
+	"delete-docker": "Removing Docker resources",
+	"delete-project": "Deleting project",
+	build: "Rebuilding image (no cache)",
 };
 
 export interface ProgressStreamCallbacks {

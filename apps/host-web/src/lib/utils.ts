@@ -30,6 +30,7 @@ export function statusColor(status: string): string {
 		case "completed":
 			return "text-blue-500";
 		case "stopped":
+		case "aborted":
 			return "text-gray-500";
 		case "error":
 			return "text-red-500";
@@ -49,6 +50,7 @@ export function statusBg(status: string): string {
 		case "completed":
 			return "bg-blue-500/10 text-blue-700 dark:text-blue-400";
 		case "stopped":
+		case "aborted":
 			return "bg-gray-500/10 text-gray-600 dark:text-gray-400";
 		case "error":
 			return "bg-red-500/10 text-red-700 dark:text-red-400";

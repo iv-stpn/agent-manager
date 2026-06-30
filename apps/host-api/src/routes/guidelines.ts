@@ -8,6 +8,7 @@ const CreateGuidelineSchema = z.object({
 	name: z.string().min(1),
 	description: z.string().default(""),
 	categoryId: z.string().nullable().default(null),
+	language: z.string().nullable().default(null),
 	content: z.string().default(""),
 });
 

@@ -27,12 +27,11 @@ export enum ToolName {
 	GetCurrentTask = "get_current_task",
 	SetCurrentTask = "set_current_task",
 	QueueQuestion = "queue_question",
-	UrgentQuestion = "urgent_question",
+	AskUserQuestion = "ask_user_question",
 	SendReport = "send_report",
 	SendGraph = "send_graph",
 	CommitChanges = "commit_changes",
 	CompactContext = "compact_context",
-	AskChecklist = "ask_checklist",
 	EnterPlanMode = "enter_plan_mode",
 	ExitPlanMode = "exit_plan_mode",
 }
@@ -477,33 +476,64 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 		},
 	},
 	{
-		name: "urgent_question",
+		name: "ask_user_question",
 		description:
-			"Ask a critical question that blocks progress. In requiredOnly/always modes this sends immediately and waits. In onReportOnly mode it triggers an early report. In never mode it logs to memory and proceeds autonomously. Provide suggestions when possible.",
+			"Ask the user one or more questions and wait for answers. Use this at the start of a task to clarify requirements, or mid-task when blocked. Set urgent=true when you are completely blocked and cannot proceed without an answer — this sends with high-priority styling and notifications.",
 		input_schema: {
 			type: "object",
 			properties: {
-				question: { type: "string" },
-				context: { type: "string", description: "Why this is blocking your progress" },
-				suggestions: {
+				title: {
+					type: "string",
+					description: "Optional heading for the question group (e.g. 'Implementation Requirements')",
+				},
+				questions: {
 					type: "array",
-					description:
-						"Premade answer suggestions rendered as clickable buttons in Discord. The user can pick one or type a custom free-form answer.",
+					description: "Questions to ask the user. All are sent together and answered as a group.",
 					items: {
 						type: "object",
 						properties: {
-							id: { type: "string", description: "Short unique identifier (snake_case)" },
-							title: { type: "string", description: "Button label (short, ≤80 chars)" },
-							subtitle: {
+							question: { type: "string", description: "The complete question to ask the user" },
+							header: {
 								type: "string",
-								description: "Extra context shown below the title in the embed",
+								description: "Very short label displayed as a chip/tag (max 12 chars). Examples: 'Auth method', 'Library', 'Approach'.",
+							},
+							options: {
+								type: "array",
+								description: "The available choices for this question (2-4 options). The user can always provide a custom free-form answer instead.",
+								items: {
+									type: "object",
+									properties: {
+										label: {
+											type: "string",
+											description: "Display text for this option (concise, 1-5 words)",
+										},
+										description: {
+											type: "string",
+											description: "Explanation of what this option means or what will happen if chosen",
+										},
+									},
+									required: ["label", "description"],
+								},
+							},
+							multiSelect: {
+								type: "boolean",
+								description: "If true, allows selecting multiple options. Default: false.",
 							},
 						},
-						required: ["id", "title"],
+						required: ["question", "header", "options"],
 					},
 				},
+				context: {
+					type: "string",
+					description: "Background info explaining why you're asking",
+				},
+				urgent: {
+					type: "boolean",
+					description:
+						"If true, sends with high-priority notifications (use only when fully blocked). Default: false.",
+				},
 			},
-			required: ["question"],
+			required: ["questions"],
 		},
 	},
 
@@ -608,46 +638,6 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 			type: "object",
 			properties: {},
 			required: [],
-		},
-	},
-
-	// ── Implementation checklist ──────────────────────────────────────────────────
-	{
-		name: "ask_checklist",
-		description:
-			"Present a structured implementation checklist to the user via Discord BEFORE starting coding. Use this at the very start of a new implementation to surface ambiguities, confirm constraints, and avoid asking questions later. Group related questions into the same checklist call.",
-		input_schema: {
-			type: "object",
-			properties: {
-				title: {
-					type: "string",
-					description: "Checklist title (e.g. 'Implementation Requirements')",
-				},
-				items: {
-					type: "array",
-					description: "Questions to ask the user. All unanswered questions block implementation until Discord response.",
-					items: {
-						type: "object",
-						properties: {
-							id: {
-								type: "string",
-								description: "Short unique identifier for this question (snake_case)",
-							},
-							question: { type: "string", description: "The question text" },
-							description: {
-								type: "string",
-								description: "Context or example answers to help the user",
-							},
-							required: {
-								type: "boolean",
-								description: "Whether this answer is required to proceed. Default: false.",
-							},
-						},
-						required: ["id", "question"],
-					},
-				},
-			},
-			required: ["title", "items"],
 		},
 	},
 

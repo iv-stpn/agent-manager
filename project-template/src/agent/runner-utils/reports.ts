@@ -97,7 +97,7 @@ export async function handleTotalTimeout(agent: AgentState): Promise<void> {
 		sections.push({ title: "Accumulated Questions", content: questionsMd });
 	}
 	await triggerReport(agent, { title: "⏰ Total Timeout — Agent Frozen", sections }, "completion", true);
-	setStatus(agent, "stopped");
+	setStatus(agent, "aborted");
 }
 
 export async function handleStopThreshold(agent: AgentState): Promise<void> {
@@ -116,7 +116,7 @@ export async function handleStopThreshold(agent: AgentState): Promise<void> {
 		"completion",
 		true
 	);
-	setStatus(agent, "stopped");
+	setStatus(agent, "aborted");
 }
 
 export async function flushQuestionsToDiscord(agent: AgentState): Promise<void> {

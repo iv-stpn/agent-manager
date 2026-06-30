@@ -1,5 +1,4 @@
 import {
-	AlertCircle,
 	Archive,
 	Brain,
 	Clock,
@@ -12,7 +11,6 @@ import {
 	GitCommitHorizontal,
 	HelpCircle,
 	Info,
-	ListChecks,
 	ListPlus,
 	type LucideIcon,
 	Minimize2,
@@ -62,7 +60,7 @@ const TOOL_ICONS: Record<string, ToolIconSpec> = {
 
 	// Questions / reports
 	queue_question: { Icon: HelpCircle, box: "bg-purple-500/10 text-purple-500" },
-	urgent_question: { Icon: AlertCircle, box: "bg-red-500/10 text-red-500" },
+	ask_user_question: { Icon: HelpCircle, box: "bg-amber-500/10 text-amber-500" },
 	send_report: { Icon: Send, box: "bg-indigo-500/10 text-indigo-500" },
 
 	// Session config — slate
@@ -74,7 +72,6 @@ const TOOL_ICONS: Record<string, ToolIconSpec> = {
 	change_compact_threshold: { Icon: Archive, box: "bg-slate-500/10 text-slate-500" },
 	change_stop_threshold: { Icon: Octagon, box: "bg-slate-500/10 text-slate-500" },
 	change_always_improve_mode: { Icon: Sparkles, box: "bg-pink-500/10 text-pink-500" },
-	ask_checklist: { Icon: ListChecks, box: "bg-amber-500/10 text-amber-500" },
 	set_session_name: { Icon: Tag, box: "bg-slate-500/10 text-slate-500" },
 
 	// Git

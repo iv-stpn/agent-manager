@@ -8,7 +8,7 @@
  * surfaced back to the agent as a tool_result error so it can self-correct.
  */
 
-import type { ChecklistItem, ReportData } from "../../external/discord";
+import type { ReportData } from "../../external/discord";
 import type { MemoryType } from "./implementations/memory";
 
 type Input = Record<string, unknown>;
@@ -407,6 +407,61 @@ export function validateQuestion(input: Input): asserts input is QuestionInput {
 	);
 }
 
+export interface AskUserQuestionOption {
+	label: string;
+	description: string;
+}
+
+export interface AskUserQuestionItem {
+	question: string;
+	header: string;
+	options: AskUserQuestionOption[];
+	multiSelect?: boolean;
+}
+
+export interface AskUserQuestionInput extends Input {
+	title?: string;
+	questions: AskUserQuestionItem[];
+	context?: string;
+	urgent?: boolean;
+}
+export function validateAskUserQuestion(input: Input): asserts input is AskUserQuestionInput {
+	assertValid(
+		optionalString(input, "title"),
+		optionalString(input, "context"),
+		optionalBoolean(input, "urgent")
+	);
+	// Validate questions array
+	const questions = input.questions;
+	if (!questions || !Array.isArray(questions)) throw new ToolValidationError('Missing required parameter: "questions" (must be an array)');
+	if (questions.length < 1) throw new ToolValidationError('"questions" must have at least 1 item');
+	for (let i = 0; i < questions.length; i++) {
+		const q = questions[i] as Input;
+		if (typeof q !== "object" || q === null) throw new ToolValidationError(`"questions[${i}]" must be an object`);
+		const errors: string[] = [];
+		const qErr = requireString(q, "question", "question text");
+		if (qErr) errors.push(`questions[${i}]: ${qErr}`);
+		const hErr = requireString(q, "header", "short label (max 12 chars)");
+		if (hErr) errors.push(`questions[${i}]: ${hErr}`);
+		if (!q.options || !Array.isArray(q.options)) errors.push(`questions[${i}]: "options" is required and must be an array`);
+		else if (q.options.length < 2) errors.push(`questions[${i}]: "options" must have at least 2 items`);
+		else if (q.options.length > 4) errors.push(`questions[${i}]: "options" must have at most 4 items`);
+		else {
+			for (let j = 0; j < q.options.length; j++) {
+				const opt = q.options[j] as Input;
+				if (typeof opt !== "object" || opt === null) { errors.push(`questions[${i}].options[${j}]: must be an object`); continue; }
+				const lErr = requireString(opt, "label", "option label");
+				if (lErr) errors.push(`questions[${i}].options[${j}]: ${lErr}`);
+				const dErr = requireString(opt, "description", "option description");
+				if (dErr) errors.push(`questions[${i}].options[${j}]: ${dErr}`);
+			}
+		}
+		const msErr = optionalBoolean(q, "multiSelect");
+		if (msErr) errors.push(`questions[${i}]: ${msErr}`);
+		if (errors.length > 0) throw new ToolValidationError(errors.join("\n"));
+	}
+}
+
 // ── Reports ───────────────────────────────────────────────────────────────────
 
 export interface SendReportInput extends Input {
@@ -440,19 +495,6 @@ export interface CommitChangesInput extends Input {
 }
 export function validateCommitChanges(input: Input): asserts input is CommitChangesInput {
 	assertValid(requireString(input, "message", "conventional commit message"), optionalBoolean(input, "skip_checks"));
-}
-
-// ── Checklist ─────────────────────────────────────────────────────────────────
-
-export interface AskChecklistInput extends Input {
-	title: string;
-	items: ChecklistItem[];
-}
-export function validateAskChecklist(input: Input): asserts input is AskChecklistInput {
-	assertValid(
-		requireString(input, "title", "checklist title"),
-		validateArrayItems(input, "items", { id: "unique identifier", question: "question text" }, { required: true, minLength: 1 })
-	);
 }
 
 // ── Plan mode ─────────────────────────────────────────────────────────────────

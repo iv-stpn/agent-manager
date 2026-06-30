@@ -79,6 +79,7 @@ export const guidelines = sqliteTable("guidelines", {
 	name: text("name").notNull(),
 	description: text("description").notNull().default(""),
 	categoryId: text("category_id"),
+	language: text("language"),
 	content: text("content").notNull().default(""),
 	createdAt: integer("created_at").notNull(),
 	updatedAt: integer("updated_at").notNull(),
@@ -124,6 +125,18 @@ export const statistics = sqliteTable("statistics", {
 	updatedAt: integer("updated_at").notNull(),
 });
 
+export const llmClients = sqliteTable("llm_clients", {
+	id: text("id").primaryKey(),
+	name: text("name").notNull(),
+	provider: text("provider").notNull().$type<"anthropic" | "openai" | "custom">(),
+	apiKey: text("api_key").notNull().default(""),
+	baseUrl: text("base_url").notNull().default(""),
+	model: text("model").notNull().default(""),
+	smallModel: text("small_model").notNull().default(""),
+	createdAt: integer("created_at").notNull(),
+	updatedAt: integer("updated_at").notNull(),
+});
+
 export const discordChannels = sqliteTable("discord_channels", {
 	id: text("id").primaryKey(),
 	projectId: text("project_id").notNull(),
@@ -141,6 +154,8 @@ export type GuidelineCategory = typeof guidelineCategories.$inferSelect;
 export type Guideline = typeof guidelines.$inferSelect;
 export type ArchivedProject = typeof archivedProjects.$inferSelect;
 export type ArchivedSession = typeof archivedSessions.$inferSelect;
+export type LlmClient = typeof llmClients.$inferSelect;
+export type LlmProvider = LlmClient["provider"];
 export type DiscordChannel = typeof discordChannels.$inferSelect;
 
 export interface GlobalStats {

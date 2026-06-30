@@ -2,7 +2,20 @@
 // RPC layer — response shapes are inferred from the server's route definitions.
 // SSE streams connect directly to the agent server port to avoid proxy buffering.
 
-import type { AppType, Guideline, GuidelineCategory, TechStack, WorkspaceFolderStatus } from "@agent-manager/host-api";
+import type { AppType, Guideline, GuidelineCategory, LlmClient, TechStack, WorkspaceFolderStatus } from "@agent-manager/host-api";
+
+export type { Guideline, GuidelineCategory, LlmClient, LlmProvider, StackEntry, TechStack } from "@agent-manager/host-api";
+export type {
+	CheckinRecord as Checkin,
+	CompactionRecord as Compaction,
+	MessageRecord as Message,
+	QuestionRecord as Question,
+	ReportRecord as Report,
+	SessionRecord as Session,
+	ToolCallRecord as ToolCall,
+} from "@agent-manager/projects";
+export type { EnrichedProject } from "@/lib/types";
+
 import type { CreateProjectInput } from "@agent-manager/projects";
 import { hc } from "hono/client";
 import { API_URL } from "@/constants";
@@ -209,6 +222,19 @@ export async function stopSession(projectId: string, id: string): Promise<void> 
 	});
 }
 
+/** Graceful stop: the agent finishes its current message (no abort), then stops. */
+export async function pauseSession(projectId: string, id: string): Promise<void> {
+	await api.api.projects[":projectId"].sessions[":sessionId"].pause.$post({
+		param: { projectId, sessionId: id },
+	});
+}
+
+export async function restartSession(projectId: string, id: string): Promise<void> {
+	await api.api.projects[":projectId"].sessions[":sessionId"].restart.$post({
+		param: { projectId, sessionId: id },
+	});
+}
+
 export async function sendSessionMessage(projectId: string, id: string, message: string): Promise<void> {
 	const req = { param: { projectId, sessionId: id }, json: { message } };
 	await api.api.projects[":projectId"].sessions[":sessionId"].message.$post(req);
@@ -291,5 +317,30 @@ export async function updateGuideline(id: string, data: Partial<Omit<Guideline, 
 
 export async function deleteGuideline(id: string): Promise<void> {
 	const res = await api.api.guidelines[":id"].$delete({ param: { id } });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+}
+
+// ── LLM Client endpoints ────────────────────────────────────────────────────
+
+export async function getLlmClients(): Promise<LlmClient[]> {
+	const res = await api.api["llm-clients"].$get();
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return await res.json();
+}
+
+export async function createLlmClient(data: Omit<LlmClient, "id" | "createdAt" | "updatedAt">): Promise<LlmClient> {
+	const res = await api.api["llm-clients"].$post({ json: data });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return await res.json();
+}
+
+export async function updateLlmClient(id: string, data: Partial<Omit<LlmClient, "id" | "createdAt">>): Promise<LlmClient> {
+	const res = await api.api["llm-clients"][":id"].$put({ param: { id }, json: data });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return await res.json();
+}
+
+export async function deleteLlmClient(id: string): Promise<void> {
+	const res = await api.api["llm-clients"][":id"].$delete({ param: { id } });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
 }

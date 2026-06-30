@@ -13,6 +13,7 @@ export type LooseOptional<T> = T extends (infer U)[]
 		: T;
 
 export const AgentConfigSchema = z.object({
+	clientId: z.string().optional(),
 	anthropicApiKey: z.string().optional(),
 	anthropicBaseUrl: z.string().optional(),
 	model: z.string().optional(),

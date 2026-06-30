@@ -4,7 +4,9 @@ import { nanoid } from "nanoid";
 import { getMessages, getSession, insertCompaction, insertMessage, updateSession } from "../../db";
 import { sessionEmitter } from "../../emitter";
 import { env } from "../../env";
+import { fetchProjectContext } from "../../external/context";
 import { compactMessages, estimateTokens } from "../context";
+import { buildSystemPrompt } from "../system-prompt";
 import { calculateTokenWarningState, MODEL_CONTEXT_WINDOW } from "../token-budget";
 import type { AgentState } from "../types";
 import { extractTextContent } from "../utils/content";
@@ -107,7 +109,7 @@ export async function doCompaction(agent: AgentState): Promise<void> {
 export async function runLoop(agent: AgentState): Promise<void> {
 	try {
 		// ── Main agent loop ────────────────────────────────────────────────
-		while (!agent.stopped) {
+		while (!agent.stopped && !agent.pauseRequested) {
 			// Refresh abort controller for this iteration (controllers can't be reused)
 			agent.abortController = new AbortController();
 
@@ -160,12 +162,35 @@ export async function runLoop(agent: AgentState): Promise<void> {
 				agent.lastReportTime = Date.now();
 			}
 
+			// ── Drain steering queue (non-disruptive message injection) ────
+			// Pick up any messages queued via steerAgent() before calling the LLM.
+			while (agent.steeringQueue.length > 0) {
+				const text = agent.steeringQueue.shift()!;
+				const steered = insertMessage(agent.db, {
+					sessionId: agent.sessionId,
+					role: "user",
+					content: text,
+					createdAt: Date.now(),
+				});
+				agent.lastUserMessageId = steered.id;
+				emitMessage(agent, { id: steered.id, role: "user", content: text });
+				pushOrMergeMessage(agent.messages, "user", text);
+			}
+
+			// ── Turn start ─────────────────────────────────────────────────
+			agent.turnNumber += 1;
+			const currentTurn = agent.turnNumber;
+			sessionEmitter.emit(agent.sessionId, { type: "turn_start", data: { turnNumber: currentTurn } });
+
 			let response: Anthropic.Messages.Message;
 			try {
 				response = await callAnthropicApi(agent);
 			} catch (err) {
-				// A clean abort (stop or interject) should not surface as an error
-				if (err instanceof Error && err.name === "AbortError") {
+				// A clean abort (stop or interject) should not surface as an error.
+				// The signal is the source of truth: the SDK's APIUserAbortError (thrown
+				// when its own fetch is aborted) keeps `.name === "Error"` rather than
+				// "AbortError", so checking the error name alone misses it.
+				if (agent.abortController.signal.aborted) {
 					if (agent.stopped) break;
 					// Interject: merge user message into last context turn
 					if (agent.injectedMessage) {
@@ -200,6 +225,10 @@ export async function runLoop(agent: AgentState): Promise<void> {
 
 				// Always-improve: continue instead of stopping
 				if (agent.config.alwaysImproveMode !== "no") {
+					sessionEmitter.emit(agent.sessionId, {
+						type: "turn_end",
+						data: { turnNumber: currentTurn, hadTools: false, stopReason: "end_turn" },
+					});
 					const continueMessage = buildImproveMessage(agent);
 					agent.messages.push({ role: "assistant", content: response.content });
 					agent.messages.push({ role: "user", content: continueMessage });
@@ -217,6 +246,29 @@ export async function runLoop(agent: AgentState): Promise<void> {
 					continue;
 				}
 
+				// ── Follow-up queue: continue if caller queued messages ────
+				// Check before the completion report so we don't freeze/complete prematurely.
+				if (agent.followUpQueue.length > 0) {
+					sessionEmitter.emit(agent.sessionId, {
+						type: "turn_end",
+						data: { turnNumber: currentTurn, hadTools: false, stopReason: "end_turn" },
+					});
+					agent.messages.push({ role: "assistant", content: response.content });
+					while (agent.followUpQueue.length > 0) {
+						const text = agent.followUpQueue.shift()!;
+						const followUp = insertMessage(agent.db, {
+							sessionId: agent.sessionId,
+							role: "user",
+							content: text,
+							createdAt: Date.now(),
+						});
+						agent.lastUserMessageId = followUp.id;
+						emitMessage(agent, { id: followUp.id, role: "user", content: text });
+						pushOrMergeMessage(agent.messages, "user", text);
+					}
+					continue;
+				}
+
 				// Completion freeze follows freeze_report_mode (NOT a forced freeze):
 				//   always → freeze for a final check-in
 				//   never  → post the report and complete without blocking
@@ -227,6 +279,10 @@ export async function runLoop(agent: AgentState): Promise<void> {
 					{ title: "✅ Task Complete", sections: [{ title: "Final Summary", content: finalText }] },
 					"completion"
 				);
+				sessionEmitter.emit(agent.sessionId, {
+					type: "turn_end",
+					data: { turnNumber: currentTurn, hadTools: false, stopReason: "end_turn" },
+				});
 				setStatus(agent, "completed");
 				break;
 			}
@@ -252,6 +308,23 @@ export async function runLoop(agent: AgentState): Promise<void> {
 				if (agent.config.freezeAskMode === "always" && agent.pendingQuestions.length > 0) {
 					await flushQuestionsToDiscord(agent);
 				}
+
+				sessionEmitter.emit(agent.sessionId, {
+					type: "turn_end",
+					data: { turnNumber: currentTurn, hadTools: true },
+				});
+			}
+		}
+
+		// A pending pause (pauseAgent()) lets the loop fall out of the `while`
+		// condition naturally rather than via one of the `break`s above, none of
+		// which run when the exit is a graceful pause — finalize the status here.
+		// Other exits (completed, timed out, token budget) already set a terminal
+		// status, so only step in if the session is still mid-flight.
+		if (agent.pauseRequested) {
+			const current = getSession(agent.db, agent.sessionId);
+			if (current?.status === "running" || current?.status === "compacting") {
+				setStatus(agent, "aborted");
 			}
 		}
 	} catch (err) {
@@ -296,9 +369,9 @@ export async function runLoop(agent: AgentState): Promise<void> {
 			},
 		});
 
-		// Non-retryable auth errors → "error" status; others → "stopped" (may be resumable)
-		const status = classified.retryable ? "stopped" : "error";
-		updateSession(agent.db, agent.sessionId, { status });
+		// Any error reaching this fatal catch block is a real failure — retries
+		// (if the error was retryable) are already exhausted inside callAnthropicApi/withRetry.
+		updateSession(agent.db, agent.sessionId, { status: "error" });
 		sessionEmitter.emit(agent.sessionId, { type: "error", data: { message: errorData.error } });
 	}
 }
@@ -309,38 +382,57 @@ const WORKSPACE = env.WORKSPACE_PATH;
 
 export async function run(agent: AgentState, task: string): Promise<void> {
 	// ── Bootstrap workspace ────────────────────────────────────────────
-	const { isNewProject } = await bootstrapWorkspace(WORKSPACE);
+	const { isNewProject, isFirstSession } = await bootstrapWorkspace(WORKSPACE);
+
+	// On first session, rebuild system prompt without recall instructions
+	if (isFirstSession) {
+		const context = await fetchProjectContext();
+		agent.systemPrompt = buildSystemPrompt(agent.config, { isFirstSession: true, context });
+	}
 
 	// ── Build startup context ──────────────────────────────────────────
 	// Persist the system prompt as a display-only "system" row (skipped when rebuilding
 	// Anthropic message history on resume — the prompt is sent as a separate API param).
-	const sysMsg = insertMessage(agent.db, {
+	const systemMessage = insertMessage(agent.db, {
 		sessionId: agent.sessionId,
 		role: "system",
 		content: agent.systemPrompt,
-		inputTokens: 0,
-		outputTokens: 0,
-		cacheReadTokens: 0,
-		cacheWriteTokens: 0,
 		createdAt: Date.now(),
 	});
-	emitMessage(agent, { id: sysMsg.id, role: "system", content: agent.systemPrompt });
+	emitMessage(agent, { id: systemMessage.id, role: "system", content: agent.systemPrompt });
+
 	const startupMsgs = await buildStartupContext(task, isNewProject);
 	agent.messages = startupMsgs.map((content) => ({ role: "user", content }));
 	for (const content of startupMsgs) {
-		insertMessage(agent.db, {
-			sessionId: agent.sessionId,
-			role: "user",
-			content,
-			inputTokens: 0,
-			outputTokens: 0,
-			cacheReadTokens: 0,
-			cacheWriteTokens: 0,
-			createdAt: Date.now(),
-		});
+		insertMessage(agent.db, { sessionId: agent.sessionId, role: "user", content, createdAt: Date.now() });
 	}
 
 	await runLoop(agent);
+}
+
+// Rebuild the Anthropic message history from the DB transcript, merging
+// consecutive same-role rows (consecutive user rows can occur after an
+// interrupted interject). System-prompt rows are display-only — the prompt is
+// sent as a separate API param. Rows recording a failed attempt (assistant
+// messages with `error` set) are dropped so a retried/restarted turn doesn't
+// replay its own failure back to the model.
+function rebuildMessagesFromDb(agent: AgentState): MessageParam[] {
+	const rows = getMessages(agent.db, agent.sessionId);
+	const messages: MessageParam[] = [];
+	for (const row of rows) {
+		if (row.role === "system") continue;
+		if (row.role === "assistant" && row.error) continue;
+		let content: unknown;
+		try {
+			const parsed = JSON.parse(row.content);
+			content = Array.isArray(parsed) ? parsed : row.content;
+		} catch {
+			content = row.content;
+		}
+		const role = row.role as "user" | "assistant";
+		pushOrMergeMessage(messages, role, content as MessageParam["content"]);
+	}
+	return messages;
 }
 
 export async function resume(agent: AgentState, message: string): Promise<void> {
@@ -351,29 +443,30 @@ export async function resume(agent: AgentState, message: string): Promise<void> 
 	agent.startTime = Date.now();
 	agent.lastReportTime = Date.now();
 
-	// Rebuild message history from DB, merging consecutive same-role rows
-	// (consecutive user rows can occur after an interrupted interject)
-	const rows = getMessages(agent.db, agent.sessionId);
-	agent.messages = [];
-	for (const row of rows) {
-		// System-prompt rows are display-only; the prompt is sent as a separate API param.
-		if (row.role === "system") continue;
-		let content: unknown;
-		try {
-			const parsed = JSON.parse(row.content);
-			content = Array.isArray(parsed) ? parsed : row.content;
-		} catch {
-			content = row.content;
-		}
-		const role = row.role as "user" | "assistant";
-		pushOrMergeMessage(agent.messages, role, content as MessageParam["content"]);
-	}
+	agent.messages = rebuildMessagesFromDb(agent);
 
 	// Append and persist the new user message
 	const userMsg = insertMessage(agent.db, { sessionId: agent.sessionId, role: "user", content: message, createdAt: Date.now() });
 	agent.lastUserMessageId = userMsg.id;
 	emitMessage(agent, { id: userMsg.id, role: "user", content: message });
 	pushOrMergeMessage(agent.messages, "user", message);
+
+	setStatus(agent, "running");
+
+	await runLoop(agent);
+}
+
+/** Re-attempt the last unanswered user turn after a session was aborted or
+ * errored out, without requiring the caller to supply a new message. */
+export async function restart(agent: AgentState): Promise<void> {
+	const session = getSession(agent.db, agent.sessionId);
+	if (!session) throw new Error(`Session ${agent.sessionId} not found`);
+
+	agent.stopped = false;
+	agent.startTime = Date.now();
+	agent.lastReportTime = Date.now();
+
+	agent.messages = rebuildMessagesFromDb(agent);
 
 	setStatus(agent, "running");
 

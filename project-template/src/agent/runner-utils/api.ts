@@ -1,5 +1,4 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { nanoid } from "nanoid";
 import { addTokens, getSession, insertMessage, updateMessageTokens } from "../../db";
 import { sessionEmitter } from "../../emitter";
 import { env } from "../../env";
@@ -26,6 +25,27 @@ export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Mes
 
 		stream.on("text", (text) => {
 			sessionEmitter.emit(agent.sessionId, { type: "text_delta", data: { text } });
+		});
+
+		// Extended thinking deltas (fires only when thinking is enabled on the model)
+		stream.on("thinking", (thinking) => {
+			sessionEmitter.emit(agent.sessionId, { type: "thinking_delta", data: { thinking } });
+		});
+
+		// Tool call streaming: emit toolcall_start when a tool_use block begins,
+		// and toolcall_delta for each partial JSON input chunk.
+		stream.on("streamEvent", (event) => {
+			if (event.type === "content_block_start" && event.content_block.type === "tool_use") {
+				sessionEmitter.emit(agent.sessionId, {
+					type: "toolcall_start",
+					data: { id: event.content_block.id, name: event.content_block.name },
+				});
+			} else if (event.type === "content_block_delta" && event.delta.type === "input_json_delta") {
+				sessionEmitter.emit(agent.sessionId, {
+					type: "toolcall_delta",
+					data: { inputDelta: event.delta.partial_json },
+				});
+			}
 		});
 
 		return stream.finalMessage();

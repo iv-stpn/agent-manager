@@ -256,15 +256,16 @@ Add a question to the pending queue. Whether it blocks or is deferred depends on
 | `context` | `string` |  | Background info to help the user answer |
 | `suggestions` | `array` |  | Premade answer suggestions rendered as clickable buttons in Discord. The user can pick one or type a custom free-form answer. |
 
-### `urgent_question`
+### `ask_user_question`
 
-Ask a critical question that blocks progress. In requiredOnly/always modes this sends immediately and waits. In onReportOnly mode it triggers an early report. In never mode it logs to memory and proceeds autonomously. Provide suggestions when possible.
+Ask the user one or more questions and wait for answers. Use this at the start of a task to clarify requirements, or mid-task when blocked. Set urgent=true when you are completely blocked and cannot proceed without an answer — this sends with high-priority styling and notifications.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `question` | `string` | Yes |  |
-| `context` | `string` |  | Why this is blocking your progress |
-| `suggestions` | `array` |  | Premade answer suggestions rendered as clickable buttons in Discord. The user can pick one or type a custom free-form answer. |
+| `title` | `string` |  | Optional heading for the question group (e.g. 'Implementation Requirements') |
+| `questions` | `array` | Yes | Questions to ask the user. All are sent together and answered as a group. |
+| `context` | `string` |  | Background info explaining why you're asking |
+| `urgent` | `boolean` |  | If true, sends with high-priority notifications (use only when fully blocked). Default: false. |
 
 ## Reports
 
@@ -306,17 +307,6 @@ Stage all workspace changes, run quality checks (lint, typecheck, tests), and cr
 ### `compact_context`
 
 Summarise the older portion of the conversation into a concise context block, freeing up context window space. Call this proactively when the conversation grows long or before an intensive multi-step operation.
-
-## Implementation checklist
-
-### `ask_checklist`
-
-Present a structured implementation checklist to the user via Discord BEFORE starting coding. Use this at the very start of a new implementation to surface ambiguities, confirm constraints, and avoid asking questions later. Group related questions into the same checklist call.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `title` | `string` | Yes | Checklist title (e.g. 'Implementation Requirements') |
-| `items` | `array` | Yes | Questions to ask the user. All unanswered questions block implementation until Discord response. |
 
 ## Plan Mode
 

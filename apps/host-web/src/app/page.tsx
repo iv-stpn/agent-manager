@@ -1,23 +1,21 @@
 import { Activity, Database, ExternalLink, FolderOpen, Play, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { toast } from "sonner";
-import { NewProjectDialog } from "@/components/new-project-dialog";
+import { StartupProgressModal } from "@/components/dialog/docker-progress-modal";
+import { NewProjectDialog } from "@/components/dialog/new-project-dialog";
 import { API_URL } from "@/constants";
 import { containerClassName } from "@/lib/classes";
 import { createHostStream } from "@/lib/host-stream";
 import { cn } from "@/lib/utils";
-import {
-	deleteProject as apiDeleteProject,
-	startProject as apiStartProject,
-	stopProject as apiStopProject,
-	getProjects,
-} from "../lib/agent-api";
+import { getProjects } from "../lib/agent-api";
 import { mutateCache, setCache, useQuery } from "../lib/query-cache";
 import type { EnrichedProject as Project } from "../lib/types";
 
 export default function Home() {
 	const [creating, setCreating] = useState(false);
+	const [progressOpen, setProgressOpen] = useState(false);
+	const [progressProjectId, setProgressProjectId] = useState("");
+	const [progressAction, setProgressAction] = useState<"start" | "stop" | "delete">("start");
 
 	const {
 		data: projects = [],
@@ -61,35 +59,15 @@ export default function Home() {
 		return () => es.close();
 	}, []);
 
-	const startProject = async (projectId: string) => {
-		try {
-			await apiStartProject(projectId);
-			fetchProjects();
-			toast.success("Project started");
-		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to start project");
-		}
+	const openProgress = (projectId: string, action: "start" | "stop" | "delete") => {
+		setProgressProjectId(projectId);
+		setProgressAction(action);
+		setProgressOpen(true);
 	};
 
-	const stopProject = async (projectId: string) => {
-		try {
-			await apiStopProject(projectId);
-			fetchProjects();
-			toast.success("Project stopped");
-		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to stop project");
-		}
-	};
-
-	const deleteProject = async (projectId: string) => {
+	const deleteProject = (projectId: string) => {
 		if (!confirm(`Delete project "${projectId}"? This cannot be undone.`)) return;
-		try {
-			await apiDeleteProject(projectId);
-			fetchProjects();
-			toast.success("Project deleted");
-		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to delete project");
-		}
+		openProgress(projectId, "delete");
 	};
 
 	if (loading) {
@@ -148,6 +126,18 @@ export default function Home() {
 			</header>
 
 			<NewProjectDialog open={creating} onOpenChange={setCreating} />
+
+			{progressProjectId && (
+				<StartupProgressModal
+					open={progressOpen}
+					onOpenChange={setProgressOpen}
+					projectId={progressProjectId}
+					action={progressAction}
+					onComplete={(success) => {
+						if (success) fetchProjects();
+					}}
+				/>
+			)}
 
 			{/* Projects Grid */}
 			<main className={cn(containerClassName, "py-8")}>
@@ -211,7 +201,7 @@ export default function Home() {
 									{project.dockerStatus.running ? (
 										<button
 											type="button"
-											onClick={() => stopProject(project.id)}
+											onClick={() => openProgress(project.id, "stop")}
 											className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100"
 										>
 											<Square className="w-4 h-4" />
@@ -220,7 +210,7 @@ export default function Home() {
 									) : (
 										<button
 											type="button"
-											onClick={() => startProject(project.id)}
+											onClick={() => openProgress(project.id, "start")}
 											className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100"
 										>
 											<Play className="w-4 h-4" />

@@ -5,9 +5,9 @@ import { createGuideline, deleteGuideline, getGuidelineCategories, getGuidelines
 import { mutateCache, useQuery } from "@/lib/query-cache";
 import { cn } from "@/lib/utils";
 
-type Form = { name: string; description: string; categoryId: string | null; content: string };
+type Form = { name: string; description: string; categoryId: string | null; language: string | null; content: string };
 
-const EMPTY_FORM: Form = { name: "", description: "", categoryId: null, content: "" };
+const EMPTY_FORM: Form = { name: "", description: "", categoryId: null, language: null, content: "" };
 const inputCls = "w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
 
 export default function GuidelinesPage() {
@@ -29,7 +29,13 @@ export default function GuidelinesPage() {
 	}
 
 	function openEdit(g: Guideline) {
-		setForm({ name: g.name, description: g.description, categoryId: g.categoryId, content: g.content });
+		setForm({
+			name: g.name,
+			description: g.description,
+			categoryId: g.categoryId,
+			language: g.language ?? null,
+			content: g.content,
+		});
 		setEditing(g);
 		setCreating(false);
 	}
@@ -137,6 +143,11 @@ export default function GuidelinesPage() {
 											>
 												{categoryName(g.categoryId)}
 											</span>
+											{g.language && (
+												<span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+													{g.language}
+												</span>
+											)}
 										</div>
 										<h3 className="font-semibold text-gray-900 truncate">{g.name}</h3>
 										{g.description && <p className="text-sm text-gray-500 mt-0.5 line-clamp-2">{g.description}</p>}
@@ -234,6 +245,19 @@ export default function GuidelinesPage() {
 										</option>
 									))}
 								</select>
+							</div>
+							<div className="space-y-1.5">
+								<label className="text-sm font-medium text-gray-700" htmlFor="gl-lang">
+									Language <span className="text-gray-400 font-normal">(optional)</span>
+								</label>
+								<input
+									id="gl-lang"
+									type="text"
+									value={form.language ?? ""}
+									onChange={(e) => setForm({ ...form, language: e.target.value || null })}
+									className={inputCls}
+									placeholder="e.g. TypeScript, Python, Rust…"
+								/>
 							</div>
 							<div className="space-y-1.5">
 								<label className="text-sm font-medium text-gray-700" htmlFor="gl-content">

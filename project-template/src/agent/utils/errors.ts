@@ -163,14 +163,19 @@ export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions): Pr
 
 			onRetry?.(err, attempt, delay);
 
-			// Wait, respecting abort signal
+			// Wait, respecting abort signal. Reject with a real AbortError (matching
+			// what AbortController/fetch throw natively) so the caller's
+			// `err.name === "AbortError"` check recognizes a stop/interject during
+			// the backoff wait the same way it recognizes one during the live
+			// request — otherwise it falls through to the fatal-error path and a
+			// clean Stop gets reported as a crash.
 			await new Promise<void>((resolve, reject) => {
 				const timeout = setTimeout(resolve, delay);
 				signal?.addEventListener(
 					"abort",
 					() => {
 						clearTimeout(timeout);
-						reject(new Error("AbortError"));
+						reject(new DOMException("Aborted", "AbortError"));
 					},
 					{ once: true }
 				);

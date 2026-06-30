@@ -2,12 +2,10 @@ import type { LooseOptional } from "@agent-manager/db/host-schema";
 import {
 	ActionRowBuilder,
 	ButtonBuilder,
-	type ButtonInteraction,
 	ButtonStyle,
 	EmbedBuilder,
 	type Interaction,
 	ModalBuilder,
-	type ModalSubmitInteraction,
 	type TextChannel,
 	TextInputBuilder,
 	TextInputStyle,
@@ -146,7 +144,8 @@ export async function sendReport(
 }
 
 /**
- * Send a checkin form with questions and wait for user interaction.
+ * Send a checkin form with questions asked one by one.
+ * Each step shows Back/Skip. At the end, a confirmation summary lets the user redo any answer.
  */
 export async function sendCheckinForm(
 	channel: TextChannel,
@@ -217,73 +216,116 @@ export async function sendCheckinForm(
 			}
 		}
 
-		async function presentQuestion(
-			interaction: ButtonInteraction | ModalSubmitInteraction,
-			step: number,
-			replyMethod: "reply" | "update"
-		) {
+		/** Build the embed + buttons for a given question step and edit the message. */
+		async function showQuestionStep(step: number) {
 			const question = questions[step];
 			const suggestions = parseSuggestions(question);
 
-			if (suggestions.length > 0) {
-				const qEmbed = new EmbedBuilder()
-					.setColor(0x5865f2)
-					.setTitle(`Question ${step + 1} of ${questions.length}`)
-					.setDescription(question.text);
+			const qEmbed = new EmbedBuilder()
+				.setColor(0x5865f2)
+				.setTitle(`Question ${step + 1} of ${questions.length}`)
+				.setDescription(question.text);
 
-				const buttons = suggestions.map((s) =>
+			if (question.context) {
+				qEmbed.addFields({ name: "Context", value: question.context });
+			}
+
+			const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+
+			if (suggestions.length > 0) {
+				// Suggestion buttons (up to 5 per row)
+				const suggestionButtons = suggestions.map((s) =>
 					new ButtonBuilder()
-						.setCustomId(`suggest_${sessionId}_${question.id}_${s.id}`)
+						.setCustomId(`suggest_${sessionId}_${step}_${s.id}`)
 						.setLabel(s.title.slice(0, 80))
 						.setStyle(ButtonStyle.Primary)
 				);
-				buttons.push(
-					new ButtonBuilder()
-						.setCustomId(`custom_answer_${sessionId}_${question.id}_${step}`)
-						.setLabel("✏️ Custom")
-						.setStyle(ButtonStyle.Secondary)
-				);
-
-				const rows: ActionRowBuilder<ButtonBuilder>[] = [];
-				for (let i = 0; i < buttons.length; i += 5) {
-					rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons.slice(i, i + 5)));
-				}
-
-				if (replyMethod === "reply") await interaction.reply({ embeds: [qEmbed], components: rows, flags: 64 });
-				else if (interaction.isButton()) await interaction.update({ embeds: [qEmbed], components: rows });
-			} else {
-				if (interaction.isButton()) {
-					const modal = new ModalBuilder()
-						.setCustomId(`answer_modal_${sessionId}_${question.id}`)
-						.setTitle(`Question ${step + 1} of ${questions.length}`);
-					const input = new TextInputBuilder()
-						.setCustomId("answer_input")
-						.setLabel(question.text.length > 45 ? `${question.text.slice(0, 42)}...` : question.text)
-						.setStyle(TextInputStyle.Paragraph)
-						.setRequired(true);
-					modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
-					await interaction.showModal(modal);
+				for (let i = 0; i < suggestionButtons.length; i += 5) {
+					rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(suggestionButtons.slice(i, i + 5)));
 				}
 			}
+
+			// Action row: ✏️ Custom/Answer + ⬅️ Back + Skip
+			const actionButtons: ButtonBuilder[] = [];
+			actionButtons.push(
+				new ButtonBuilder()
+					.setCustomId(`checkin_answer_${sessionId}_${step}`)
+					.setLabel(suggestions.length > 0 ? "✏️ Custom" : "✏️ Answer")
+					.setStyle(suggestions.length > 0 ? ButtonStyle.Secondary : ButtonStyle.Primary)
+			);
+			if (step > 0) {
+				actionButtons.push(
+					new ButtonBuilder()
+						.setCustomId(`checkin_back_${sessionId}_${step}`)
+						.setLabel("⬅️ Back")
+						.setStyle(ButtonStyle.Secondary)
+				);
+			}
+			actionButtons.push(
+				new ButtonBuilder().setCustomId(`checkin_skip_${sessionId}`).setLabel("Skip").setStyle(ButtonStyle.Danger)
+			);
+			rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(actionButtons));
+
+			await msg.edit({ embeds: [qEmbed], components: rows });
+		}
+
+		/** Show the confirmation summary with all answers and Confirm/Redo buttons. */
+		async function showConfirmation() {
+			const summaryLines = answers.map((a, i) => {
+				const q = questions[i];
+				const answerPreview = a.answer.length > 100 ? `${a.answer.slice(0, 97)}...` : a.answer;
+				return `**${i + 1}. ${q.text}**\n> ${answerPreview}`;
+			});
+
+			const confirmEmbed = new EmbedBuilder()
+				.setColor(0x44ff88)
+				.setTitle("✅ Review Your Answers")
+				.setDescription(summaryLines.join("\n\n"))
+				.setFooter({ text: "Confirm to resume the agent, or redo any answer." });
+
+			const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+
+			// Redo buttons (up to 5 per row)
+			const redoButtons = questions.map((_, i) =>
+				new ButtonBuilder()
+					.setCustomId(`checkin_redo_${sessionId}_${i}`)
+					.setLabel(`Redo #${i + 1}`)
+					.setStyle(ButtonStyle.Secondary)
+			);
+			for (let i = 0; i < redoButtons.length; i += 5) {
+				rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(redoButtons.slice(i, i + 5)));
+			}
+
+			// Confirm + Skip row
+			rows.push(
+				new ActionRowBuilder<ButtonBuilder>().addComponents(
+					new ButtonBuilder()
+						.setCustomId(`checkin_confirm_${sessionId}`)
+						.setLabel("✅ Confirm")
+						.setStyle(ButtonStyle.Success),
+					new ButtonBuilder().setCustomId(`checkin_skip_${sessionId}`).setLabel("Skip").setStyle(ButtonStyle.Danger)
+				)
+			);
+
+			await msg.edit({ embeds: [confirmEmbed], components: rows });
 		}
 
 		const modalListener = async (i: Interaction) => {
-			if (!i.isModalSubmit() && !i.isButton()) return;
-			if (!("customId" in i)) return;
-			if (!i.customId.includes(sessionId)) return;
+			if (!i.isModalSubmit()) return;
+			if (!i.customId.startsWith(`checkin_modal_${sessionId}_`)) return;
 
-			if (i.customId.startsWith(`answer_modal_${sessionId}_`)) {
-				if (!i.isModalSubmit()) return;
-				const answer = i.fields.getTextInputValue("answer_input");
-				answers.push({ questionId: questions[currentStep].id, answer });
-				currentStep++;
-				if (currentStep >= questions.length) {
-					await i.reply({ content: "✅ All questions answered. Agent resuming.", flags: 64 });
-					cleanup();
-					resolve({ answers, confirmed: true });
-				} else {
-					await presentQuestion(i, currentStep, "reply");
-				}
+			const answer = i.fields.getTextInputValue("answer_input");
+			// Acknowledge the modal
+			await i.deferUpdate().catch(() => i.reply({ content: "✅", flags: 64 }).catch(() => {}));
+
+			// Store answer at the current step (overwrite if redoing)
+			answers[currentStep] = { questionId: questions[currentStep].id, answer };
+			currentStep++;
+
+			if (currentStep >= questions.length) {
+				await showConfirmation();
+			} else {
+				await showQuestionStep(currentStep);
 			}
 		};
 
@@ -292,57 +334,91 @@ export async function sendCheckinForm(
 		collector.on("collect", async (interaction) => {
 			if (!interaction.isButton()) return;
 
+			// Skip button (available at every step)
 			if (interaction.customId === `checkin_skip_${sessionId}`) {
-				await interaction.update({ components: [] });
+				await interaction.update({ embeds: [], components: [], content: "⏭ Skipped. Agent resuming." });
 				cleanup();
-				resolve({ answers, confirmed: false });
+				resolve({ answers: [], confirmed: false });
 				return;
 			}
 
+			// Start button
 			if (interaction.customId === `checkin_start_${sessionId}`) {
 				if (questions.length === 0) {
-					await interaction.update({ components: [] });
+					await interaction.update({ embeds: [], components: [], content: "✅ Acknowledged. Agent resuming." });
 					cleanup();
 					resolve({ answers: [], confirmed: true });
 					return;
 				}
-				await msg.edit({ components: [] });
-				await presentQuestion(interaction, 0, "reply");
+				currentStep = 0;
+				await interaction.deferUpdate();
+				await showQuestionStep(0);
 				return;
 			}
 
-			// Suggestion button
-			if (interaction.customId.startsWith(`suggest_${sessionId}_`)) {
-				const parts = interaction.customId.split("_");
-				const suggestionId = parts[parts.length - 1];
-				const question = questions[currentStep];
-				const suggestions = parseSuggestions(question);
-				const selected = suggestions.find((s) => s.id === suggestionId);
-				answers.push({ questionId: question.id, answer: selected?.title ?? suggestionId });
-				currentStep++;
-				if (currentStep >= questions.length) {
-					await interaction.update({ content: "✅ All questions answered. Agent resuming.", embeds: [], components: [] });
-					cleanup();
-					resolve({ answers, confirmed: true });
-				} else {
-					await presentQuestion(interaction, currentStep, "update");
-				}
-				return;
-			}
-
-			// Custom answer button
-			if (interaction.customId.startsWith(`custom_answer_${sessionId}_`)) {
+			// Answer button → open modal
+			if (interaction.customId.startsWith(`checkin_answer_${sessionId}_`)) {
 				const question = questions[currentStep];
 				const modal = new ModalBuilder()
-					.setCustomId(`answer_modal_${sessionId}_${question.id}`)
+					.setCustomId(`checkin_modal_${sessionId}_${currentStep}`)
 					.setTitle(`Question ${currentStep + 1} of ${questions.length}`);
 				const input = new TextInputBuilder()
 					.setCustomId("answer_input")
 					.setLabel(question.text.length > 45 ? `${question.text.slice(0, 42)}...` : question.text)
 					.setStyle(TextInputStyle.Paragraph)
 					.setRequired(true);
+				if (answers[currentStep]) {
+					input.setValue(answers[currentStep].answer);
+				}
 				modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
 				await interaction.showModal(modal);
+				return;
+			}
+
+			// Back button
+			if (interaction.customId.startsWith(`checkin_back_${sessionId}_`)) {
+				currentStep = Math.max(0, currentStep - 1);
+				await interaction.deferUpdate();
+				await showQuestionStep(currentStep);
+				return;
+			}
+
+			// Suggestion button
+			if (interaction.customId.startsWith(`suggest_${sessionId}_`)) {
+				const parts = interaction.customId.split("_");
+				// Format: suggest_{sessionId}_{step}_{suggestionId}
+				const suggestionId = parts[parts.length - 1];
+				const question = questions[currentStep];
+				const suggestions = parseSuggestions(question);
+				const selected = suggestions.find((s) => s.id === suggestionId);
+				answers[currentStep] = { questionId: question.id, answer: selected?.title ?? suggestionId };
+				currentStep++;
+
+				await interaction.deferUpdate();
+				if (currentStep >= questions.length) {
+					await showConfirmation();
+				} else {
+					await showQuestionStep(currentStep);
+				}
+				return;
+			}
+
+			// Redo button from confirmation screen
+			if (interaction.customId.startsWith(`checkin_redo_${sessionId}_`)) {
+				const stepStr = interaction.customId.split("_").pop();
+				const step = Number.parseInt(stepStr ?? "0", 10);
+				currentStep = step;
+				await interaction.deferUpdate();
+				await showQuestionStep(step);
+				return;
+			}
+
+			// Confirm button
+			if (interaction.customId === `checkin_confirm_${sessionId}`) {
+				await interaction.update({ embeds: [], components: [], content: "✅ All answers confirmed. Agent resuming." });
+				cleanup();
+				resolve({ answers: answers.filter(Boolean), confirmed: true });
+				return;
 			}
 		});
 
@@ -350,37 +426,43 @@ export async function sendCheckinForm(
 			if (reason === "done") return;
 			msg.edit({ components: [] }).catch(() => {});
 			channel.client.removeListener("interactionCreate", modalListener);
-			resolve({ answers, confirmed: false });
+			resolve({ answers: [], confirmed: false });
 		});
 	});
 }
 
 /**
- * Send a checklist (pre-implementation questions) and wait for responses.
+ * Send structured questions with options as buttons. Each question is shown one at a time.
+ * Users pick from options or type a custom answer via a modal.
  */
-export async function sendChecklist(
+export async function sendQuestions(
 	channelId: string,
 	sessionId: string,
 	title: string,
-	items: Array<{ id: string; question: string; description?: string | undefined }>,
+	questions: Array<{ question: string; header: string; options: Array<{ label: string; description: string }>; multiSelect?: boolean | undefined }>,
+	urgent?: boolean,
 	signal?: AbortSignal
 ): Promise<Record<string, string>> {
-	const channel = await getChannel(channelId);
-	if (!channel) return {};
+	const maybeChannel = await getChannel(channelId);
+	if (!maybeChannel) return {};
+	const channel = maybeChannel;
 
+	const embedColor = urgent ? 0xff4444 : 0x5865f2;
+
+	// Overview embed showing all questions
 	const embed = new EmbedBuilder()
-		.setColor(0x5865f2)
-		.setTitle(title)
+		.setColor(embedColor)
+		.setTitle(`${urgent ? "🚨 " : ""}${title}`)
 		.setDescription(
-			items.map((item, i) => `**${i + 1}.** ${item.question}${item.description ? `\n   _${item.description}_` : ""}`).join("\n\n")
+			questions.map((q, i) => `**${i + 1}.** \`${q.header}\` — ${q.question}`).join("\n\n")
 		);
 
 	const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
 		new ButtonBuilder()
-			.setCustomId(`checklist_start_${sessionId}`)
-			.setLabel(`Answer ${items.length} Question(s)`)
-			.setStyle(ButtonStyle.Primary),
-		new ButtonBuilder().setCustomId(`checklist_skip_${sessionId}`).setLabel("Skip All").setStyle(ButtonStyle.Secondary)
+			.setCustomId(`q_start_${sessionId}`)
+			.setLabel(`Answer ${questions.length} Question(s)`)
+			.setStyle(urgent ? ButtonStyle.Danger : ButtonStyle.Primary),
+		new ButtonBuilder().setCustomId(`q_skip_${sessionId}`).setLabel("Skip All").setStyle(ButtonStyle.Secondary)
 	);
 
 	const msg = await channel.send({ embeds: [embed], components: [row] });
@@ -388,12 +470,14 @@ export async function sendChecklist(
 
 	return new Promise((resolve) => {
 		let currentStep = 0;
+		// For multiSelect, track selected options per step
+		const multiSelections: Map<number, Set<string>> = new Map();
 		const collector = msg.createMessageComponentCollector({ time: CHECKIN_TIMEOUT_MS });
 
 		if (signal) {
 			const onAbort = () => {
 				msg.edit({ components: [] }).catch(() => {});
-				collector.stop("done");
+				cleanup();
 				resolve(results);
 			};
 			if (signal.aborted) {
@@ -403,39 +487,226 @@ export async function sendChecklist(
 			signal.addEventListener("abort", onAbort, { once: true });
 		}
 
+		function cleanup() {
+			collector.stop("done");
+			channel.client.removeListener("interactionCreate", modalListener);
+		}
+
+		/** Show a single question with option buttons + custom answer button + navigation. */
+		async function showStep(step: number) {
+			const q = questions[step];
+			const isMulti = q.multiSelect ?? false;
+
+			const qEmbed = new EmbedBuilder()
+				.setColor(embedColor)
+				.setTitle(`${urgent ? "🚨 " : ""}${title} — ${q.header} (${step + 1}/${questions.length})`)
+				.setDescription(`**${q.question}**${isMulti ? "\n\n_Select one or more options, then press Done._" : ""}`);
+
+			// Option buttons row(s)
+			const optionButtons: ButtonBuilder[] = q.options.map((opt, oi) => {
+				const selected = isMulti && multiSelections.get(step)?.has(opt.label);
+				return new ButtonBuilder()
+					.setCustomId(`q_opt_${sessionId}_${step}_${oi}`)
+					.setLabel(`${selected ? "✅ " : ""}${opt.label}`)
+					.setStyle(selected ? ButtonStyle.Success : ButtonStyle.Primary);
+			});
+
+			const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+			// Options row (max 5 per row)
+			for (let i = 0; i < optionButtons.length; i += 5) {
+				rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(optionButtons.slice(i, i + 5)));
+			}
+
+			// Navigation row
+			const navButtons: ButtonBuilder[] = [];
+			if (isMulti) {
+				navButtons.push(
+					new ButtonBuilder()
+						.setCustomId(`q_multidone_${sessionId}_${step}`)
+						.setLabel("✅ Done")
+						.setStyle(ButtonStyle.Success)
+				);
+			}
+			navButtons.push(
+				new ButtonBuilder()
+					.setCustomId(`q_custom_${sessionId}_${step}`)
+					.setLabel("✏️ Custom Answer")
+					.setStyle(ButtonStyle.Secondary)
+			);
+			if (step > 0) {
+				navButtons.push(
+					new ButtonBuilder()
+						.setCustomId(`q_back_${sessionId}_${step}`)
+						.setLabel("⬅️ Back")
+						.setStyle(ButtonStyle.Secondary)
+				);
+			}
+			navButtons.push(
+				new ButtonBuilder().setCustomId(`q_skip_${sessionId}`).setLabel("Skip All").setStyle(ButtonStyle.Danger)
+			);
+			rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons));
+
+			await msg.edit({ embeds: [qEmbed], components: rows });
+		}
+
+		/** Show confirmation with all answers and Confirm/Redo buttons. */
+		async function showConfirmation() {
+			const summaryLines = questions.map((q, i) => {
+				const answer = results[q.header];
+				const preview = answer && answer.length > 100 ? `${answer.slice(0, 97)}...` : (answer ?? "_skipped_");
+				return `**${i + 1}. ${q.header}** — ${q.question}\n> ${preview}`;
+			});
+
+			const confirmEmbed = new EmbedBuilder()
+				.setColor(0x44ff88)
+				.setTitle(`✅ ${title} — Review`)
+				.setDescription(summaryLines.join("\n\n"))
+				.setFooter({ text: "Confirm to proceed, or redo any answer." });
+
+			const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+			const redoButtons = questions.map((_, i) =>
+				new ButtonBuilder()
+					.setCustomId(`q_redo_${sessionId}_${i}`)
+					.setLabel(`Redo #${i + 1}`)
+					.setStyle(ButtonStyle.Secondary)
+			);
+			for (let i = 0; i < redoButtons.length; i += 5) {
+				rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(redoButtons.slice(i, i + 5)));
+			}
+			rows.push(
+				new ActionRowBuilder<ButtonBuilder>().addComponents(
+					new ButtonBuilder()
+						.setCustomId(`q_confirm_${sessionId}`)
+						.setLabel("✅ Confirm")
+						.setStyle(ButtonStyle.Success),
+					new ButtonBuilder().setCustomId(`q_skip_${sessionId}`).setLabel("Skip All").setStyle(ButtonStyle.Danger)
+				)
+			);
+
+			await msg.edit({ embeds: [confirmEmbed], components: rows });
+		}
+
+		function advanceStep() {
+			currentStep++;
+			if (currentStep >= questions.length) {
+				showConfirmation();
+			} else {
+				showStep(currentStep);
+			}
+		}
+
 		const modalListener = async (i: Interaction) => {
 			if (!i.isModalSubmit()) return;
-			if (!i.customId.startsWith(`checklist_modal_${sessionId}_`)) return;
+			if (!i.customId.startsWith(`q_modal_${sessionId}_`)) return;
 
 			const answer = i.fields.getTextInputValue("answer_input");
-			results[items[currentStep].id] = answer;
-			currentStep++;
+			await i.deferUpdate().catch(() => i.reply({ content: "✅", flags: 64 }).catch(() => {}));
 
-			if (currentStep >= items.length) {
-				await i.reply({ content: "✅ Checklist complete. Agent proceeding.", flags: 64 });
-				collector.stop("done");
-				channel.client.removeListener("interactionCreate", modalListener);
-				resolve(results);
-			} else {
-				// ModalSubmitInteraction has showModal at runtime but not in discord.js types
-				await showChecklistModal(i as unknown as ModalShowable, items[currentStep], currentStep, items.length, sessionId);
-			}
+			results[questions[currentStep].header] = answer;
+			advanceStep();
 		};
 
 		channel.client.on("interactionCreate", modalListener);
 
 		collector.on("collect", async (interaction) => {
 			if (!interaction.isButton()) return;
-			if (interaction.customId === `checklist_skip_${sessionId}`) {
-				await interaction.update({ components: [] });
-				collector.stop("done");
-				channel.client.removeListener("interactionCreate", modalListener);
+
+			// Skip all
+			if (interaction.customId === `q_skip_${sessionId}`) {
+				await interaction.update({ embeds: [], components: [], content: "⏭ Questions skipped." });
+				cleanup();
 				resolve(results);
 				return;
 			}
-			if (interaction.customId === `checklist_start_${sessionId}`) {
-				await msg.edit({ components: [] });
-				await showChecklistModal(interaction, items[0], 0, items.length, sessionId);
+
+			// Start
+			if (interaction.customId === `q_start_${sessionId}`) {
+				currentStep = 0;
+				await interaction.deferUpdate();
+				await showStep(0);
+				return;
+			}
+
+			// Option selection
+			if (interaction.customId.startsWith(`q_opt_${sessionId}_`)) {
+				const parts = interaction.customId.split("_");
+				const step = Number.parseInt(parts[3], 10);
+				const optIdx = Number.parseInt(parts[4], 10);
+				const q = questions[step];
+				const isMulti = q.multiSelect ?? false;
+				const selectedLabel = q.options[optIdx].label;
+
+				if (isMulti) {
+					// Toggle selection
+					if (!multiSelections.has(step)) multiSelections.set(step, new Set());
+					const sel = multiSelections.get(step) ?? new Set();
+					if (sel.has(selectedLabel)) sel.delete(selectedLabel);
+					else sel.add(selectedLabel);
+					await interaction.deferUpdate();
+					await showStep(step);
+				} else {
+					// Single select — record and advance
+					results[q.header] = selectedLabel;
+					await interaction.deferUpdate();
+					advanceStep();
+				}
+				return;
+			}
+
+			// MultiSelect done
+			if (interaction.customId.startsWith(`q_multidone_${sessionId}_`)) {
+				const step = Number.parseInt(interaction.customId.split("_").pop() ?? "0", 10);
+				const sel = multiSelections.get(step);
+				results[questions[step].header] = sel && sel.size > 0 ? [...sel].join(", ") : "_no selection_";
+				await interaction.deferUpdate();
+				advanceStep();
+				return;
+			}
+
+			// Custom answer → open modal
+			if (interaction.customId.startsWith(`q_custom_${sessionId}_`)) {
+				const q = questions[currentStep];
+				const modal = new ModalBuilder()
+					.setCustomId(`q_modal_${sessionId}_${currentStep}`)
+					.setTitle(q.header.length > 45 ? `${q.header.slice(0, 42)}...` : q.header);
+				const input = new TextInputBuilder()
+					.setCustomId("answer_input")
+					.setLabel(q.question.length > 45 ? `${q.question.slice(0, 42)}...` : q.question)
+					.setPlaceholder("Type your answer...")
+					.setStyle(TextInputStyle.Paragraph)
+					.setRequired(true);
+				if (results[q.header]) {
+					input.setValue(results[q.header]);
+				}
+				modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+				await interaction.showModal(modal);
+				return;
+			}
+
+			// Back
+			if (interaction.customId.startsWith(`q_back_${sessionId}_`)) {
+				currentStep = Math.max(0, currentStep - 1);
+				await interaction.deferUpdate();
+				await showStep(currentStep);
+				return;
+			}
+
+			// Redo from confirmation
+			if (interaction.customId.startsWith(`q_redo_${sessionId}_`)) {
+				const stepStr = interaction.customId.split("_").pop();
+				const step = Number.parseInt(stepStr ?? "0", 10);
+				currentStep = step;
+				await interaction.deferUpdate();
+				await showStep(step);
+				return;
+			}
+
+			// Confirm
+			if (interaction.customId === `q_confirm_${sessionId}`) {
+				await interaction.update({ embeds: [], components: [], content: "✅ Questions answered. Agent proceeding." });
+				cleanup();
+				resolve(results);
+				return;
 			}
 		});
 
@@ -446,29 +717,6 @@ export async function sendChecklist(
 			resolve(results);
 		});
 	});
-}
-
-/** Any interaction that supports showing a modal (ButtonInteraction, SelectMenuInteraction, etc.) */
-type ModalShowable = Pick<ButtonInteraction, "showModal">;
-
-async function showChecklistModal(
-	interaction: ModalShowable,
-	item: { id: string; question: string; description?: string | undefined },
-	step: number,
-	total: number,
-	sessionId: string
-) {
-	const modal = new ModalBuilder()
-		.setCustomId(`checklist_modal_${sessionId}_${item.id}`)
-		.setTitle(`Question ${step + 1} of ${total}`);
-	const input = new TextInputBuilder()
-		.setCustomId("answer_input")
-		.setLabel(item.question.length > 45 ? `${item.question.slice(0, 42)}...` : item.question)
-		.setPlaceholder(item.description ?? "")
-		.setStyle(TextInputStyle.Paragraph)
-		.setRequired(true);
-	modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
-	await interaction.showModal(modal);
 }
 
 function splitContent(content: string, maxLen: number): string[] {

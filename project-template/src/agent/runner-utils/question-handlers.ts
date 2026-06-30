@@ -1,12 +1,12 @@
 import { nanoid } from "nanoid";
 import { insertQuestion } from "../../db";
 import type { ReportData } from "../../external/discord";
-import { sendReport } from "../../external/discord";
+import { sendQuestions, sendReport } from "../../external/discord";
 import { remember } from "../tools/implementations/memory";
-import type { QuestionInput, SendGraphInput, SendReportInput } from "../tools/validators";
+import type { AskUserQuestionInput, QuestionInput, SendGraphInput, SendReportInput } from "../tools/validators";
 import type { AgentState } from "../types";
 import { appendToQuestionsFile, drainPending, injectAnswers, makeQuestion } from "./questions";
-import { flushQuestionsToDiscord, shouldFreeze, triggerReport } from "./reports";
+import { shouldFreeze } from "./reports";
 import { setStatus } from "./status";
 
 export async function handleQueueQuestion(agent: AgentState, input: QuestionInput): Promise<string> {
@@ -33,39 +33,47 @@ export async function handleQueueQuestion(agent: AgentState, input: QuestionInpu
 	}
 }
 
-export async function handleUrgentQuestion(agent: AgentState, input: QuestionInput): Promise<string> {
-	const q = makeQuestion(agent, input, true);
-	insertQuestion(agent.db, q);
-	remember("question", `🚨 ${q.text.slice(0, 95)}`, `${q.text}${q.context ? `\n\nContext: ${q.context}` : ""}`, {
-		questionId: q.id,
-		status: "pending",
-		urgent: true,
-	}).catch(() => {});
+export async function handleAskUserQuestion(agent: AgentState, input: AskUserQuestionInput): Promise<string> {
+	const title = input.title ?? "Questions";
+	const urgent = input.urgent ?? false;
 
-	switch (agent.config.freezeAskMode) {
-		case "always":
-		case "requiredOnly": {
-			agent.pendingQuestions.push(q);
-			await flushQuestionsToDiscord(agent);
-			return q.answer ?? "No answer received — proceeding with best judgment.";
-		}
-		case "onReportOnly": {
-			agent.pendingQuestions.push(q);
-			await triggerReport(
-				agent,
-				{
-					title: "🚨 Urgent Question",
-					sections: [{ title: "Context", content: input.context ?? "Agent is blocked." }],
-				},
-				"urgent",
-				true
-			);
-			return q.answer ?? "No answer received — proceeding with best judgment.";
-		}
-		case "never":
-			await appendToQuestionsFile(q);
-			return "Logged to memory — proceeding with best judgment.";
+	// Record each question in DB + memory
+	for (const item of input.questions) {
+		insertQuestion(agent.db, {
+			id: nanoid(),
+			sessionId: agent.sessionId,
+			text: item.question,
+			context: input.context ?? null,
+			suggestions: JSON.stringify(item.options),
+			answer: null,
+			isUrgent: urgent,
+		});
+		remember(
+			"question",
+			`${urgent ? "🚨 " : ""}${item.question.slice(0, 95)}`,
+			`${item.question}${input.context ? `\n\nContext: ${input.context}` : ""}`,
+			{ status: "pending", urgent }
+		).catch(() => {});
 	}
+
+	// Send to Discord and wait for answers
+	const result = await sendQuestions(
+		agent.sessionId,
+		title,
+		input.questions,
+		urgent,
+		agent.abortController.signal
+	);
+
+	if (result.completed) {
+		const answersText = Object.entries(result.answers)
+			.map(([header, answer]) => `- ${header}: ${answer}`)
+			.join("\n");
+		return `Answers received:\n${answersText}`;
+	}
+	return urgent
+		? "Urgent questions sent but no response received — proceeding with best judgment."
+		: "Questions sent but no response received — proceeding with best judgment.";
 }
 
 export async function handleSendReport(agent: AgentState, input: SendReportInput): Promise<string> {

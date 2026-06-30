@@ -40,10 +40,21 @@ export type ErrorRecoveredPayload = {
 
 export type CheckinStartedPayload = CheckinRecord & { questions: QuestionRecord[] };
 
+export type TurnStartPayload = { turnNumber: number };
+export type TurnEndPayload = { turnNumber: number; hadTools: boolean; stopReason?: string };
+export type ThinkingDeltaPayload = { thinking: string };
+export type ToolcallStartPayload = { id: string; name: string };
+export type ToolcallDeltaPayload = { inputDelta: string };
+
 // Session stream: per-session events emitted by runner.ts.
 export type SessionStreamEvent =
 	| { type: "message"; data: MessageRecord }
 	| { type: "text_delta"; data: { text: string } }
+	| { type: "thinking_delta"; data: ThinkingDeltaPayload }
+	| { type: "toolcall_start"; data: ToolcallStartPayload }
+	| { type: "toolcall_delta"; data: ToolcallDeltaPayload }
+	| { type: "turn_start"; data: TurnStartPayload }
+	| { type: "turn_end"; data: TurnEndPayload }
 	| { type: "tool_call"; data: ToolCallRecord }
 	| { type: "token_update"; data: TokenUpdatePayload }
 	| { type: "token_warning"; data: TokenWarningPayload }
@@ -67,6 +78,11 @@ export type ProjectStreamEvent =
 	| { type: "session_updated"; data: WithSession<Pick<SessionRecord, "id" | "status">> }
 	| { type: "message"; data: WithSession<MessageRecord> }
 	| { type: "text_delta"; data: WithSession<{ text: string }> }
+	| { type: "thinking_delta"; data: WithSession<ThinkingDeltaPayload> }
+	| { type: "toolcall_start"; data: WithSession<ToolcallStartPayload> }
+	| { type: "toolcall_delta"; data: WithSession<ToolcallDeltaPayload> }
+	| { type: "turn_start"; data: WithSession<TurnStartPayload> }
+	| { type: "turn_end"; data: WithSession<TurnEndPayload> }
 	| { type: "tool_call"; data: WithSession<ToolCallRecord> }
 	| { type: "token_update"; data: WithSession<TokenUpdatePayload> }
 	| { type: "token_warning"; data: WithSession<TokenWarningPayload> }
@@ -83,6 +99,11 @@ export type ProjectStreamEvent =
 export const SESSION_STREAM_EVENTS = [
 	"message",
 	"text_delta",
+	"thinking_delta",
+	"toolcall_start",
+	"toolcall_delta",
+	"turn_start",
+	"turn_end",
 	"tool_call",
 	"token_update",
 	"token_warning",

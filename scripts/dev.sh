@@ -10,6 +10,10 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
+echo "[dev] Starting shared infrastructure (lancedb, chromium)..."
+docker compose up -d --wait
+echo "[dev] Infrastructure ready."
+
 cleanup() {
 	echo ""
 	echo "[dev] Shutting down — stopping all running projects..."

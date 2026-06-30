@@ -1,5 +1,5 @@
 import { createProgressStream, PROGRESS_STEP_LABELS, type ProgressStep, type ProgressStreamAction } from "@agent-manager/utils";
-import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, Square, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -18,9 +18,11 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 	const [steps, setSteps] = useState<ProgressStep[]>([]);
 	const [done, setDone] = useState(false);
 	const [success, setSuccess] = useState(false);
+	const [stopping, setStopping] = useState(false);
 	const logRef = useRef<HTMLPreElement>(null);
 	const onCompleteRef = useRef(onComplete);
 	onCompleteRef.current = onComplete;
+	const cancelRef = useRef<(() => void) | null>(null);
 
 	useEffect(() => {
 		if (!open || !projectId) return;
@@ -28,8 +30,9 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 		setSteps([]);
 		setDone(false);
 		setSuccess(false);
+		setStopping(false);
 
-		return createProgressStream(API_URL, projectId, action, {
+		const cancel = createProgressStream(API_URL, projectId, action, {
 			onProgress(step, status, log) {
 				setSteps((prev) => {
 					const existing = prev.find((s) => s.id === step);
@@ -49,15 +52,22 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 				});
 			},
 			onComplete(success) {
+				cancelRef.current = null;
 				setDone(true);
 				setSuccess(success);
 				onCompleteRef.current(success);
 			},
 			onError() {
+				cancelRef.current = null;
 				setDone(true);
 				setSuccess(false);
 			},
 		});
+		cancelRef.current = cancel;
+		return () => {
+			cancel();
+			cancelRef.current = null;
+		};
 	}, [open, projectId, action]);
 
 	useEffect(() => {
@@ -66,12 +76,31 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 		}
 	}, []);
 
+	function handleStop() {
+		setStopping(true);
+		cancelRef.current?.();
+		cancelRef.current = null;
+		setDone(true);
+		setSuccess(false);
+		setStopping(false);
+	}
+
 	const canClose = done;
-	const title = action === "restart" ? "Restarting Project" : action === "stop" ? "Stopping Project" : "Starting Project";
+	const isActive = !done;
+	const title =
+		action === "restart"
+			? "Restarting Project"
+			: action === "stop"
+				? "Stopping Project"
+				: action === "delete"
+					? "Deleting Project"
+					: action === "build"
+						? "Rebuilding Project"
+						: "Starting Project";
 
 	return (
 		<Dialog open={open} onOpenChange={canClose ? onOpenChange : undefined}>
-			<DialogContent open={open} className="sm:max-w-md" onPointerDownOutside={(e) => !canClose && e.preventDefault()}>
+			<DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => !canClose && e.preventDefault()}>
 				<DialogHeader>
 					<DialogTitle className="flex items-center gap-2">
 						{!done && <Loader2 className="w-4 h-4 animate-spin text-blue-600" />}
@@ -117,13 +146,19 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 					)}
 				</div>
 
-				{done && (
-					<div className="flex justify-end mt-4">
+				<div className="flex justify-end mt-4">
+					{isActive && (
+						<Button variant="destructive" size="sm" onClick={handleStop} disabled={stopping}>
+							<Square className="h-3 w-3" />
+							{stopping ? "Stopping..." : "Stop"}
+						</Button>
+					)}
+					{done && (
 						<Button variant={success ? "default" : "secondary"} onClick={() => onOpenChange(false)}>
 							{success ? "Done" : "Close"}
 						</Button>
-					</div>
-				)}
+					)}
+				</div>
 			</DialogContent>
 		</Dialog>
 	);

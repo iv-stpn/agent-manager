@@ -1,10 +1,25 @@
 import { EventEmitter } from "node:events";
-import type { ErrorRecoveredPayload, PlanModePayload, TokenUpdatePayload, TokenWarningPayload } from "@agent-manager/utils";
+import type {
+	ErrorRecoveredPayload,
+	PlanModePayload,
+	ThinkingDeltaPayload,
+	TokenUpdatePayload,
+	TokenWarningPayload,
+	ToolcallDeltaPayload,
+	ToolcallStartPayload,
+	TurnEndPayload,
+	TurnStartPayload,
+} from "@agent-manager/utils";
 
 export type AgentEvent =
 	| { type: "session_created"; data: Record<string, unknown> }
 	| { type: "message"; data: Record<string, unknown> }
 	| { type: "text_delta"; data: { text: string } }
+	| { type: "thinking_delta"; data: ThinkingDeltaPayload }
+	| { type: "toolcall_start"; data: ToolcallStartPayload }
+	| { type: "toolcall_delta"; data: ToolcallDeltaPayload }
+	| { type: "turn_start"; data: TurnStartPayload }
+	| { type: "turn_end"; data: TurnEndPayload }
 	| { type: "tool_call"; data: Record<string, unknown> }
 	| { type: "token_update"; data: TokenUpdatePayload }
 	| { type: "checkin_started"; data: Record<string, unknown> }

@@ -14,7 +14,6 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { getErrorMessage } from "../lib/errors";
-import { renderProjectContext } from "../lib/render-context";
 import type { HonoHostEnv } from "../types";
 
 export type WorkspaceFolderStatus = "not_found" | "empty" | "not_empty" | "not_directory";
@@ -175,6 +174,16 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 		try {
 			const body = await c.req.json();
 			const input = CreateProjectSchema.parse(body);
+
+			// Resolve LLM client if specified
+			if (input.agent?.clientId) {
+				const client = c.var.hostDb.getLlmClient(input.agent.clientId);
+				if (!client) return c.json({ error: "LLM client not found" }, 400);
+				input.agent.anthropicApiKey = input.agent.anthropicApiKey || client.apiKey;
+				input.agent.anthropicBaseUrl = input.agent.anthropicBaseUrl || client.baseUrl;
+				input.agent.model = input.agent.model || client.model;
+			}
+
 			const project = await c.var.manager.createProject(input);
 			return c.json({ project }, 201);
 		} catch (error) {
@@ -215,6 +224,58 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 		} catch (error) {
 			return c.json({ error: getErrorMessage(error) }, 400);
 		}
+	})
+	// Delete project with SSE progress stream
+	.get("/:projectId/delete-stream", (c) => {
+		const projectId = c.req.param("projectId");
+		const origin = c.req.header("Origin");
+		if (origin) c.header("Access-Control-Allow-Origin", origin);
+
+		return streamSSE(c, async (stream) => {
+			const { docker, manager, hub } = c.var;
+			const send = (step: string, status: "running" | "done" | "error", log?: string) =>
+				stream.writeSSE({ event: "progress", data: JSON.stringify({ step, status, log }) }).then(() => stream.sleep(0));
+			const delta = (step: string, line: string) =>
+				stream.writeSSE({ event: "delta", data: JSON.stringify({ step, line }) }).then(() => stream.sleep(0));
+
+			try {
+				// Stop containers first if the project is currently running
+				let running = false;
+				try {
+					running = (await docker.getProjectStatus(projectId)).running;
+				} catch {
+					// Status unavailable — treat as not running
+				}
+				if (running) {
+					await send("stop", "running", "Stopping containers...");
+					await docker.stopProjectWithOutput(projectId, {}, async (line) => {
+						await delta("stop", line);
+					});
+					await send("stop", "done", "Containers stopped");
+				}
+
+				// Remove Docker resources (containers + built images), best-effort
+				await send("delete-docker", "running", "Removing Docker resources...");
+				try {
+					await docker.stopProject(projectId, { removeImages: true });
+				} catch {
+					// Already stopped or compose file missing — proceed to data deletion
+				}
+				await send("delete-docker", "done", "Docker resources removed");
+
+				// Delete project data
+				await send("delete-project", "running", "Deleting project...");
+				await manager.deleteProject(projectId);
+				hub.projectStopped(projectId);
+				await send("delete-project", "done", "Project deleted");
+
+				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: true }) });
+			} catch (error) {
+				const msg = getErrorMessage(error);
+				await send("delete-project", "error", msg);
+				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
+			}
+		});
 	})
 	// Start project
 	.post("/:projectId/start", async (c) => {
@@ -415,6 +476,75 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			return c.json({ error: getErrorMessage(error) }, 500);
 		}
 	})
+	// Rebuild project image (no-cache) then restart containers, with SSE progress stream
+	.get("/:projectId/build-stream", (c) => {
+		const projectId = c.req.param("projectId");
+		const origin = c.req.header("Origin");
+		if (origin) c.header("Access-Control-Allow-Origin", origin);
+
+		return streamSSE(c, async (stream) => {
+			const { docker, hub } = c.var;
+			const send = (step: string, status: "running" | "done" | "error", log?: string) =>
+				stream.writeSSE({ event: "progress", data: JSON.stringify({ step, status, log }) }).then(() => stream.sleep(0));
+			const delta = (step: string, line: string) =>
+				stream.writeSSE({ event: "delta", data: JSON.stringify({ step, line }) }).then(() => stream.sleep(0));
+
+			let tail: { kill: () => void } | null = null;
+			try {
+				const wasRunning = (await docker.getProjectStatus(projectId).catch(() => ({ running: false }))).running;
+
+				await send("build", "running", "Rebuilding image (no cache)...");
+				await docker.buildProjectWithOutput(projectId, async (line) => {
+					await delta("build", line);
+				});
+				await send("build", "done", "Image rebuilt");
+
+				if (wasRunning) {
+					await send("stop", "running", "Stopping containers...");
+					await docker.stopProjectWithOutput(projectId, {}, async (line) => {
+						await delta("stop", line);
+					});
+					await send("stop", "done");
+				}
+
+				await send("start", "running", "Starting containers...");
+				await docker.startProjectWithOutput(projectId, async (line) => {
+					await delta("start", line);
+				});
+				await send("start", "done");
+
+				// Tail container logs while waiting for health
+				tail = docker.tailProjectLogs(projectId, async (line) => {
+					await delta("logs", line);
+				});
+				await send("health", "running", "Waiting for services to become healthy...");
+				let healthy = false;
+				for (let i = 0; i < 30; i++) {
+					const s = await docker.getProjectStatus(projectId);
+					if (s.running) {
+						healthy = true;
+						break;
+					}
+					await Bun.sleep(1000);
+				}
+				tail.kill();
+				if (healthy) {
+					hub.projectRestarted(projectId);
+					await send("health", "done", "Project is running");
+					await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: true }) });
+				} else {
+					const logs = await docker.getProjectLogs(projectId, "agent").catch(() => "");
+					await send("health", "error", `Project did not become healthy:\n${logs.slice(-2000)}`);
+					await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false }) });
+				}
+			} catch (error) {
+				tail?.kill();
+				const msg = getErrorMessage(error);
+				await send("build", "error", msg);
+				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
+			}
+		});
+	})
 	// Get project database stats
 	.get("/:projectId/stats", async (c) => {
 		try {
@@ -442,6 +572,16 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 		try {
 			const projectId = c.req.param("projectId");
 			const { ports, ...rest } = UpdateSettingsSchema.parse(await c.req.json());
+
+			// Resolve LLM client if specified
+			if (rest.agent?.clientId) {
+				const client = c.var.hostDb.getLlmClient(rest.agent.clientId);
+				if (!client) return c.json({ error: "LLM client not found" }, 400);
+				rest.agent.anthropicApiKey = rest.agent.anthropicApiKey || client.apiKey;
+				rest.agent.anthropicBaseUrl = rest.agent.anthropicBaseUrl || client.baseUrl;
+				rest.agent.model = rest.agent.model || client.model;
+			}
+
 			const updates: Parameters<typeof c.var.manager.updateProject>[1] = {
 				...rest,
 				...(ports?.server && { ports: { server: ports.server } }),
@@ -473,13 +613,26 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			const techStacks = techStackIds.map((id) => c.var.hostDb.getTechStack(id)).filter((t): t is NonNullable<typeof t> => !!t);
 			const guidelines = guidelineIds.map((id) => c.var.hostDb.getGuideline(id)).filter((g): g is NonNullable<typeof g> => !!g);
 
-			const markdown = renderProjectContext({ techStacks, guidelines, instructions });
 			const context = await c.var.manager.setProjectContext(
 				projectId,
-				{ techStackIds: techStacks.map((t) => t.id), guidelineIds: guidelines.map((g) => g.id), instructions },
-				markdown
+				{ techStackIds: techStacks.map((t) => t.id), guidelineIds: guidelines.map((g) => g.id), instructions }
 			);
 			return c.json({ context });
+		} catch (error) {
+			return c.json({ error: getErrorMessage(error) }, 400);
+		}
+	})
+	// Resolve per-project context to full objects (tech stacks + guidelines + instructions).
+	// Called by the agent container at session start to build its system prompt.
+	.get("/:projectId/context/resolved", async (c) => {
+		try {
+			const projectId = c.req.param("projectId");
+			const { techStackIds, guidelineIds, instructions } = await c.var.manager.getProjectContext(projectId);
+
+			const techStacks = techStackIds.map((id) => c.var.hostDb.getTechStack(id)).filter((t): t is NonNullable<typeof t> => !!t);
+			const guidelines = guidelineIds.map((id) => c.var.hostDb.getGuideline(id)).filter((g): g is NonNullable<typeof g> => !!g);
+
+			return c.json({ techStacks, guidelines, instructions });
 		} catch (error) {
 			return c.json({ error: getErrorMessage(error) }, 400);
 		}
@@ -559,6 +712,14 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 	.post("/:projectId/sessions/:sessionId/stop", async (c) => {
 		const { projectId, sessionId } = c.req.param();
 		return proxyToAgent(c, projectId, `/api/sessions/${sessionId}/stop`);
+	})
+	.post("/:projectId/sessions/:sessionId/pause", async (c) => {
+		const { projectId, sessionId } = c.req.param();
+		return proxyToAgent(c, projectId, `/api/sessions/${sessionId}/pause`);
+	})
+	.post("/:projectId/sessions/:sessionId/restart", async (c) => {
+		const { projectId, sessionId } = c.req.param();
+		return proxyToAgent(c, projectId, `/api/sessions/${sessionId}/restart`);
 	})
 	.post("/:projectId/sessions/:sessionId/message", async (c) => {
 		const { projectId, sessionId } = c.req.param();

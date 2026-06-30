@@ -10,6 +10,7 @@ import type {
 	GlobalStats,
 	Guideline,
 	GuidelineCategory,
+	LlmClient,
 	LooseOptional,
 	TechStack,
 	Template,
@@ -21,6 +22,7 @@ import {
 	discordChannels,
 	guidelineCategories,
 	guidelines,
+	llmClients,
 	statistics,
 	techStacks,
 	templates,
@@ -33,6 +35,8 @@ export type {
 	GlobalStats,
 	Guideline,
 	GuidelineCategory,
+	LlmClient,
+	LlmProvider,
 	StackEntry,
 	StackLibrary,
 	TechStack,
@@ -135,6 +139,17 @@ export class HostDatabase {
 				type TEXT NOT NULL,
 				created_at INTEGER NOT NULL
 			);
+			CREATE TABLE IF NOT EXISTS llm_clients (
+				id TEXT PRIMARY KEY,
+				name TEXT NOT NULL,
+				provider TEXT NOT NULL,
+				api_key TEXT NOT NULL DEFAULT '',
+				base_url TEXT NOT NULL DEFAULT '',
+				model TEXT NOT NULL DEFAULT '',
+				small_model TEXT NOT NULL DEFAULT '',
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL
+			);
 		`);
 
 		this.db
@@ -159,6 +174,12 @@ export class HostDatabase {
 			this.sqlite.exec("ALTER TABLE guideline_categories ADD COLUMN color TEXT NOT NULL DEFAULT '#6b7280'");
 		}
 
+		// Migration: add language column to guidelines if missing.
+		const guidelineCols = this.sqlite.query("PRAGMA table_info(guidelines)").all() as { name: string }[];
+		if (!guidelineCols.some((c) => c.name === "language")) {
+			this.sqlite.exec("ALTER TABLE guidelines ADD COLUMN language TEXT");
+		}
+
 		this.seedDefaults();
 	}
 
@@ -170,10 +191,7 @@ export class HostDatabase {
 		const [{ n: catCount }] = this.db.select({ n: sql<number>`COUNT(*)` }).from(guidelineCategories).all();
 		if (catCount === 0) {
 			const categoryDefaults = [
-				{ name: "UI design", description: "Visual design, layout, and interaction patterns.", color: "#8b5cf6" },
-				{ name: "Best practice", description: "Recommended engineering practices and conventions.", color: "#10b981" },
-				{ name: "Behavior", description: "How the agent should behave while working.", color: "#f59e0b" },
-				{ name: "Rule", description: "Hard constraints the agent must always follow.", color: "#ef4444" },
+				{ name: "Code quality", description: "Code structure, reuse, and maintainability.", color: "#8b5cf6" },
 			];
 			const catIds: Record<string, string> = {};
 			for (const cat of categoryDefaults) {
@@ -187,43 +205,25 @@ export class HostDatabase {
 
 			const guidelineDefaults = [
 				{
-					name: "Consistent spacing",
-					description: "Use consistent spacing and padding across components.",
-					category: "UI design",
-					content: "Use a 4px/8px spacing scale. Prefer gap utilities over margin for flex/grid layouts.",
-				},
-				{
-					name: "Accessible color contrast",
-					description: "Ensure text meets WCAG AA contrast ratios.",
-					category: "UI design",
+					name: "DRY principles",
+					description: "Deduplicate logic and centralize reusable utilities.",
+					category: "Code quality",
 					content:
-						"All text must meet WCAG AA contrast (4.5:1 for normal text, 3:1 for large text). Test with browser dev tools.",
+						"Apply DRY principles anytime you can. Dedupe logic, create small reusable utilities, and centralize them in appropriately grouped modules (e.g. string utils, formatting utils, date utils). If you find yourself writing the same logic twice, extract it.",
 				},
 				{
-					name: "Error handling",
-					description: "Handle errors explicitly rather than silently swallowing them.",
-					category: "Best practice",
-					content: "Never use empty catch blocks. Log or propagate errors. Show user-facing messages for recoverable failures.",
-				},
-				{
-					name: "Small focused commits",
-					description: "Keep commits small and focused on a single change.",
-					category: "Best practice",
-					content: "Each commit should represent one logical change. Separate refactors from feature work.",
-				},
-				{
-					name: "Explain before coding",
-					description: "Explain your plan before writing code.",
-					category: "Behavior",
+					name: "Strict type safety",
+					description: "Never use type casts — use type guards instead.",
+					category: "Code quality",
 					content:
-						"Before implementing, briefly describe your approach and which files you'll change. Ask for confirmation on non-trivial changes.",
+						"Ensure type safety at all times. Never use type casts (as X). Use type guards and narrowing instead whenever you would reach for a cast or any/unknown. Let the type system prove correctness rather than asserting it.",
 				},
 				{
-					name: "No unrelated changes",
-					description: "Don't modify files unrelated to the task.",
-					category: "Rule",
+					name: "No one-off code",
+					description: "Only create custom components or utilities for truly unique cases.",
+					category: "Code quality",
 					content:
-						"Only touch files directly related to the current task. Do not refactor, reformat, or 'improve' unrelated code.",
+						"Never create one-off components or utilities that could otherwise be reusable. Build things generically from the start. Only create custom components and logic for very rare use cases or one-off compositions of existing utilities and components.",
 				},
 			];
 			for (const g of guidelineDefaults) {
@@ -247,14 +247,80 @@ export class HostDatabase {
 			const defaults: Omit<TechStack, "id" | "createdAt" | "updatedAt">[] = [
 				{
 					language: "TypeScript",
-					name: "TypeScript Full-Stack",
-					description: "Hono backend with a React frontend sharing a typed API client.",
+					name: "TypeScript Full-Stack (Web)",
+					description: "Hono on Cloudflare Workers backend, Vite + React + React Router frontend, in a Bun monorepo.",
 					stack: [
-						{ label: "Backend", libraries: [{ name: "hono", version: "4" }], usagePatterns: ["serverless"] },
+						{
+							label: "Tooling",
+							libraries: [{ name: "biome" }, { name: "vitest" }, { name: "playwright" }],
+							usagePatterns: [
+								"Use Biome for linting and formatting (no eslint/prettier)",
+								"Use Vitest for unit and integration tests",
+								"Use Playwright for end-to-end tests",
+								"Use Bun workspaces for monorepo package management",
+							],
+						},
+						{
+							label: "Workspace",
+							libraries: [{ name: "bun" }],
+							usagePatterns: [
+								"Use a bun monorepo subdivided into /apps and /packages (/packages/utils) for reusable utils between apps",
+								"Put scripts in a /scripts folder at the root, with its own tsconfig.json to ensure typesafety",
+								"Add `typecheck`, `lint` and `lint:fix` commands to package.json and use them to ensure code quality after major implementations",
+							],
+						},
+						{
+							label: "Backend",
+							libraries: [{ name: "hono", version: "4" }, { name: "wrangler" }],
+							usagePatterns: [
+								"Deploy on Cloudflare Workers",
+								"Use Hono middleware for CORS, auth, and error handling",
+								"Use zod for request validation with @hono/zod-validator",
+							],
+						},
 						{
 							label: "Frontend",
-							libraries: [{ name: "react", version: "19" }],
-							usagePatterns: ["use hono/client for the API client"],
+							libraries: [{ name: "react", version: "19" }, { name: "react-router", version: "7" }, { name: "vite" }],
+							usagePatterns: [
+								"Use Vite for bundling and dev server",
+								"Use React Router for client-side routing",
+								"Use hono/client for the type-safe API client",
+							],
+						},
+					],
+				},
+				{
+					language: "TypeScript",
+					name: "TypeScript Full-Stack (Mobile)",
+					description: "Hono on Cloudflare Workers backend, Expo for mobile and web, in a Bun monorepo.",
+					stack: [
+						{
+							label: "Backend",
+							libraries: [{ name: "hono", version: "4" }, { name: "wrangler" }],
+							usagePatterns: [
+								"Deploy on Cloudflare Workers",
+								"Use Hono middleware for CORS, auth, and error handling",
+								"Use zod for request validation with @hono/zod-validator",
+							],
+						},
+						{
+							label: "Mobile & Web",
+							libraries: [{ name: "expo" }, { name: "react-native" }],
+							usagePatterns: [
+								"Use Expo for iOS, Android, and web from a single codebase",
+								"Use Expo Router for file-based navigation",
+								"Use hono/client for the type-safe API client",
+							],
+						},
+						{
+							label: "Tooling",
+							libraries: [{ name: "biome" }, { name: "vitest" }, { name: "maestro" }],
+							usagePatterns: [
+								"Use Biome for linting and formatting (no eslint/prettier)",
+								"Use Vitest for unit and integration tests",
+								"Use Maestro for end-to-end mobile testing",
+								"Use Bun workspaces for monorepo package management",
+							],
 						},
 					],
 				},
@@ -393,6 +459,37 @@ export class HostDatabase {
 
 	deleteGuideline(id: string) {
 		this.db.delete(guidelines).where(eq(guidelines.id, id)).run();
+	}
+
+	// ── LLM Clients ──────────────────────────────────────────────────────────
+
+	listLlmClients(): LlmClient[] {
+		return this.db.select().from(llmClients).orderBy(desc(llmClients.createdAt)).all();
+	}
+
+	getLlmClient(id: string): LlmClient | undefined {
+		return this.db.select().from(llmClients).where(eq(llmClients.id, id)).get() ?? undefined;
+	}
+
+	createLlmClient(data: LooseOptional<Omit<LlmClient, "id" | "createdAt" | "updatedAt">>): LlmClient {
+		const row = { ...data, id: randomUUID(), createdAt: Date.now(), updatedAt: Date.now() } as LlmClient;
+		this.db.insert(llmClients).values(row).run();
+		return row;
+	}
+
+	updateLlmClient(id: string, data: LooseOptional<Partial<Omit<LlmClient, "id" | "createdAt">>>): LlmClient {
+		const [row] = this.db
+			.update(llmClients)
+			.set({ ...(data as Partial<LlmClient>), updatedAt: Date.now() })
+			.where(eq(llmClients.id, id))
+			.returning()
+			.all();
+		if (!row) throw new Error(`LLM client ${id} not found`);
+		return row;
+	}
+
+	deleteLlmClient(id: string) {
+		this.db.delete(llmClients).where(eq(llmClients.id, id)).run();
 	}
 
 	// ── Archive ───────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ import type { AgentState } from "../types";
 
 export function setStatus(
 	agent: AgentState,
-	status: "error" | "running" | "paused" | "compacting" | "completed" | "stopped"
+	status: "error" | "running" | "paused" | "compacting" | "completed" | "aborted"
 ): void {
 	updateSession(agent.db, agent.sessionId, { status });
 	sessionEmitter.emit(agent.sessionId, { type: "session_updated", data: { id: agent.sessionId, status } });

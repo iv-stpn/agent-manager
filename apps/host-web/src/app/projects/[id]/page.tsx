@@ -1,4 +1,4 @@
-import { createProjectStream } from "@agent-manager/utils";
+import { createProjectStream, type ProgressStreamAction } from "@agent-manager/utils";
 import {
 	Activity,
 	AlertTriangle,
@@ -9,6 +9,7 @@ import {
 	Clock,
 	Database,
 	FolderOpen,
+	Hammer,
 	LayoutGrid,
 	List,
 	Play,
@@ -23,8 +24,8 @@ import {
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { StartupProgressModal } from "@/components/docker-progress-modal";
-import { NewSessionDialog } from "@/components/new-session-dialog";
+import { StartupProgressModal } from "@/components/dialog/docker-progress-modal";
+import { NewSessionDialog } from "@/components/dialog/new-session-dialog";
 import { SessionCard } from "@/components/session-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,9 +33,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { API_URL } from "@/constants";
-import type { Guideline, Report, Session, TechStack } from "@/lib/agent-api";
+import type { Guideline, GuidelineCategory, Report, Session, TechStack } from "@/lib/agent-api";
 import {
-	deleteProject as apiDeleteProject,
+	getGuidelineCategories,
 	getGuidelines,
 	getLogs,
 	getProject,
@@ -85,7 +86,7 @@ function ProjectDetailContent() {
 
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [progressOpen, setProgressOpen] = useState(false);
-	const [progressAction, setProgressAction] = useState<"start" | "restart" | "stop">("start");
+	const [progressAction, setProgressAction] = useState<ProgressStreamAction>("start");
 
 	// Project + docker status: one initial fetch, then the project SSE stream
 	// (below) keeps it live. No polling.
@@ -164,14 +165,19 @@ function ProjectDetailContent() {
 			}
 		}, project.ports.server);
 
-		let opened = false;
 		es.onopen = () => {
-			opened = true;
 			setRunning(true);
 		};
 		es.onerror = () => {
-			if (opened) setRunning(false);
-			es.close();
+			// The browser auto-reconnects on a transient drop (readyState goes back
+			// to CONNECTING). Only treat this as "the project stopped" once the
+			// browser itself has given up (CLOSED) — otherwise closing here would
+			// permanently kill the stream on a one-off blip, with no way back short
+			// of a full page reload, and this cache key (`project:${projectId}`) is
+			// shared with the session detail page's own running-gated SSE effect.
+			if (es.readyState === EventSource.CLOSED) {
+				setRunning(false);
+			}
 		};
 
 		return () => es.close();
@@ -192,16 +198,18 @@ function ProjectDetailContent() {
 		setProgressOpen(true);
 	};
 
-	const deleteProject = async () => {
-		if (!project) return;
+	const rebuildProject = () => {
+		if (!confirm(`Rebuild "${project?.name}"'s Docker image from current source (no cache)? This may take a minute or two.`))
+			return;
+		setProgressAction("build");
+		setProgressOpen(true);
+	};
+
+	const deleteProject = () => {
+		if (!project || !projectId) return;
 		if (!confirm(`Delete project "${project.name}"? This cannot be undone.`)) return;
-		try {
-			if (!projectId) return;
-			await apiDeleteProject(projectId);
-			navigate("/");
-		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to delete project");
-		}
+		setProgressAction("delete");
+		setProgressOpen(true);
 	};
 
 	if (loading) {
@@ -299,6 +307,15 @@ function ProjectDetailContent() {
 								<Power className="w-4 h-4" />
 								Restart
 							</button>
+							<button
+								type="button"
+								onClick={rebuildProject}
+								title="Rebuild the Docker image from current source (no cache) and restart"
+								className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100"
+							>
+								<Hammer className="w-4 h-4" />
+								Rebuild
+							</button>
 							<Button variant="secondary" size="icon" onClick={fetchProject} title="Refresh">
 								<RefreshCw className="w-4 h-4" />
 							</Button>
@@ -362,7 +379,9 @@ function ProjectDetailContent() {
 					projectId={projectId}
 					action={progressAction}
 					onComplete={(success) => {
-						if (success) fetchProject();
+						if (!success) return;
+						if (progressAction === "delete") navigate("/");
+						else fetchProject();
 					}}
 				/>
 			)}
@@ -491,7 +510,7 @@ function SessionsTab({
 	}
 
 	const active = sessions.filter((s) => s.status === "running" || s.status === "paused" || s.status === "compacting");
-	const finished = sessions.filter((s) => s.status === "completed" || s.status === "stopped" || s.status === "error");
+	const finished = sessions.filter((s) => s.status === "completed" || s.status === "aborted" || s.status === "error");
 
 	return (
 		<div className="space-y-6">
@@ -640,7 +659,10 @@ type SettingField = {
 	buildPayload: (value: string) => Parameters<typeof updateSettings>[1];
 };
 
+type SettingsSubTab = "general" | "anthropic" | "context";
+
 function SettingsTab({ projectId }: { projectId: string }) {
+	const [settingsTab, setSettingsTab] = useState<SettingsSubTab>("general");
 	const [projectName, setProjectName] = useState("");
 	const [serverPort, setServerPort] = useState("");
 	const [workspacePath, setWorkspacePath] = useState("");
@@ -751,38 +773,64 @@ function SettingsTab({ projectId }: { projectId: string }) {
 		return <div className="text-gray-500">Loading settings...</div>;
 	}
 
+	const subTabs: Array<{ key: SettingsSubTab; label: string }> = [
+		{ key: "general", label: "General" },
+		{ key: "anthropic", label: "Anthropic" },
+		{ key: "context", label: "Context" },
+	];
+
 	return (
 		<div className="max-w-3xl space-y-6">
+			{/* Sub-tab bar */}
+			<div className="flex gap-1 border-b">
+				{subTabs.map(({ key, label }) => (
+					<button
+						key={key}
+						type="button"
+						onClick={() => setSettingsTab(key)}
+						className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition ${
+							settingsTab === key ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-800"
+						}`}
+					>
+						{label}
+					</button>
+				))}
+			</div>
+
 			<p className="text-sm text-gray-500">
 				Settings are stored in the project&apos;s .env and docker-compose.yml. Restart the project after changing.
 			</p>
 
-			<Card>
-				<CardHeader>
-					<CardTitle>General</CardTitle>
-				</CardHeader>
-				<CardContent className="divide-y">
-					{general.map((f) => (
-						<SettingRow key={f.key} field={f} onEdit={() => openEdit(f)} />
-					))}
-				</CardContent>
-			</Card>
+			{settingsTab === "general" && (
+				<Card>
+					<CardHeader>
+						<CardTitle>General</CardTitle>
+					</CardHeader>
+					<CardContent className="divide-y">
+						{general.map((f) => (
+							<SettingRow key={f.key} field={f} onEdit={() => openEdit(f)} />
+						))}
+					</CardContent>
+				</Card>
+			)}
 
-			<Card>
-				<CardHeader>
-					<CardTitle>Anthropic</CardTitle>
-				</CardHeader>
-				<CardContent className="divide-y">
-					{anthropic.map((f) => (
-						<SettingRow key={f.key} field={f} onEdit={() => openEdit(f)} />
-					))}
-				</CardContent>
-			</Card>
+			{settingsTab === "anthropic" && (
+				<Card>
+					<CardHeader>
+						<CardTitle>Anthropic</CardTitle>
+					</CardHeader>
+					<CardContent className="divide-y">
+						{anthropic.map((f) => (
+							<SettingRow key={f.key} field={f} onEdit={() => openEdit(f)} />
+						))}
+					</CardContent>
+				</Card>
+			)}
 
-			<ProjectContextCard projectId={projectId} />
+			{settingsTab === "context" && <ProjectContextCard projectId={projectId} />}
 
 			<Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
-				<DialogContent open={editing !== null}>
+				<DialogContent>
 					<DialogHeader>
 						<DialogTitle>Edit {editing?.label}</DialogTitle>
 						{editing?.description && <DialogDescription>{editing.description}</DialogDescription>}
@@ -832,6 +880,7 @@ type LibraryEdit = { kind: "tech-stack"; item: TechStack } | { kind: "guideline"
 function ProjectContextCard({ projectId }: { projectId: string }) {
 	const [techStacks, setTechStacks] = useState<TechStack[]>([]);
 	const [guidelines, setGuidelines] = useState<Guideline[]>([]);
+	const [categories, setCategories] = useState<GuidelineCategory[]>([]);
 	const [techStackIds, setTechStackIds] = useState<string[]>([]);
 	const [guidelineIds, setGuidelineIds] = useState<string[]>([]);
 	const [instructions, setInstructions] = useState("");
@@ -843,9 +892,15 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 
 	const load = useCallback(async () => {
 		try {
-			const [stacks, guides, ctx] = await Promise.all([getTechStacks(), getGuidelines(), getProjectContext(projectId)]);
+			const [stacks, guides, cats, ctx] = await Promise.all([
+				getTechStacks(),
+				getGuidelines(),
+				getGuidelineCategories(),
+				getProjectContext(projectId),
+			]);
 			setTechStacks(stacks);
 			setGuidelines(guides);
+			setCategories(cats);
 			setTechStackIds(ctx.techStackIds);
 			setGuidelineIds(ctx.guidelineIds);
 			setInstructions(ctx.instructions);
@@ -934,10 +989,9 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 					}}
 				/>
 
-				<ContextSelectList
-					title="Guidelines"
-					empty="No guidelines in the library yet."
-					items={guidelines.map((g) => ({ id: g.id, label: g.name, sub: g.description }))}
+				<GuidelineSelectList
+					guidelines={guidelines}
+					categories={categories}
 					selectedIds={guidelineIds}
 					onToggle={(id) => toggle(guidelineIds, setGuidelineIds, id)}
 					onEdit={(id) => {
@@ -967,7 +1021,7 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 			</CardContent>
 
 			<Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
-				<DialogContent open={editing !== null}>
+				<DialogContent>
 					<DialogHeader>
 						<DialogTitle>Edit {editing?.kind === "tech-stack" ? "tech stack description" : "guideline content"}</DialogTitle>
 						<DialogDescription>
@@ -1037,6 +1091,101 @@ function ContextSelectList({
 					})}
 				</ul>
 			)}
+		</div>
+	);
+}
+
+/** Guidelines list grouped by category. */
+function GuidelineSelectList({
+	guidelines,
+	categories,
+	selectedIds,
+	onToggle,
+	onEdit,
+}: {
+	guidelines: Guideline[];
+	categories: GuidelineCategory[];
+	selectedIds: string[];
+	onToggle: (id: string) => void;
+	onEdit: (id: string) => void;
+}) {
+	if (guidelines.length === 0) {
+		return (
+			<div className="space-y-2">
+				<div className="text-sm font-medium">Guidelines</div>
+				<p className="text-xs italic text-muted-foreground">No guidelines in the library yet.</p>
+			</div>
+		);
+	}
+
+	// Group guidelines by category; null → "Uncategorized"
+	const grouped = new Map<string | null, Guideline[]>();
+	for (const g of guidelines) {
+		const key = g.categoryId ?? null;
+		const arr = grouped.get(key) ?? [];
+		arr.push(g);
+		grouped.set(key, arr);
+	}
+
+	// Order: categories in their natural order, then uncategorized last
+	const orderedKeys: Array<string | null> = [
+		...categories.map((c) => c.id).filter((id) => grouped.has(id)),
+		...(grouped.has(null) ? [null] : []),
+	];
+
+	function GuidelineItem({ g }: { g: Guideline }) {
+		const selected = selectedIds.includes(g.id);
+		return (
+			<li className="flex items-center justify-between gap-3 px-3 py-2">
+				<button type="button" onClick={() => onToggle(g.id)} className="flex min-w-0 items-center gap-3 text-left">
+					<span
+						className={cn(
+							"flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+							selected ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300"
+						)}
+					>
+						{selected && <CheckCircle2 className="h-3 w-3" />}
+					</span>
+					<span className="min-w-0">
+						<span className="block text-sm">{g.name}</span>
+						{g.description && <span className="block truncate text-xs text-muted-foreground">{g.description}</span>}
+					</span>
+				</button>
+				<Button type="button" variant="outline" size="sm" onClick={() => onEdit(g.id)}>
+					Edit
+				</Button>
+			</li>
+		);
+	}
+
+	return (
+		<div className="space-y-2">
+			<div className="text-sm font-medium">Guidelines</div>
+			<div className="space-y-3">
+				{orderedKeys.map((catId) => {
+					const cat = catId ? categories.find((c) => c.id === catId) : null;
+					const items = grouped.get(catId) ?? [];
+					return (
+						<div key={catId ?? "__uncategorized"}>
+							<div className="flex items-center gap-2 mb-1">
+								{cat ? (
+									<>
+										<span className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }} />
+										<span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{cat.name}</span>
+									</>
+								) : (
+									<span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Uncategorized</span>
+								)}
+							</div>
+							<ul className="divide-y rounded-md border">
+								{items.map((g) => (
+									<GuidelineItem key={g.id} g={g} />
+								))}
+							</ul>
+						</div>
+					);
+				})}
+			</div>
 		</div>
 	);
 }
