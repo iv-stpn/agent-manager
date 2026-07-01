@@ -12,7 +12,7 @@ const ReportSchema = z.object({
 		mermaid_diagrams: z.array(z.object({ title: z.string().optional(), definition: z.string() })).optional(),
 	}),
 	trigger: z.string(),
-	freeze: z.boolean(),
+	awaiting: z.boolean(),
 	pendingQuestions: z.array(
 		z.object({
 			id: z.string(),
@@ -77,7 +77,7 @@ export const discordRouter = new Hono<HonoHostEnv>()
 				body.report,
 				body.sessionId,
 				body.trigger,
-				body.freeze,
+				body.awaiting,
 				body.pendingQuestions,
 				controller.signal
 			);

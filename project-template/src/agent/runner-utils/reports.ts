@@ -9,26 +9,27 @@ import { requestSummary } from "./api";
 import { drainPending, injectAnswers } from "./questions";
 import { setStatus } from "./status";
 
-export function shouldFreeze(agent: AgentState, freezeOverride?: "freeze" | "continue"): boolean {
-	if (freezeOverride === "freeze") return true;
-	if (freezeOverride === "continue") return false;
-	if (agent.config.freezeReportMode === "always") return true;
-	if (agent.config.freezeReportMode === "never") return false;
-	return true; // custom: agent passes freeze_override; default freeze if not specified
+export function shouldAwait(agent: AgentState, awaitOverride?: "await" | "continue"): boolean {
+	if (awaitOverride === "await") return true;
+	if (awaitOverride === "continue") return false;
+
+	if (agent.config.awaitReportMode === "always") return true;
+	if (agent.config.awaitReportMode === "never") return false;
+	return true; // custom: agent passes await_override; default await if not specified
 }
 
 export async function triggerReport(
 	agent: AgentState,
 	report: ReportData,
 	trigger: string,
-	forceFreeze = false,
-	freezeOverride?: "freeze" | "continue"
+	forceAwait = false,
+	awaitOverride?: "await" | "continue"
 ): Promise<void> {
 	console.log("[Report]", trigger, JSON.stringify(report, null, 2));
 
-	const freeze = forceFreeze || shouldFreeze(agent, freezeOverride);
+	const awaiting = forceAwait || shouldAwait(agent, awaitOverride);
 	const pending = drainPending(agent);
-	const questionsToAsk = freeze ? pending : [];
+	const questionsToAsk = awaiting ? pending : [];
 
 	const sessionId = agent.sessionId;
 
@@ -66,7 +67,7 @@ export async function triggerReport(
 	try {
 		// Persist the immutable report record regardless of Discord delivery.
 		insertReport(agent.db, { id: nanoid(), sessionId, trigger, title: report.title, content: JSON.stringify(report) });
-		const result = await sendReport(sessionId, report, trigger, freeze, questionsToAsk, agent.abortController.signal);
+		const result = await sendReport(sessionId, report, trigger, awaiting, questionsToAsk, agent.abortController.signal);
 
 		if (result?.confirmed) {
 			confirmed = true;
@@ -96,7 +97,7 @@ export async function handleTotalTimeout(agent: AgentState): Promise<void> {
 	if (questionsMd) {
 		sections.push({ title: "Accumulated Questions", content: questionsMd });
 	}
-	await triggerReport(agent, { title: "⏰ Total Timeout — Agent Frozen", sections }, "completion", true);
+	await triggerReport(agent, { title: "⏰ Total Timeout — Agent Awaiting", sections }, "completion", true);
 	setStatus(agent, "aborted");
 }
 

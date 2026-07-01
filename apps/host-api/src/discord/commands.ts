@@ -16,8 +16,8 @@ export const COMMANDS = [
 		.addStringOption((o) => o.setName("session").setDescription("Session ID")),
 
 	new SlashCommandBuilder()
-		.setName("freeze-report")
-		.setDescription("Control whether reports freeze the agent")
+		.setName("await-report")
+		.setDescription("Control whether reports await the agent")
 		.addStringOption((o) =>
 			o
 				.setName("mode")
@@ -30,7 +30,7 @@ export const COMMANDS = [
 		.addStringOption((o) => o.setName("session").setDescription("Session ID")),
 
 	new SlashCommandBuilder()
-		.setName("freeze-ask")
+		.setName("await-ask")
 		.setDescription("Control how questions are sent to the user")
 		.addStringOption((o) =>
 			o
@@ -113,8 +113,8 @@ export async function handleInteraction(interaction: ChatInputCommandInteraction
 	const settingsCommands = [
 		"timeout",
 		"report-interval",
-		"freeze-report",
-		"freeze-ask",
+		"await-report",
+		"await-ask",
 		"compact-threshold",
 		"stop-threshold",
 		"always-improve",
@@ -146,12 +146,12 @@ export async function handleInteraction(interaction: ChatInputCommandInteraction
 			case "report-interval":
 				payload.reportIntervalMins = Math.max(0, interaction.options.getNumber("minutes", true));
 				break;
-			case "freeze-report":
-				payload.freezeReportMode = interaction.options.getString("mode", true);
-				payload.freezeReportCustomRule = interaction.options.getString("rule") ?? null;
+			case "await-report":
+				payload.awaitReportMode = interaction.options.getString("mode", true);
+				payload.awaitReportCustomRule = interaction.options.getString("rule") ?? null;
 				break;
-			case "freeze-ask":
-				payload.freezeAskMode = interaction.options.getString("mode", true);
+			case "await-ask":
+				payload.awaitAskMode = interaction.options.getString("mode", true);
 				break;
 			case "compact-threshold":
 				payload.compactThresholdTokens = Math.max(0, interaction.options.getNumber("tokens", true));

@@ -211,7 +211,7 @@ A generated progress/summary report for a session, rendered from structured JSON
 
 ### `sessions`
 
-An autonomous agent run within a project. Holds the task, its runtime configuration (report/timeout/freeze/compaction policy) and rolled-up token totals. All other tables hang off a session.
+An autonomous agent run within a project. Holds the task, its runtime configuration (report/timeout/await/compaction policy) and rolled-up token totals. All other tables hang off a session.
 
 | Column | Type | Constraints | Description |
 | --- | --- | --- | --- |
@@ -221,9 +221,9 @@ An autonomous agent run within a project. Holds the task, its runtime configurat
 | `status` | `text` | not null, default `running` | Current lifecycle state of the session. One of: `running`, `paused`, `compacting`, `completed`, `aborted`, `error` |
 | `report_interval_mins` | `integer` | not null, default `15` | Minutes between automatic progress reports. |
 | `total_timeout_mins` | `integer` | not null, default `240` | Hard wall-clock cap before the session is stopped. |
-| `freeze_report_mode` | `text` | not null, default `never` | When to pause for a report before continuing. One of: `always`, `never`, `custom` |
-| `freeze_report_custom_rule` | `text` | — | Natural-language rule used when freezeReportMode is "custom". |
-| `freeze_ask_mode` | `text` | not null, default `always` | When the agent is allowed to block on a question. One of: `always`, `requiredOnly`, `onReportOnly`, `never` |
+| `await_report_mode` | `text` | not null, default `never` | When to pause for a report before continuing. One of: `always`, `never`, `custom` |
+| `await_report_custom_rule` | `text` | — | Natural-language rule used when awaitReportMode is "custom". |
+| `await_ask_mode` | `text` | not null, default `always` | When the agent is allowed to block on a question. One of: `always`, `requiredOnly`, `onReportOnly`, `never` |
 | `compact_threshold_tokens` | `integer` | not null, default `80000` | Context size that triggers a compaction. |
 | `stop_threshold_tokens` | `integer` | not null, default `2000000` | Context size that force-stops the session. |
 | `always_improve_mode` | `text` | not null, default `no` | Whether the agent keeps improving after the task is "done". One of: `yes`, `no`, `custom` |

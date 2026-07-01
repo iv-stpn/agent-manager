@@ -469,14 +469,14 @@ export interface SendReportInput extends Input {
 	title: string;
 	sections: ReportData["sections"];
 	mermaid_diagrams?: ReportData["mermaid_diagrams"];
-	freeze_override?: "freeze" | "continue";
+	await_override?: "await" | "continue";
 }
 export function validateSendReport(input: Input): asserts input is SendReportInput {
 	assertValid(
 		requireString(input, "title", "report title"),
 		validateArrayItems(input, "sections", { content: "section body" }, { required: true, minLength: 1 }),
 		validateArrayItems(input, "mermaid_diagrams", { definition: "mermaid diagram definition" }),
-		optionalEnum(input, "freeze_override", ["freeze", "continue"] as const)
+		optionalEnum(input, "await_override", ["await", "continue"] as const)
 	);
 }
 

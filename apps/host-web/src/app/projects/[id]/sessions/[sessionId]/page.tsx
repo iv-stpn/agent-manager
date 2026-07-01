@@ -511,12 +511,12 @@ export default function SessionPage() {
 											<span>{session.stopThresholdMins}m</span>
 										</div>
 										<div className="flex justify-between">
-											<span className="text-muted-foreground">Freeze reports</span>
-											<span className="capitalize">{session.freezeReportMode}</span>
+											<span className="text-muted-foreground">Await reports</span>
+											<span className="capitalize">{session.awaitReportMode}</span>
 										</div>
 										<div className="flex justify-between">
 											<span className="text-muted-foreground">Ask mode</span>
-											<span className="capitalize">{session.freezeAskMode}</span>
+											<span className="capitalize">{session.awaitAskMode}</span>
 										</div>
 										<div className="flex justify-between">
 											<span className="text-muted-foreground">Always improve</span>

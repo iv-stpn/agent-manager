@@ -256,7 +256,7 @@ export async function runLoop(agent: AgentState): Promise<void> {
 				}
 
 				// ── Follow-up queue: continue if caller queued messages ────
-				// Check before the completion report so we don't freeze/complete prematurely.
+				// Check before the completion report so we don't await/complete prematurely.
 				if (agent.followUpQueue.length > 0) {
 					sessionEmitter.emit(agent.sessionId, {
 						type: "turn_end",
@@ -279,10 +279,10 @@ export async function runLoop(agent: AgentState): Promise<void> {
 					continue;
 				}
 
-				// Completion freeze follows freeze_report_mode (NOT a forced freeze):
-				//   always → freeze for a final check-in
+				// Completion await follows await_report_mode (NOT a forced await):
+				//   always → await for a final check-in
 				//   never  → post the report and complete without blocking
-				//   custom → shouldFreeze's default (freeze) unless the agent
+				//   custom → shouldAwait's default (await) unless the agent
 				//            already steered this turn via a continue report
 				await triggerReport(
 					agent,
@@ -319,7 +319,7 @@ export async function runLoop(agent: AgentState): Promise<void> {
 				emitMessage(agent, { id: message.id, role: "user", content: toolResults, inputTokens, cacheReadTokens });
 
 				// In 'always' mode: flush pending questions after each tool batch
-				if (agent.config.freezeAskMode === "always" && agent.pendingQuestions.length > 0) {
+				if (agent.config.awaitAskMode === "always" && agent.pendingQuestions.length > 0) {
 					await flushQuestionsToDiscord(agent);
 				}
 

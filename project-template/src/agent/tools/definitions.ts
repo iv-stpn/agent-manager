@@ -448,7 +448,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 	{
 		name: "queue_question",
 		description:
-			"Add a question to the pending queue. Whether it blocks or is deferred depends on freeze_ask_mode. Use for non-urgent questions. Provide suggestions when possible to make answering easier.",
+			"Add a question to the pending queue. Whether it blocks or is deferred depends on await_ask_mode. Use for non-urgent questions. Provide suggestions when possible to make answering easier.",
 		input_schema: {
 			type: "object",
 			properties: {
@@ -542,7 +542,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 	{
 		name: "send_report",
 		description:
-			"Send a structured progress report via Discord and save it as an immutable record in the database. Supports text sections (auto-split at 1800 chars) and Mermaid diagrams (rendered to PNG). Whether the agent freezes after sending depends on freeze_report_mode.\n\nIMPORTANT: This is the ONLY correct way to record reports. Do NOT use write_file to save reports — file-based reports are mutable and can be accidentally overwritten. Reports saved via send_report are permanent database records that cannot be modified.",
+			"Send a structured progress report via Discord and save it as an immutable record in the database. Supports text sections (auto-split at 1800 chars) and Mermaid diagrams (rendered to PNG). Whether the agent awaits after sending depends on await_report_mode.\n\nIMPORTANT: This is the ONLY correct way to record reports. Do NOT use write_file to save reports — file-based reports are mutable and can be accidentally overwritten. Reports saved via send_report are permanent database records that cannot be modified.",
 		input_schema: {
 			type: "object",
 			properties: {
@@ -577,11 +577,11 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 						required: ["definition"],
 					},
 				},
-				freeze_override: {
+				await_override: {
 					type: "string",
-					enum: ["freeze", "continue"],
+					enum: ["await", "continue"],
 					description:
-						"Override the current freeze_report_mode for this specific report. 'freeze' = pause agent until user confirms; 'continue' = send report and keep working.",
+						"Override the current await_report_mode for this specific report. 'await' = pause agent until user confirms; 'continue' = send report and keep working.",
 				},
 			},
 			required: ["title", "sections"],

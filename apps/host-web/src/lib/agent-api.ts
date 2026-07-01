@@ -201,9 +201,9 @@ export async function createSession(
 		task: string;
 		reportIntervalMins?: number;
 		stopThresholdMins?: number;
-		freezeReportMode?: "always" | "never" | "custom";
-		freezeReportCustomRule?: string;
-		freezeAskMode?: "always" | "requiredOnly" | "onReportOnly" | "never";
+		awaitReportMode?: "always" | "never" | "custom";
+		awaitReportCustomRule?: string;
+		awaitAskMode?: "always" | "requiredOnly" | "onReportOnly" | "never";
 		compactThresholdTokens?: number;
 		stopThresholdTokens?: number;
 		alwaysImproveMode?: "yes" | "no" | "custom";

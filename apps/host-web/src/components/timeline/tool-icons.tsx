@@ -66,8 +66,8 @@ const TOOL_ICONS: Record<string, ToolIconSpec> = {
 	// Session config — slate
 	change_timeout: { Icon: Clock, box: "bg-slate-500/10 text-slate-500" },
 	change_report_time_interval: { Icon: Timer, box: "bg-slate-500/10 text-slate-500" },
-	change_freeze_report_mode: { Icon: Snowflake, box: "bg-sky-500/10 text-sky-500" },
-	change_freeze_ask_mode: { Icon: Snowflake, box: "bg-sky-500/10 text-sky-500" },
+	change_await_report_mode: { Icon: Snowflake, box: "bg-sky-500/10 text-sky-500" },
+	change_await_ask_mode: { Icon: Snowflake, box: "bg-sky-500/10 text-sky-500" },
 	compact_context: { Icon: Minimize2, box: "bg-slate-500/10 text-slate-500" },
 	change_compact_threshold: { Icon: Archive, box: "bg-slate-500/10 text-slate-500" },
 	change_stop_threshold: { Icon: Octagon, box: "bg-slate-500/10 text-slate-500" },

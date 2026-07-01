@@ -3,7 +3,7 @@
 	"compilerOptions": {
 		"types": ["../apps/host-api/node_modules/bun-types"],
 		"paths": {
-			"drizzle-orm/*": ["./project-template/node_modules/drizzle-orm/*"]
+			"drizzle-orm/*": ["../project-template/node_modules/drizzle-orm/*"]
 		},
 		"noEmit": true
 	},

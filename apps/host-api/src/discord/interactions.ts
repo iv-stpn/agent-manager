@@ -49,14 +49,14 @@ export interface ReportData {
 const CHECKIN_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
- * Send report embeds to a channel. If freeze=true, also send a check-in form and wait for response.
+ * Send report embeds to a channel. If awaiting=true, also send a check-in form and wait for response.
  */
 export async function sendReport(
 	channelId: string,
 	report: LooseOptional<ReportData>,
 	sessionId: string,
 	trigger: string,
-	freeze: boolean,
+	awaiting: boolean,
 	pendingQuestions: Question[],
 	signal?: AbortSignal
 ): Promise<CheckinFormResult | null> {
@@ -84,7 +84,7 @@ export async function sendReport(
 		.addFields(
 			{ name: "Session", value: `\`${sessionId.slice(0, 8)}…\``, inline: true },
 			{ name: "Questions", value: pendingQuestions.length > 0 ? `${pendingQuestions.length} pending` : "None", inline: true },
-			{ name: "Freeze", value: freeze ? "Yes" : "No", inline: true }
+			{ name: "Await", value: awaiting ? "Yes" : "No", inline: true }
 		)
 		.setTimestamp();
 
@@ -127,8 +127,8 @@ export async function sendReport(
 		}
 	}
 
-	// If not freezing, just show queued questions as info
-	if (!freeze) {
+	// If not awaiting, just show queued questions as info
+	if (!awaiting) {
 		if (pendingQuestions.length > 0) {
 			const qEmbed = new EmbedBuilder()
 				.setColor(0xffaa00)
@@ -139,7 +139,7 @@ export async function sendReport(
 		return null;
 	}
 
-	// Freeze mode: send checkin form
+	// Await mode: send checkin form
 	return sendCheckinForm(channel, "", pendingQuestions, sessionId, trigger, signal);
 }
 

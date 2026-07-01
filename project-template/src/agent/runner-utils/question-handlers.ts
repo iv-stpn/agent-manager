@@ -6,7 +6,7 @@ import { remember } from "../tools/implementations/memory";
 import type { AskUserQuestionInput, QuestionInput, SendGraphInput, SendReportInput } from "../tools/validators";
 import type { AgentState } from "../types";
 import { appendToQuestionsFile, drainPending, injectAnswers, makeQuestion } from "./questions";
-import { shouldFreeze } from "./reports";
+import { shouldAwait } from "./reports";
 import { setStatus } from "./status";
 
 export async function handleQueueQuestion(agent: AgentState, input: QuestionInput): Promise<string> {
@@ -19,7 +19,7 @@ export async function handleQueueQuestion(agent: AgentState, input: QuestionInpu
 		{ questionId: question.id, status: "pending" }
 	).catch(() => {});
 
-	switch (agent.config.freezeAskMode) {
+	switch (agent.config.awaitAskMode) {
 		case "always":
 			agent.pendingQuestions.push(question);
 			return "Question queued — will be sent to Discord shortly.";
@@ -77,14 +77,14 @@ export async function handleSendReport(agent: AgentState, input: SendReportInput
 		...(input.mermaid_diagrams !== undefined && { mermaid_diagrams: input.mermaid_diagrams }),
 	};
 
-	const freeze = shouldFreeze(agent, input.freeze_override);
+	const awaiting = shouldAwait(agent, input.await_override);
 	const pending = drainPending(agent);
-	const questionsToAsk = freeze ? pending : [];
+	const questionsToAsk = awaiting ? pending : [];
 
 	setStatus(agent, "paused");
 
 	try {
-		const result = await sendReport(agent.sessionId, report, "manual", freeze, questionsToAsk, agent.abortController.signal);
+		const result = await sendReport(agent.sessionId, report, "manual", awaiting, questionsToAsk, agent.abortController.signal);
 
 		insertReport(agent.db, {
 			id: nanoid(),
@@ -102,7 +102,7 @@ export async function handleSendReport(agent: AgentState, input: SendReportInput
 		setStatus(agent, "running");
 	}
 
-	return freeze ? "Report sent and user acknowledged." : "Report sent (continuing).";
+	return awaiting ? "Report sent and user acknowledged." : "Report sent (continuing).";
 }
 
 export async function handleSendGraph(agent: AgentState, input: SendGraphInput): Promise<string> {

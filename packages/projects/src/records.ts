@@ -15,9 +15,9 @@ export interface SessionRecord {
 	status: "running" | "paused" | "compacting" | "completed" | "aborted" | "error";
 	reportIntervalMins: number;
 	stopThresholdMins: number;
-	freezeReportMode: "always" | "never" | "custom";
-	freezeReportCustomRule: string | null;
-	freezeAskMode: "always" | "requiredOnly" | "onReportOnly" | "never";
+	awaitReportMode: "always" | "never" | "custom";
+	awaitReportCustomRule: string | null;
+	awaitAskMode: "always" | "requiredOnly" | "onReportOnly" | "never";
 	compactThresholdTokens: number;
 	stopThresholdTokens: number;
 	alwaysImproveMode: "yes" | "no" | "custom";

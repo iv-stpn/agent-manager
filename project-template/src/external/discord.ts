@@ -45,20 +45,20 @@ export interface ChecklistResult {
 }
 
 /**
- * Send a report to Discord via host-api. If freeze=true, waits for user response.
+ * Send a report to Discord via host-api. If awaiting=true, waits for user response.
  */
 export async function sendReport(
 	sessionId: string,
 	report: ReportData,
 	trigger: string,
-	freeze: boolean,
+	awaiting: boolean,
 	pendingQuestions: Question[],
 	signal?: AbortSignal
 ): Promise<CheckinFormResult | null> {
 	const res = await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/report`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ sessionId, report, trigger, freeze, pendingQuestions }),
+		body: JSON.stringify({ sessionId, report, trigger, awaiting, pendingQuestions }),
 		signal: signal ?? null,
 	});
 	if (!res.ok) {

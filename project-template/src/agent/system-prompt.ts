@@ -147,8 +147,8 @@ function renderSettings(cfg: AgentStateConfig): string {
 
 	return `# Settings
 Report interval: ${cfg.reportIntervalMins}min · Timeout: ${cfg.stopThresholdMins}min · Compact at: ${cfg.compactThresholdTokens} tokens · Stop at: ${cfg.stopThresholdTokens} tokens
-freeze_report: ${cfg.freezeReportMode}${cfg.freezeReportCustomRule ? ` ("${cfg.freezeReportCustomRule}")` : ""} · freeze_ask: ${cfg.freezeAskMode} · always_improve: ${cfg.alwaysImproveMode}
+await_report: ${cfg.awaitReportMode}${cfg.awaitReportCustomRule ? ` ("${cfg.awaitReportCustomRule}")` : ""} · await_ask: ${cfg.awaitAskMode} · always_improve: ${cfg.alwaysImproveMode}
 
 always_improve — ${improve}
-freeze_ask — ${askMode[cfg.freezeAskMode] ?? cfg.freezeAskMode}`;
+await_ask — ${askMode[cfg.awaitAskMode] ?? cfg.awaitAskMode}`;
 }

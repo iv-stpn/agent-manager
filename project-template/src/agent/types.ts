@@ -5,8 +5,8 @@ import type { Db } from "../db";
 import type { CompactionCircuitBreaker, TokenWarningState } from "./token-budget";
 
 export type AlwaysImproveMode = "yes" | "no" | "custom";
-export type FreezeAskMode = "always" | "requiredOnly" | "onReportOnly" | "never";
-export type FreezeReportMode = "always" | "never" | "custom";
+export type AwaitAskMode = "always" | "requiredOnly" | "onReportOnly" | "never";
+export type AwaitReportMode = "always" | "never" | "custom";
 
 /** Runtime configuration for an agent session. Mirrors the session DB columns. */
 export type AgentStateConfig = {
@@ -16,9 +16,9 @@ export type AgentStateConfig = {
 	alwaysImproveMode: AlwaysImproveMode;
 	alwaysImproveScope: string | null;
 	//
-	freezeReportMode: FreezeReportMode;
-	freezeReportCustomRule: string | null;
-	freezeAskMode: FreezeAskMode;
+	awaitReportMode: AwaitReportMode;
+	awaitReportCustomRule: string | null;
+	awaitAskMode: AwaitAskMode;
 	//
 	compactThresholdTokens: number;
 	stopThresholdTokens: number;

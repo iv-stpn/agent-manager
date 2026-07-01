@@ -19,9 +19,9 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 	const [task, setTask] = useState("");
 	const [reportIntervalMins, setReportIntervalMins] = useState("15");
 	const [stopThresholdMins, setstopThresholdMins] = useState("240");
-	const [freezeReportMode, setFreezeReportMode] = useState<"always" | "never" | "custom">("never");
-	const [freezeReportCustomRule, setFreezeReportCustomRule] = useState("");
-	const [freezeAskMode, setFreezeAskMode] = useState<"always" | "requiredOnly" | "onReportOnly" | "never">("always");
+	const [awaitReportMode, setAwaitReportMode] = useState<"always" | "never" | "custom">("never");
+	const [awaitReportCustomRule, setAwaitReportCustomRule] = useState("");
+	const [awaitAskMode, setAwaitAskMode] = useState<"always" | "requiredOnly" | "onReportOnly" | "never">("always");
 	const [compactThreshold, setCompactThreshold] = useState("80000");
 	const [stopThreshold, setStopThreshold] = useState("10000000");
 	const [alwaysImproveMode, setAlwaysImproveMode] = useState<"yes" | "no" | "custom">("no");
@@ -37,9 +37,9 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 				task,
 				reportIntervalMins: Number(reportIntervalMins) || 15,
 				stopThresholdMins: Number(stopThresholdMins) || 240,
-				freezeReportMode,
-				freezeReportCustomRule: freezeReportCustomRule || undefined,
-				freezeAskMode,
+				awaitReportMode,
+				awaitReportCustomRule: awaitReportCustomRule || undefined,
+				awaitAskMode,
 				compactThresholdTokens: Number(compactThreshold) || 80_000,
 				stopThresholdTokens: Number(stopThreshold) || 2_000_000,
 				alwaysImproveMode,
@@ -129,27 +129,27 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 						</div>
 					</div>
 
-					{/* Freeze modes */}
+					{/* Await modes */}
 					<div className="grid grid-cols-2 gap-4">
 						<div className="space-y-2">
-							<Label htmlFor="freeze-report">Freeze on reports</Label>
+							<Label htmlFor="await-report">Await on reports</Label>
 							<select
-								id="freeze-report"
-								value={freezeReportMode}
-								onChange={(e) => setFreezeReportMode(e.target.value as typeof freezeReportMode)}
+								id="await-report"
+								value={awaitReportMode}
+								onChange={(e) => setAwaitReportMode(e.target.value as typeof awaitReportMode)}
 								className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
 							>
 								<option value="never">never — async, continues</option>
-								<option value="always">always — freezes each time</option>
+								<option value="always">always — awaits each time</option>
 								<option value="custom">custom — per-report rule</option>
 							</select>
 						</div>
 						<div className="space-y-2">
-							<Label htmlFor="freeze-ask">Ask mode</Label>
+							<Label htmlFor="await-ask">Ask mode</Label>
 							<select
-								id="freeze-ask"
-								value={freezeAskMode}
-								onChange={(e) => setFreezeAskMode(e.target.value as typeof freezeAskMode)}
+								id="await-ask"
+								value={awaitAskMode}
+								onChange={(e) => setAwaitAskMode(e.target.value as typeof awaitAskMode)}
 								className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
 							>
 								<option value="always">always — ask immediately</option>
@@ -160,14 +160,14 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 						</div>
 					</div>
 
-					{freezeReportMode === "custom" && (
+					{awaitReportMode === "custom" && (
 						<div className="space-y-2">
-							<Label htmlFor="custom-rule">Custom freeze rule</Label>
+							<Label htmlFor="custom-rule">Custom await rule</Label>
 							<Input
 								id="custom-rule"
-								placeholder="e.g. freeze on security or major architecture changes"
-								value={freezeReportCustomRule}
-								onChange={(e) => setFreezeReportCustomRule(e.target.value)}
+								placeholder="e.g. await on security or major architecture changes"
+								value={awaitReportCustomRule}
+								onChange={(e) => setAwaitReportCustomRule(e.target.value)}
 							/>
 						</div>
 					)}

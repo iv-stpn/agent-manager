@@ -248,7 +248,7 @@ Mark a task as the current task in progress. The given task becomes in_progress 
 
 ### `queue_question`
 
-Add a question to the pending queue. Whether it blocks or is deferred depends on freeze_ask_mode. Use for non-urgent questions. Provide suggestions when possible to make answering easier.
+Add a question to the pending queue. Whether it blocks or is deferred depends on await_ask_mode. Use for non-urgent questions. Provide suggestions when possible to make answering easier.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -271,7 +271,7 @@ Ask the user one or more questions and wait for answers. Use this at the start o
 
 ### `send_report`
 
-Send a structured progress report via Discord and save it as an immutable record in the database. Supports text sections (auto-split at 1800 chars) and Mermaid diagrams (rendered to PNG). Whether the agent freezes after sending depends on freeze_report_mode.
+Send a structured progress report via Discord and save it as an immutable record in the database. Supports text sections (auto-split at 1800 chars) and Mermaid diagrams (rendered to PNG). Whether the agent awaits after sending depends on await_report_mode.
 
 IMPORTANT: This is the ONLY correct way to record reports. Do NOT use write_file to save reports — file-based reports are mutable and can be accidentally overwritten. Reports saved via send_report are permanent database records that cannot be modified.
 
@@ -280,7 +280,7 @@ IMPORTANT: This is the ONLY correct way to record reports. Do NOT use write_file
 | `title` | `string` | Yes | Report title |
 | `sections` | `array` | Yes | Text sections. Each section is split into ≤1800-char chunks automatically. |
 | `mermaid_diagrams` | `array` |  | Mermaid diagrams to render as PNG images and attach to the report. |
-| `freeze_override` | `freeze` \| `continue` |  | Override the current freeze_report_mode for this specific report. 'freeze' = pause agent until user confirms; 'continue' = send report and keep working. |
+| `await_override` | `await` \| `continue` |  | Override the current await_report_mode for this specific report. 'await' = pause agent until user confirms; 'continue' = send report and keep working. |
 
 ### `send_graph`
 

@@ -7,7 +7,7 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 // derived from these definitions at runtime.
 
 // An autonomous agent run within a project. Holds the task, its runtime
-// configuration (report/timeout/freeze/compaction policy) and rolled-up token
+// configuration (report/timeout/await/compaction policy) and rolled-up token
 // totals. All other tables hang off a session.
 export const sessions = sqliteTable("sessions", {
 	id: text("id").primaryKey(),
@@ -23,12 +23,12 @@ export const sessions = sqliteTable("sessions", {
 	reportIntervalMins: integer("report_interval_mins").notNull().default(15), // Minutes between automatic progress reports.
 	stopThresholdMins: integer("total_timeout_mins").notNull().default(240), // Hard wall-clock cap before the session is stopped.
 
-	// Freeze modes
-	freezeReportMode: text("freeze_report_mode", { enum: ["always", "never", "custom"] })
+	// Await modes
+	awaitReportMode: text("await_report_mode", { enum: ["always", "never", "custom"] })
 		.notNull()
 		.default("never"), // When to pause for a report before continuing.
-	freezeReportCustomRule: text("freeze_report_custom_rule"), // Natural-language rule used when freezeReportMode is "custom".
-	freezeAskMode: text("freeze_ask_mode", {
+	awaitReportCustomRule: text("await_report_custom_rule"), // Natural-language rule used when awaitReportMode is "custom".
+	awaitAskMode: text("await_ask_mode", {
 		enum: ["always", "requiredOnly", "onReportOnly", "never"],
 	})
 		.notNull()
