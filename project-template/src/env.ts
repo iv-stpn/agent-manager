@@ -5,7 +5,7 @@
 export const env = {
 	PORT: Number(process.env.PORT ?? 3010),
 	DATABASE_PATH: process.env.DATABASE_PATH ?? "../data/agent.db",
-	HOST_API_URL: process.env.HOST_API_URL ?? "http://host.docker.internal:3100",
+	ORCHESTRATOR_API_URL: process.env.ORCHESTRATOR_API_URL ?? "http://host.docker.internal:3100",
 	PROJECT_ID: process.env.PROJECT_ID ?? "",
 	ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
 	ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,

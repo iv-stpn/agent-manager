@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 /**
- * Stop every running project container. Invoked on host dev shutdown (see
+ * Stop every running project container. Invoked on orchestrator dev shutdown (see
  * scripts/dev.sh) so tearing down the dev stack also tears down all projects.
  */
 import { join } from "node:path";

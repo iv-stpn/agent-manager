@@ -1,12 +1,12 @@
 /**
- * Discord communication via host-api.
+ * Discord communication via orchestrator-api.
  * Replaces direct discord.js usage — all Discord interactions are routed
- * through the global bot running in the host-api process.
+ * through the global bot running in the orchestrator-api process.
  */
 
 import { env } from "../env";
 
-const HOST_API_URL = env.HOST_API_URL;
+const ORCHESTRATOR_API_URL = env.ORCHESTRATOR_API_URL;
 const PROJECT_ID = env.PROJECT_ID;
 
 export interface ReportData {
@@ -45,7 +45,7 @@ export interface ChecklistResult {
 }
 
 /**
- * Send a report to Discord via host-api. If awaiting=true, waits for user response.
+ * Send a report to Discord via orchestrator-api. If awaiting=true, waits for user response.
  */
 export async function sendReport(
 	sessionId: string,
@@ -55,7 +55,7 @@ export async function sendReport(
 	pendingQuestions: Question[],
 	signal?: AbortSignal
 ): Promise<CheckinFormResult | null> {
-	const res = await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/report`, {
+	const res = await fetch(`${ORCHESTRATOR_API_URL}/api/projects/${PROJECT_ID}/discord/report`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ sessionId, report, trigger, awaiting, pendingQuestions }),
@@ -70,7 +70,7 @@ export async function sendReport(
 }
 
 /**
- * Send questions to Discord via host-api and wait for responses.
+ * Send questions to Discord via orchestrator-api and wait for responses.
  */
 export async function sendQuestions(
 	sessionId: string,
@@ -79,7 +79,7 @@ export async function sendQuestions(
 	urgent?: boolean,
 	signal?: AbortSignal
 ): Promise<ChecklistResult> {
-	const res = await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/questions`, {
+	const res = await fetch(`${ORCHESTRATOR_API_URL}/api/projects/${PROJECT_ID}/discord/questions`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ sessionId, title, questions, urgent: urgent ?? false }),
@@ -97,7 +97,7 @@ export async function sendQuestions(
  * Send a plain message to the session's Discord channel.
  */
 export async function sendMessage(sessionId: string, content: string): Promise<void> {
-	const res = await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/message`, {
+	const res = await fetch(`${ORCHESTRATOR_API_URL}/api/projects/${PROJECT_ID}/discord/message`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ sessionId, content }),
@@ -117,7 +117,7 @@ export async function sendGraph(sessionId: string, png: Buffer, title?: string):
 	if (title) formData.append("title", title);
 	formData.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "graph.png");
 
-	const res = await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/graph`, {
+	const res = await fetch(`${ORCHESTRATOR_API_URL}/api/projects/${PROJECT_ID}/discord/graph`, {
 		method: "POST",
 		body: formData,
 	});

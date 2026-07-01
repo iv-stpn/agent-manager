@@ -5,7 +5,7 @@
 	"type": "module",
 	"exports": {
 		"./project-schema": "./src/project-schema.ts",
-		"./host-schema": "./src/host-schema.ts",
+		"./orchestrator-schema": "./src/orchestrator-schema.ts",
 		"./ddl": "./src/ddl.ts"
 	},
 	"dependencies": {

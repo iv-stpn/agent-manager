@@ -3,7 +3,7 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 // Schema for the per-project agent.db. This is the single source of truth for a
 // managed project's database: the project-template server creates and reads it,
-// and the host introspects it read-only. See @agent-manager/db/ddl for the DDL
+// and the orchestrator introspects it read-only. See @agent-manager/db/ddl for the DDL
 // derived from these definitions at runtime.
 
 // An autonomous agent run within a project. Holds the task, its runtime

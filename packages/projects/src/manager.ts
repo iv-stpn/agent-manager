@@ -79,8 +79,8 @@ async function cloneGitHubRepo(repoUrl: string, dest: string): Promise<void> {
 /**
  * Resolve the monorepo workspace root, independent of the process cwd.
  *
- * The host API and CLI can be launched from any subdirectory (e.g. the
- * host-api process runs with cwd `apps/host-api`), but projects always
+ * The orchestrator API and CLI can be launched from any subdirectory (e.g. the
+ * API process runs with cwd `apps/api`), but projects always
  * live in the repo-root `.projects/` directory. Walking up from a stable
  * anchor and locating the workspace `package.json` (the one declaring
  * `apps/*` workspaces) gives us the repo root regardless of where the
@@ -466,7 +466,7 @@ export class ProjectManager {
 		const envLines = [
 			`      DATABASE_PATH: /data/agent.db`,
 			`      WORKSPACE_PATH: /workspace`,
-			`      HOST_API_URL: http://host.docker.internal:${process.env.HOST_PORT ?? 3100}`,
+			`      ORCHESTRATOR_API_URL: http://host.docker.internal:${process.env.ORCHESTRATOR_PORT ?? 3100}`,
 			`      PORT: "${config.ports.server}"`,
 			`      PROJECT_ID: "${projectId}"`,
 			`      PROJECT_NAME: "${config.name}"`,
@@ -508,7 +508,7 @@ services:
     environment:
 ${envLines.join("\n")}
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "host.docker.internal:orchestrator-gateway"
     volumes:
       - ${config.workspace.path}:/workspace
       - ./data:/data

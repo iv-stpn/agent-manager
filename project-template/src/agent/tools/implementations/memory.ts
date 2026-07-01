@@ -1,10 +1,10 @@
 import { env } from "../../../env";
 
-const HOST_API_URL = env.HOST_API_URL;
+const ORCHESTRATOR_API_URL = env.ORCHESTRATOR_API_URL;
 const PROJECT_ID = env.PROJECT_ID;
 
 function memoryUrl(path = ""): string {
-	return `${HOST_API_URL}/api/memory/${PROJECT_ID}${path}`;
+	return `${ORCHESTRATOR_API_URL}/api/memory/${PROJECT_ID}${path}`;
 }
 
 async function memoryRequest(path: string, opts: RequestInit = {}): Promise<Record<string, unknown>> {

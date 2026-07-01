@@ -6,7 +6,7 @@ name: agent-manager-shared
 services:
   lancedb:
     build:
-      context: ./apps/host-api/src/lancedb
+      context: ./apps/orchestrator-api/src/lancedb
       dockerfile: Dockerfile
     environment:
       LANCEDB_DATA_DIR: /data/lancedb

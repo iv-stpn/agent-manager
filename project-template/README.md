@@ -3,7 +3,7 @@
 This directory contains the **templates** for project agent and web
 applications.
 
-These templates are copied into each project when created via the host
+These templates are copied into each project when created via the orchestrator
 API/web.
 
 ## Structure
@@ -20,7 +20,7 @@ project-template/
    `.projects/<project-id>/`
 2. Each project gets its own isolated copy
 3. The copies are built and run inside Docker containers
-4. Templates are never run directly on the host
+4. Templates are never run directly on the orchestrator
 
 ## Development
 

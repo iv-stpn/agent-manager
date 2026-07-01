@@ -5,7 +5,7 @@
 
 ## Host
 
-The orchestrator's own database (`host.db`): templates, archived projects/sessions, and global statistics. Defined in `apps/host-api/src/db/host-database.ts`.
+The orchestrator's own database (`orchestrator.db`): templates, archived projects/sessions, and global statistics. Defined in `apps/api/src/db/orchestrator-database.ts`.
 
 ### `archived_projects`
 

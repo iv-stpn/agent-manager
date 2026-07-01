@@ -1,15 +1,15 @@
 import { env } from "../env";
 
-const HOST_API_URL = env.HOST_API_URL;
+const ORCHESTRATOR_API_URL = env.ORCHESTRATOR_API_URL;
 
 /**
- * Render a Mermaid definition to a PNG. Rendering is delegated to host-api
- * (the single host that has Chromium + mermaid-cli installed), so project
+ * Render a Mermaid definition to a PNG. Rendering is delegated to orchestrator-api
+ * (the single orchestrator that has Chromium + mermaid-cli installed), so project
  * containers no longer bundle a browser. The `title` argument is accepted for
  * call-site compatibility but is not used by the renderer.
  */
 export async function renderMermaid(definition: string): Promise<Buffer> {
-	const resp = await fetch(`${HOST_API_URL}/api/render/mermaid`, {
+	const resp = await fetch(`${ORCHESTRATOR_API_URL}/api/render/mermaid`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ definition }),

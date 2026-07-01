@@ -11,7 +11,7 @@
 		"noEmit": true,
 		"jsx": "react-jsx",
 		"paths": {
-			"@/*": ["./apps/host-web/src/*"]
+			"@/*": ["./apps/web/src/*"]
 		},
 		"exactOptionalPropertyTypes": true
 	},

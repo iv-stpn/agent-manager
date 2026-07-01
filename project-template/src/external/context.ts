@@ -1,11 +1,11 @@
 /**
- * Fetch resolved project context (tech stacks, guidelines, instructions) from host-api.
+ * Fetch resolved project context (tech stacks, guidelines, instructions) from orchestrator-api.
  * Called once at startup and cached for the lifetime of the process.
  */
 
 import { env } from "../env";
 
-const HOST_API_URL = env.HOST_API_URL;
+const ORCHESTRATOR_API_URL = env.ORCHESTRATOR_API_URL;
 const PROJECT_ID = env.PROJECT_ID;
 
 export interface StackLibrary {
@@ -54,13 +54,13 @@ const EMPTY_CONTEXT: ResolvedProjectContext = { techStacks: [], guidelines: [], 
 
 let cached: ResolvedProjectContext | null = null;
 
-/** Fetch resolved project context from host-api. Caches after first successful call. */
+/** Fetch resolved project context from orchestrator-api. Caches after first successful call. */
 export async function fetchProjectContext(): Promise<ResolvedProjectContext> {
 	if (cached) return cached;
 	if (!PROJECT_ID) return EMPTY_CONTEXT;
 
 	try {
-		const res = await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/context/resolved`);
+		const res = await fetch(`${ORCHESTRATOR_API_URL}/api/projects/${PROJECT_ID}/context/resolved`);
 		if (!res.ok) return EMPTY_CONTEXT;
 		const data = (await res.json()) as ResolvedProjectContext;
 		cached = data;

@@ -1,27 +1,27 @@
 # Architecture
 
 Agent Manager runs many isolated autonomous Claude agents, each scoped to its
-own project (workspace, database, container, ports). A thin host layer on the
-host creates and supervises projects; each project runs as a Docker container.
+own project (workspace, database, container, ports). A thin orchestrator layer
+creates and supervises projects; each project runs as a Docker container.
 
 ## Layers
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                      Host layer (host)                       │
+│                  Orchestrator layer                          │
 │                                                                │
-│  host-api  (port 3100, Hono)                                 │
+│  api  (port 3100, Hono)                                       │
 │    • Project CRUD + Docker lifecycle (start/stop/build/logs)   │
 │    • Reads each project's config.json + data/agent.db          │
-│    • Centralized rendering: /api/render (mermaid)│
+│    • Centralized rendering: /api/render (mermaid)              │
 │    • Own SQLite DB for logs & historical stats (not runtime)   │
 │                                                                │
-│  host-web  (port 3101, Next.js)                              │
-│    • Dashboard over host-api: list projects, view sessions,  │
+│  web  (port 3101, Vite + React)                               │
+│    • Dashboard over API: list projects, view sessions,        │
 │      messages, tool calls, check-ins, token charts             │
 │                                                                │
 │  cli  (apps/cli/projects.ts)                                   │
-│    • Same operations as host-api, from the terminal          │
+│    • Same operations as API, from the terminal                 │
 └──────────────────────────────────────────────────────────────┘
                               │  manages
                               ▼
@@ -44,25 +44,26 @@ host creates and supervises projects; each project runs as a Docker container.
 │    • Autonomous Claude agent loop + REST API                   │
 │    • Optional Discord bot for check-ins / questions / reports  │
 │    • Mounts workspace at /workspace, DB at /data/agent.db      │
-│    • Calls host-api at host.docker.internal:3100 for renders │
+│    • Calls orchestrator API at host.docker.internal:3100      │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 Key points:
 
-- **The host has its own database for historical data.** It stores logs and
-  statistics about past projects (e.g. aggregated token usage, session history
-  snapshots). It does **not** store project-relevant data at runtime — that
-  remains in each project's own `data/agent.db`. host-api still opens project
-  DBs in readonly mode to compute live stats and list sessions.
+- **The orchestrator has its own database for historical data.** It stores logs
+  and statistics about past projects (e.g. aggregated token usage, session
+  history snapshots). It does **not** store project-relevant data at runtime —
+  that remains in each project's own `data/agent.db`. The orchestrator API still
+  opens project DBs in readonly mode to compute live stats and list sessions.
 - **`project-template/` is a template, never run directly.** Its `src/` and
   `Dockerfile` are copied into each project at creation time, so projects are
   fully isolated and can diverge.
-- **Rendering is centralized.** Chromium lives only on the host (host-api).
+- **Rendering is centralized.** Chromium lives only in the orchestrator (API).
   Project containers POST to `/api/render` to render Mermaid diagrams instead of
   bundling a browser into every image.
 - **Each project gets one container** (`agent`) on its own bridge network, with
-  a single host-exposed port (`config.ports.server`, auto-allocated from 4000).
+  a single orchestrator-exposed port (`config.ports.server`, auto-allocated from
+  4000).
 
 ## Project configuration (`config.json`)
 
@@ -73,7 +74,7 @@ Key points:
   "description": "…", // optional
   "createdAt": "2026-06-27T…",
   "updatedAt": "2026-06-27T…",
-  "ports": { "server": 4000 }, // auto-allocated, host-exposed
+  "ports": { "server": 4000 }, // auto-allocated, orchestrator-exposed
   "workspace": {
     "path": "/abs/path", // mounted at /workspace in the container
     "type": "external" // "external" = user path | "internal" = .projects/<id>/workspace
@@ -100,7 +101,7 @@ Drizzle in
 [project-template/src/db/schema.ts](../project-template/src/db/schema.ts) and is
 the single source of truth. All timestamps are integer Unix epoch
 **milliseconds** (`unixepoch() * 1000`); IDs are application-generated text. The
-host reads this DB readonly; the agent container is the only writer.
+orchestrator reads this DB readonly; the agent container is the only writer.
 
 A **session** is one autonomous agent run for a given task, and everything else
 hangs off a session:
@@ -115,7 +116,7 @@ sessions ──┬─< messages ──< tool_calls
 ```
 
 See [DATABASE.md](DATABASE.md) for the full per-table column reference (both the
-per-project schema and the host database).
+per-project schema and the orchestrator database).
 
 See [USAGE.md](USAGE.md) for running the system and [TOOLS.md](TOOLS.md) for the
 agent's tool set.

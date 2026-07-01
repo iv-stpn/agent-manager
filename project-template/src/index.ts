@@ -29,7 +29,7 @@ app
 		const rows = getTasks(db, sessionId || undefined);
 		return c.json(rows);
 	})
-	// Project-wide event stream (every session). host-api restreams this.
+	// Project-wide event stream (every session). orchestrator-api restreams this.
 	.route("/api/stream", globalStreamRouter)
 	.route("/api/sessions", sessionsRouter)
 	.route("/api/sessions", streamRouter);
