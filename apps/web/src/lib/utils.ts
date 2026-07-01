@@ -58,3 +58,5 @@ export function statusBg(status: string): string {
 			return "bg-gray-500/10 text-gray-500";
 	}
 }
+
+export const containerClassName = "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8";

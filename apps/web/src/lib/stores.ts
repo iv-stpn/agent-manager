@@ -31,7 +31,7 @@ import {
 	getTasks,
 	getToolCalls,
 } from "@/lib/agent-api";
-import { createHostStream } from "@/lib/orchestrator-stream";
+import { createHostStream } from "@/lib/host-stream";
 import { getCache, mutateCache, setCache, updateCache, useCacheValue } from "@/lib/query-cache";
 
 // ── Cache keys ────────────────────────────────────────────────────────────────

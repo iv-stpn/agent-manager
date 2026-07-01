@@ -29,7 +29,7 @@ import {
 	sendSessionMessage,
 	stopSession,
 } from "@/lib/agent-api";
-import { containerClassName } from "@/lib/classes";
+import { containerClassName } from "@/lib/utils";
 import { mutateCache, useQuery } from "@/lib/query-cache";
 import { cacheKeys, useSessionStream, useSessionStreamingState } from "@/lib/stores";
 import type { Project } from "@/lib/types";

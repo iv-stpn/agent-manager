@@ -23,6 +23,7 @@ app.use("*", (c, next) => {
 });
 
 app
+	.get("/", (c) => c.text(`Hello from project ${env.PROJECT_NAME}!`))
 	.get("/health", (c) => c.json({ ok: true, ts: Date.now() }))
 	.get("/api/tasks", (c) => {
 		const sessionId = c.req.query("sessionId");

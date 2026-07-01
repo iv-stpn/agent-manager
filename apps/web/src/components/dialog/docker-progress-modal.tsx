@@ -104,7 +104,7 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 				</DialogHeader>
 
 				<div className="space-y-3 mt-2">
-					{steps.map((step) => (
+					{steps.filter((step) => step.id !== "logs").map((step) => (
 						<div key={step.id} className="flex items-start gap-3">
 							<div className="mt-0.5">
 								{step.status === "running" && <Loader2 className="w-4 h-4 animate-spin text-blue-500" />}
@@ -116,8 +116,11 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 								<div className={cn("text-sm font-medium", step.status === "error" ? "text-red-700" : "text-gray-900")}>
 									{step.label}
 								</div>
-								{step.status === "error" && step.log && (
-									<pre className="text-xs mt-1 whitespace-pre-wrap break-all max-h-96 overflow-y-auto rounded p-2 bg-red-50 text-red-700">
+								{step.log && (
+									<pre className={cn(
+										"text-xs mt-1 whitespace-pre-wrap break-all max-h-96 overflow-y-auto rounded p-2",
+										step.status === "error" ? "bg-red-50 text-red-700" : "bg-gray-50 text-gray-700"
+									)}>
 										{step.log}
 									</pre>
 								)}

@@ -7,6 +7,7 @@ export const env = {
 	DATABASE_PATH: process.env.DATABASE_PATH ?? "../data/agent.db",
 	ORCHESTRATOR_API_URL: process.env.ORCHESTRATOR_API_URL ?? "http://host.docker.internal:3100",
 	PROJECT_ID: process.env.PROJECT_ID ?? "",
+	PROJECT_NAME: process.env.PROJECT_NAME ?? "Unknown Project",
 	ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
 	ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
 	ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6",

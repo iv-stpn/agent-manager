@@ -508,7 +508,7 @@ services:
     environment:
 ${envLines.join("\n")}
     extra_hosts:
-      - "host.docker.internal:orchestrator-gateway"
+      - "orchestrator-gateway:host.docker.internal"
     volumes:
       - ${config.workspace.path}:/workspace
       - ./data:/data
