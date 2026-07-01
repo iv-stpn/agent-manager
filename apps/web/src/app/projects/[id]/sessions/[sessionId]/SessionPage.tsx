@@ -352,7 +352,7 @@ export default function SessionPage() {
 				<div className="flex-1 flex flex-col overflow-hidden border-r">
 					{tasks.length > 0 && (
 						<div className="shrink-0 border-b bg-background px-4 py-2 max-h-[30vh] overflow-y-auto">
-							<TaskTree tasks={tasks} />
+							<TaskTree tasks={tasks} active={isActive} />
 						</div>
 					)}
 					<ScrollArea className="flex-1" ref={scrollAreaRef}>

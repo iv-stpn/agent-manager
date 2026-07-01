@@ -46,6 +46,20 @@ interface TemplateSelection {
 	subdirectory?: string;
 }
 
+/** Derive a readable subdirectory name from a GitHub URL (e.g. repo name). */
+function defaultGithubSubdir(url: string): string {
+	const trimmed = url.trim();
+	if (!trimmed) return "";
+	try {
+		const url = new URL(trimmed);
+		const last = url.pathname.split("/").filter(Boolean).pop();
+		if (!last) return "";
+		return last.replace(/\.git$/, "");
+	} catch {
+		return "";
+	}
+}
+
 interface NewProjectFormProps {
 	onSuccess?: () => void;
 	onCancel?: () => void;
@@ -83,8 +97,7 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 	// Templates selections
 	const [templates, setTemplates] = useState<LocalTemplate[]>([]);
 	const [selectedTemplates, setSelectedTemplates] = useState<string[]>([]);
-	const [customGithubUrl, setCustomGithubUrl] = useState("");
-	const [useMultipleTemplates, setUseMultipleTemplates] = useState(false);
+	const [githubTemplates, setGithubTemplates] = useState<Array<{ id: string; url: string; subdirectory: string }>>([]);
 	const [templateSubdirs, setTemplateSubdirs] = useState<Record<string, string>>({});
 	const [templatesLoading, setTemplatesLoading] = useState(false);
 
@@ -132,13 +145,17 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 	}
 
 	function toggleTemplate(name: string) {
-		if (useMultipleTemplates) {
-			// Multiple mode: toggle selection
-			setSelectedTemplates((prev) => (prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]));
-		} else {
-			// Single mode: replace selection
-			setSelectedTemplates([name]);
-		}
+		setSelectedTemplates((prev) => (prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]));
+	}
+
+	function addGithubTemplate(url = "") {
+		setGithubTemplates((prev) => [...prev, { id: crypto.randomUUID(), url, subdirectory: "" }]);
+	}
+	function updateGithubTemplate(id: string, field: "url" | "subdirectory", value: string) {
+		setGithubTemplates((prev) => prev.map((g) => (g.id === id ? { ...g, [field]: value } : g)));
+	}
+	function removeGithubTemplate(id: string) {
+		setGithubTemplates((prev) => prev.filter((g) => g.id !== id));
 	}
 
 	async function handleSubmit(skipPathCheck = false) {
@@ -158,28 +175,32 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 
 		setLoading(true);
 		try {
-			// Build templates array
-			const templatesList: TemplateSelection[] = [];
-
-			// Add selected local templates
+			// Build templates array — local + github templates.
+			// The backend places each template in its own subdirectory when more
+			// than one template is provided; a single template with no explicit
+			// subdirectory goes directly into the workspace root.
+			const rawTemplates: TemplateSelection[] = [];
 			for (const name of selectedTemplates) {
-				const subdir = useMultipleTemplates ? templateSubdirs[name] || name : undefined;
-				templatesList.push({
-					type: "local",
-					source: name,
-					...(subdir && { subdirectory: subdir }),
-				});
+				const subdir = templateSubdirs[name]?.trim();
+				rawTemplates.push({ type: "local", source: name, ...(subdir && { subdirectory: subdir }) });
+			}
+			for (const g of githubTemplates) {
+				const url = g.url.trim();
+				if (!url) continue;
+				const subdir = g.subdirectory.trim();
+				rawTemplates.push({ type: "github", source: url, ...(subdir && { subdirectory: subdir }) });
 			}
 
-			// Add custom GitHub URL if provided
-			if (customGithubUrl.trim()) {
-				const subdir = useMultipleTemplates ? templateSubdirs.__github || "github-template" : undefined;
-				templatesList.push({
-					type: "github",
-					source: customGithubUrl.trim(),
-					...(subdir && { subdirectory: subdir }),
-				});
-			}
+			// When multiple templates are selected, give each GitHub template a
+			// readable subdirectory name (derived from the repo) if the user left
+			// it blank, so the created subfolders aren't slugified URLs.
+			const multipleTemplates = rawTemplates.length > 1;
+			const templatesList: TemplateSelection[] = multipleTemplates
+				? rawTemplates.map((t) => {
+						if (t.subdirectory || t.type !== "github") return t;
+						return { ...t, subdirectory: defaultGithubSubdir(t.source) };
+					})
+				: rawTemplates;
 
 			const created = await apiCreateProject({
 				name: form.name.trim(),
@@ -219,7 +240,7 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 			setSelectedTechStacks([]);
 			setSelectedGuidelines([]);
 			setSelectedTemplates([]);
-			setCustomGithubUrl("");
+			setGithubTemplates([]);
 			setTemplateSubdirs({});
 			setStep("basic");
 			toast.success("Project created");
@@ -340,9 +361,9 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 					)}
 				>
 					Templates
-					{(selectedTemplates.length > 0 || customGithubUrl) && (
+					{(selectedTemplates.length > 0 || githubTemplates.some((g) => g.url.trim())) && (
 						<span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold rounded-full bg-blue-100 text-blue-700">
-							{selectedTemplates.length + (customGithubUrl ? 1 : 0)}
+							{selectedTemplates.length + githubTemplates.filter((g) => g.url.trim()).length}
 						</span>
 					)}
 				</button>
@@ -464,17 +485,6 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 
 			{step === "templates" && (
 				<div className="space-y-4">
-					<div className="flex items-center gap-2 mb-3">
-						<Checkbox
-							id="use-multiple"
-							checked={useMultipleTemplates}
-							onCheckedChange={(checked) => setUseMultipleTemplates(checked === true)}
-						/>
-						<Label htmlFor="use-multiple" className="text-sm font-medium cursor-pointer">
-							Use multiple templates
-						</Label>
-					</div>
-
 					{templatesLoading ? (
 						<p className="text-sm text-gray-500">Loading templates...</p>
 					) : (
@@ -499,11 +509,7 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 														selected && "bg-blue-50/60"
 													)}
 												>
-													<Checkbox
-														checked={selected}
-														onCheckedChange={() => toggleTemplate(tpl.name)}
-														disabled={!useMultipleTemplates && selectedTemplates.length > 0 && !selected}
-													/>
+													<Checkbox checked={selected} onCheckedChange={() => toggleTemplate(tpl.name)} />
 													<div className="flex-1 min-w-0">
 														<div className="text-sm font-medium">{tpl.name}</div>
 														{tpl.description && <div className="text-xs text-gray-500">{tpl.description}</div>}
@@ -517,15 +523,15 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 															</div>
 														)}
 													</div>
-													{useMultipleTemplates && selected && (
+													{selected && (
 														<Input
-															placeholder="subdirectory"
+															placeholder={`subdir · ${tpl.name}`}
 															value={templateSubdirs[tpl.name] || ""}
 															onChange={(e) => {
 																e.stopPropagation();
 																setTemplateSubdirs((prev) => ({ ...prev, [tpl.name]: e.target.value }));
 															}}
-															className="w-32 h-7 text-xs"
+															className="w-36 h-7 text-xs"
 															onClick={(e) => e.stopPropagation()}
 														/>
 													)}
@@ -536,30 +542,44 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 								)}
 							</div>
 
-							{/* GitHub URL */}
+							{/* GitHub templates */}
 							<div className="space-y-2">
-								<Label htmlFor="github-url" className="text-sm font-medium">
-									GitHub Repository URL
-								</Label>
-								<div className="flex gap-2">
-									<Input
-										id="github-url"
-										type="url"
-										value={customGithubUrl}
-										onChange={(e) => setCustomGithubUrl(e.target.value)}
-										placeholder="https://github.com/user/repo.git"
-										className="flex-1"
-									/>
-									{useMultipleTemplates && customGithubUrl && (
-										<Input
-											placeholder="subdirectory"
-											value={templateSubdirs.__github || ""}
-											onChange={(e) => setTemplateSubdirs((prev) => ({ ...prev, __github: e.target.value }))}
-											className="w-32"
-										/>
-									)}
+								<Label className="text-sm font-medium">GitHub Repository URLs</Label>
+								{githubTemplates.length === 0 && <p className="text-xs italic text-gray-400">No GitHub templates added yet.</p>}
+								<div className="space-y-2">
+									{githubTemplates.map((g) => (
+										<div key={g.id} className="flex gap-2 items-center">
+											<Input
+												type="url"
+												value={g.url}
+												onChange={(e) => updateGithubTemplate(g.id, "url", e.target.value)}
+												placeholder="https://github.com/user/repo.git"
+												className="flex-1"
+											/>
+											<Input
+												value={g.subdirectory}
+												onChange={(e) => updateGithubTemplate(g.id, "subdirectory", e.target.value)}
+												placeholder={`subdir · ${g.url ? defaultGithubSubdir(g.url) || "auto" : "auto"}`}
+												className="w-44"
+											/>
+											<Button
+												type="button"
+												variant="ghost"
+												size="sm"
+												onClick={() => removeGithubTemplate(g.id)}
+												className="text-gray-400 hover:text-destructive px-2"
+											>
+												✕
+											</Button>
+										</div>
+									))}
 								</div>
-								<p className="text-xs text-gray-500">Clone a public GitHub repository as a template</p>
+								<Button type="button" variant="outline" size="sm" onClick={() => addGithubTemplate("")}>
+									+ Add GitHub template
+								</Button>
+								<p className="text-xs text-gray-500">
+									Clone one or more public GitHub repositories. Multiple templates are placed in separate subfolders.
+								</p>
 							</div>
 
 							{/* Tech stack suggestions */}
@@ -567,26 +587,28 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 								<div className="border rounded-lg p-3 bg-blue-50/30">
 									<p className="text-sm font-medium mb-2">Suggested from selected tech stacks:</p>
 									<div className="space-y-1">
-										{selectedTechStacks.map((stackId) => {
-											const stack = techStacks.find((s) => s.id === stackId);
-											if (!stack?.templateGithubUrl) return null;
-											return (
-												<div key={stackId} className="flex items-center gap-2 text-xs">
-													<span className="font-medium">{stack.name}:</span>
-													<button
-														type="button"
-														onClick={() => {
-															if (!customGithubUrl) {
-																setCustomGithubUrl(stack.templateGithubUrl || "");
-															}
-														}}
-														className="text-blue-600 hover:text-blue-700 underline truncate"
-													>
-														{stack.templateGithubUrl}
-													</button>
-												</div>
-											);
-										})}
+										{selectedTechStacks
+											.map((stackId) => techStacks.find((s) => s.id === stackId))
+											.filter((stack): stack is TechStack => Boolean(stack?.templateGithubUrl))
+											.map((stack) => {
+												const alreadyAdded = githubTemplates.some((g) => g.url.trim() === (stack.templateGithubUrl || "").trim());
+												return (
+													<div key={stack.id} className="flex items-center gap-2 text-xs">
+														<span className="font-medium">{stack.name}:</span>
+														<span className="text-gray-500 truncate flex-1">{stack.templateGithubUrl}</span>
+														<Button
+															type="button"
+															variant="outline"
+															size="sm"
+															disabled={alreadyAdded}
+															onClick={() => addGithubTemplate(stack.templateGithubUrl || "")}
+															className="h-6 px-2 text-xs"
+														>
+															{alreadyAdded ? "Added" : "Use"}
+														</Button>
+													</div>
+												);
+											})}
 									</div>
 								</div>
 							)}

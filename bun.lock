@@ -25,8 +25,8 @@
 				"bun-types": "^1.2.17"
 			}
 		},
-		"apps/orchestrator-api": {
-			"name": "@agent-manager/orchestrator-api",
+		"apps/api": {
+			"name": "@agent-manager/api",
 			"version": "0.0.1",
 			"dependencies": {
 				"@agent-manager/db": "workspace:*",
@@ -43,11 +43,11 @@
 				"bun-types": "^1.2.17"
 			}
 		},
-		"apps/orchestrator-web": {
-			"name": "@agent-manager/orchestrator-web",
+		"apps/web": {
+			"name": "@agent-manager/web",
 			"version": "0.0.1",
 			"dependencies": {
-				"@agent-manager/orchestrator-api": "workspace:*",
+				"@agent-manager/api": "workspace:*",
 				"@agent-manager/projects": "workspace:*",
 				"@agent-manager/utils": "workspace:*",
 				"@radix-ui/react-dialog": "^1.1.2",
@@ -132,9 +132,9 @@
 	"packages": {
 		"@agent-manager/db": ["@agent-manager/db@workspace:packages/db"],
 
-		"@agent-manager/orchestrator-api": ["@agent-manager/orchestrator-api@workspace:apps/orchestrator-api"],
+		"@agent-manager/api": ["@agent-manager/api@workspace:apps/api"],
 
-		"@agent-manager/orchestrator-web": ["@agent-manager/orchestrator-web@workspace:apps/orchestrator-web"],
+		"@agent-manager/web": ["@agent-manager/web@workspace:apps/web"],
 
 		"@agent-manager/projects": ["@agent-manager/projects@workspace:packages/projects"],
 

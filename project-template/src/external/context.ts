@@ -1,5 +1,5 @@
 /**
- * Fetch resolved project context (tech stacks, guidelines, instructions) from orchestrator-api.
+ * Fetch resolved project context (tech stacks, guidelines, instructions) from api.
  * Called once at startup and cached for the lifetime of the process.
  */
 
@@ -54,7 +54,7 @@ const EMPTY_CONTEXT: ResolvedProjectContext = { techStacks: [], guidelines: [], 
 
 let cached: ResolvedProjectContext | null = null;
 
-/** Fetch resolved project context from orchestrator-api. Caches after first successful call. */
+/** Fetch resolved project context from api. Caches after first successful call. */
 export async function fetchProjectContext(): Promise<ResolvedProjectContext> {
 	if (cached) return cached;
 	if (!PROJECT_ID) return EMPTY_CONTEXT;

@@ -1,7 +1,7 @@
 /**
- * Discord communication via orchestrator-api.
+ * Discord communication via api.
  * Replaces direct discord.js usage — all Discord interactions are routed
- * through the global bot running in the orchestrator-api process.
+ * through the global bot running in the api process.
  */
 
 import { env } from "../env";
@@ -45,7 +45,7 @@ export interface ChecklistResult {
 }
 
 /**
- * Send a report to Discord via orchestrator-api. If awaiting=true, waits for user response.
+ * Send a report to Discord via api. If awaiting=true, waits for user response.
  */
 export async function sendReport(
 	sessionId: string,
@@ -70,7 +70,7 @@ export async function sendReport(
 }
 
 /**
- * Send questions to Discord via orchestrator-api and wait for responses.
+ * Send questions to Discord via api and wait for responses.
  */
 export async function sendQuestions(
 	sessionId: string,

@@ -324,7 +324,7 @@ function AwaitingAnswerBubble() {
 			</div>
 			<div className="bg-amber-500/10 border border-amber-400/40 rounded-lg px-4 py-3 text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2">
 				<span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
-				Waiting for your answer…
+				Await user answers
 			</div>
 		</div>
 	);
@@ -399,6 +399,10 @@ export function MessageFeed({
 	const isPaused = sessionStatus === "paused";
 	const isCompacting = sessionStatus === "compacting";
 	const isAborted = sessionStatus === "aborted";
+	// A pending ask_user_question call means the agent is blocked waiting for the
+	// user's answer (the handler awaits Discord without flipping status to paused),
+	// so prefer the awaiting-answer bubble over the generic "Running N tools" one.
+	const awaitingAnswer = toolCalls.some((tc) => tc.status === "pending" && tc.toolName === "ask_user_question");
 
 	if (messages.length === 0 && !isRunning && !isPaused && !isCompacting && !isAborted) {
 		return (
@@ -438,11 +442,11 @@ export function MessageFeed({
 				<LiveThinkingBubble thinking={streamingThinking} />
 			)}
 			{/* Fallback status bubbles when no streaming content */}
-			{isRunning && !streamingText && !streamingToolcall && !streamingThinking && pendingToolCalls > 0 && (
+			{isRunning && !streamingText && !streamingToolcall && !streamingThinking && !awaitingAnswer && pendingToolCalls > 0 && (
 				<ThinkingBubble label={`Running ${pendingToolCalls} tool${pendingToolCalls > 1 ? "s" : ""}…`} />
 			)}
-			{isRunning && !streamingText && !streamingToolcall && !streamingThinking && pendingToolCalls === 0 && <ThinkingBubble />}
-			{isPaused && <AwaitingAnswerBubble />}
+			{isRunning && !streamingText && !streamingToolcall && !streamingThinking && !awaitingAnswer && pendingToolCalls === 0 && <ThinkingBubble />}
+			{(isPaused || awaitingAnswer) && <AwaitingAnswerBubble />}
 			{isCompacting && <ThinkingBubble label="Compacting context…" />}
 			{isAborted && <AbortedBubble />}
 

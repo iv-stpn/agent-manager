@@ -3,7 +3,7 @@ import { env } from "../env";
 const ORCHESTRATOR_API_URL = env.ORCHESTRATOR_API_URL;
 
 /**
- * Render a Mermaid definition to a PNG. Rendering is delegated to orchestrator-api
+ * Render a Mermaid definition to a PNG. Rendering is delegated to api
  * (the single orchestrator that has Chromium + mermaid-cli installed), so project
  * containers no longer bundle a browser. The `title` argument is accepted for
  * call-site compatibility but is not used by the renderer.

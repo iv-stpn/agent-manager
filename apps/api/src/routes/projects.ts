@@ -26,7 +26,14 @@ function lanceTableName(projectId: string): string {
 
 async function dropLanceTable(projectId: string): Promise<void> {
 	const name = lanceTableName(projectId);
-	await fetch(`${env.LANCEDB_URL}/tables/${name}`, { method: "DELETE" });
+	const res = await fetch(`${env.LANCEDB_URL}/tables/${name}`, { method: "DELETE" });
+	if (!res.ok) {
+		// A 404 here means the lancedb service is stale (missing the DELETE route) or
+		// unreachable — either way the table was NOT dropped, so surface it rather than
+		// silently leaving orphaned `.lance` tables behind on disk.
+		const body = await res.text().catch(() => "");
+		throw new Error(`Failed to drop lance table "${name}": ${res.status} ${body}`);
+	}
 }
 
 async function enrichProject(

@@ -115,11 +115,11 @@ function renderGuidelines(guidelines: ResolvedProjectContext["guidelines"]): str
 	if (!guidelines.length) return null;
 
 	const groups = new Map<string, typeof guidelines>();
-	for (const g of guidelines) {
-		const key = g.category ?? "General";
+	for (const guideline of guidelines) {
+		const key = guideline.category ?? "General";
 		const group = groups.get(key);
-		if (group) group.push(g);
-		else groups.set(key, [g]);
+		if (group) group.push(guideline);
+		else groups.set(key, [guideline]);
 	}
 
 	const blocks: string[] = ["## Guidelines"];
@@ -145,13 +145,15 @@ function buildStackHint(languages: string[], stacks: ResolvedProjectContext["tec
 		if (allLibs.includes("react") || allLibs.includes("next") || allLibs.includes("next.js")) {
 			hints.push("- React: prefer functional components, hooks, and composition over inheritance.");
 		}
-		if (allLibs.includes("bun") || allLibs.includes("elysia") || allLibs.includes("hono")) {
-			hints.push("- Use Bun-native APIs where available (Bun.file, Bun.serve, etc.).");
-		}
-		if (allLibs.some((l) => ["cloudflare", "cloudflare-workers", "workers", "wrangler", "hono"].includes(l))) {
+		// Cloudflare and Bun are mutually exclusive runtimes — Cloudflare takes
+		// priority when present, since Bun-native APIs are unavailable there.
+		const isCloudflare = allLibs.some((l) => ["cloudflare", "cloudflare-workers", "workers", "wrangler", "hono"].includes(l));
+		if (isCloudflare) {
 			hints.push(
 				"- Cloudflare Workers: use the runtime Web APIs (fetch, Request/Response, Headers, ReadableStream, crypto.subtle). Avoid Node.js built-ins and filesystem APIs — use bindings (KV, D1, Durable Objects, Queues), or infrastructure described by the user, for storage and state. Keep handlers stateless across requests; persist state through bindings."
 			);
+		} else if (allLibs.includes("bun") || allLibs.includes("elysia") || allLibs.includes("hono")) {
+			hints.push("- Use Bun-native APIs where available (Bun.file, Bun.serve, etc.).");
 		}
 	}
 
@@ -189,6 +191,5 @@ This is your first session — memory is empty. As you explore and work, \`remem
 
 function renderSettings(cfg: AgentStateConfig): string {
 	return `# Settings
-Report interval: ${cfg.reportIntervalMins}min · Timeout: ${cfg.stopThresholdMins}min · Compact at: ${cfg.compactThresholdTokens} tokens · Stop at: ${cfg.stopThresholdTokens} tokens
 await_report: ${cfg.awaitReportMode}${cfg.awaitReportCustomRule ? ` ("${cfg.awaitReportCustomRule}")` : ""} · await_ask: ${cfg.awaitAskMode} · always_improve: ${cfg.alwaysImproveMode}${cfg.alwaysImproveMode === "custom" ? ` (${cfg.alwaysImproveScope ?? ""})` : ""}`;
 }
