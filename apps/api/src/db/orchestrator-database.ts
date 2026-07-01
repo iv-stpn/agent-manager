@@ -255,7 +255,7 @@ export class OrchestratorDatabase {
 					language: "TypeScript",
 					name: "TypeScript Full-Stack (Web)",
 					description: "Hono on Cloudflare Workers backend, Vite + React + React Router frontend, in a Bun monorepo.",
-					templateGithubUrl: null,
+					templateGithubUrl: "https://github.com/iv-stpn/hono-rpc-template/",
 					stack: [
 						{
 							label: "Tooling",

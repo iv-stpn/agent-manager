@@ -82,14 +82,14 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 	const isActive = !done;
 	const title =
 		action === "restart"
-			? "Restarting Project"
+			? "Restarting Sandbox"
 			: action === "stop"
-				? "Stopping Project"
+				? "Stopping Sandbox"
 				: action === "delete"
-					? "Deleting Project"
+					? "Deleting Sandbox"
 					: action === "build"
-						? "Rebuilding Project"
-						: "Starting Project";
+						? "Rebuilding Sandbox"
+						: "Starting Sandbox";
 
 	return (
 		<Dialog open={open} onOpenChange={canClose ? onOpenChange : undefined}>
