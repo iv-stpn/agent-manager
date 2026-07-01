@@ -2,6 +2,7 @@ import {
 	type CheckinRecord,
 	type CompactionRecord,
 	CreateProjectSchema,
+	isProtectedDirectory,
 	type MessageRecord,
 	ProjectContextSchema,
 	type QuestionRecord,
@@ -17,7 +18,7 @@ import { env } from "../env";
 import { getErrorMessage } from "../lib/errors";
 import type { HonoHostEnv } from "../types";
 
-export type WorkspaceFolderStatus = "not_found" | "empty" | "not_empty" | "not_directory";
+export type WorkspaceFolderStatus = "not_found" | "empty" | "not_empty" | "not_directory" | "protected";
 
 function lanceTableName(projectId: string): string {
 	return `project_${projectId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
@@ -79,6 +80,33 @@ async function fetchAgentJson<T>(c: Context<HonoHostEnv>, projectId: string, ups
 	const resp = await proxyToAgent(c, projectId, upstreamPath);
 	if (resp.status === 502) return null;
 	return resp.json();
+}
+
+/**
+ * Wait until the project is genuinely ready to serve requests: the container must be
+ * running AND the agent HTTP server inside it must be accepting connections. Polling
+ * only container state (docker.getProjectStatus) is not enough — the container reports
+ * "running" a beat before the Bun agent binds its port, so callers that send a request
+ * the moment startup "completes" would hit a connection-refused 502.
+ */
+async function waitForAgentReady(c: Context<HonoHostEnv>, projectId: string, timeoutMs: number): Promise<boolean> {
+	const { docker, manager } = c.var;
+	const project = await manager.getProject(projectId);
+	const healthUrl = `http://localhost:${project.ports.server}/health`;
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		const s = await docker.getProjectStatus(projectId);
+		if (s.running) {
+			try {
+				const res = await fetch(healthUrl, { signal: AbortSignal.timeout(2000) });
+				if (res.ok) return true;
+			} catch {
+				// Container is up but the agent server isn't listening yet — keep polling.
+			}
+		}
+		await Bun.sleep(1000);
+	}
+	return false;
 }
 
 // Sessions from DB when the project is stopped may still carry an active status from
@@ -161,6 +189,12 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			// Expand ~ to the user's home directory
 			const expanded = targetPath.startsWith("~/") || targetPath === "~" ? targetPath.replace("~", homedir()) : targetPath;
 			const resolved = resolve(expanded);
+
+			// Check if it's a protected directory
+			if (isProtectedDirectory(resolved)) {
+				return c.json({ status: "protected" as const, path: resolved, error: "This is a protected system directory" }, 400);
+			}
+
 			try {
 				const s = await stat(resolved);
 				if (!s.isDirectory()) {
@@ -175,6 +209,33 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 				if (error instanceof Error && "code" in error && error.code === "ENOENT") return c.json({ status, path: resolved });
 				throw error;
 			}
+		} catch (error) {
+			return c.json({ error: getErrorMessage(error) }, 500);
+		}
+	})
+	// Clear workspace path (for template initialization)
+	.post("/clear-path", async (c) => {
+		try {
+			const { path: targetPath } = await c.req.json<{ path: string }>();
+			if (!targetPath) return c.json({ error: "path is required" }, 400);
+
+			const { resolve, join } = await import("node:path");
+			const { rm, readdir } = await import("node:fs/promises");
+			const { homedir } = await import("node:os");
+
+			const expanded = targetPath.startsWith("~/") || targetPath === "~" ? targetPath.replace("~", homedir()) : targetPath;
+			const resolved = resolve(expanded);
+
+			// Safety check: prevent deletion of protected directories
+			if (isProtectedDirectory(resolved)) {
+				return c.json({ error: "Cannot clear a protected system directory" }, 403);
+			}
+
+			// Remove all contents but keep the directory
+			const entries = await readdir(resolved);
+			await Promise.all(entries.map((entry) => rm(join(resolved, entry), { recursive: true, force: true })));
+
+			return c.json({ success: true, path: resolved });
 		} catch (error) {
 			return c.json({ error: getErrorMessage(error) }, 500);
 		}
@@ -205,15 +266,17 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			const projectId = c.req.param("projectId");
 			const { manager, docker, projectDatabaseManager } = c.var;
 			const project = await manager.getProject(projectId);
-			const [dockerStatus, stats, logLines] = await Promise.all([
+			// Only the two cheap-ish calls the page is gated on: docker `ps` (running
+			// indicator) and the DB stats. The agent-log line count for the Logs-tab
+			// badge is intentionally NOT fetched here — it spawned a second `docker
+			// compose logs` subprocess that contended with `ps` on the daemon and
+			// doubled the wait the whole page blocks on. The Logs tab recomputes the
+			// count itself when opened, so `logLines` starts null until then.
+			const [dockerStatus, stats] = await Promise.all([
 				docker.getProjectStatus(projectId),
 				projectDatabaseManager.getProjectStats(projectId),
-				docker.getProjectLogs(projectId, "agent").then(
-					(text) => (text.trim() ? text.trim().split("\n").length : 0),
-					() => null
-				),
 			]);
-			return c.json({ project: { ...project, dockerStatus, stats, logLines } });
+			return c.json({ project: { ...project, dockerStatus, stats, logLines: null } });
 		} catch (error) {
 			return c.json({ error: getErrorMessage(error) }, 404);
 		}
@@ -326,15 +389,10 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 					await delta("logs", line);
 				});
 				await send("health", "running", "Waiting for services to become healthy...");
-				let healthy = false;
-				for (let i = 0; i < 30; i++) {
-					const s = await docker.getProjectStatus(projectId);
-					if (s.running) {
-						healthy = true;
-						break;
-					}
-					await Bun.sleep(1000);
-				}
+				// Gate on the agent HTTP server actually accepting connections, not just the
+				// container being "running" — otherwise a message sent the instant startup
+				// completes races the server's port bind and gets dropped as a 502.
+				const healthy = await waitForAgentReady(c, projectId, 30000);
 				tail.kill();
 				if (healthy) {
 					hub.projectStarted(projectId);
@@ -425,15 +483,10 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 					await delta("logs", line);
 				});
 				await send("health", "running", "Waiting for services to become healthy...");
-				let healthy = false;
-				for (let i = 0; i < 30; i++) {
-					const s = await docker.getProjectStatus(projectId);
-					if (s.running) {
-						healthy = true;
-						break;
-					}
-					await Bun.sleep(1000);
-				}
+				// Gate on the agent HTTP server actually accepting connections, not just the
+				// container being "running" — otherwise a message sent the instant startup
+				// completes races the server's port bind and gets dropped as a 502.
+				const healthy = await waitForAgentReady(c, projectId, 30000);
 				tail.kill();
 				if (healthy) {
 					hub.projectRestarted(projectId);
@@ -528,15 +581,10 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 					await delta("logs", line);
 				});
 				await send("health", "running", "Waiting for services to become healthy...");
-				let healthy = false;
-				for (let i = 0; i < 30; i++) {
-					const s = await docker.getProjectStatus(projectId);
-					if (s.running) {
-						healthy = true;
-						break;
-					}
-					await Bun.sleep(1000);
-				}
+				// Gate on the agent HTTP server actually accepting connections, not just the
+				// container being "running" — otherwise a message sent the instant startup
+				// completes races the server's port bind and gets dropped as a 502.
+				const healthy = await waitForAgentReady(c, projectId, 30000);
 				tail.kill();
 				if (healthy) {
 					hub.projectRestarted(projectId);
@@ -623,10 +671,11 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			const techStacks = techStackIds.map((id) => c.var.hostDb.getTechStack(id)).filter((t): t is NonNullable<typeof t> => !!t);
 			const guidelines = guidelineIds.map((id) => c.var.hostDb.getGuideline(id)).filter((g): g is NonNullable<typeof g> => !!g);
 
-			const context = await c.var.manager.setProjectContext(
-				projectId,
-				{ techStackIds: techStacks.map((t) => t.id), guidelineIds: guidelines.map((g) => g.id), instructions }
-			);
+			const context = await c.var.manager.setProjectContext(projectId, {
+				techStackIds: techStacks.map((t) => t.id),
+				guidelineIds: guidelines.map((g) => g.id),
+				instructions,
+			});
 			return c.json({ context });
 		} catch (error) {
 			return c.json({ error: getErrorMessage(error) }, 400);
@@ -717,7 +766,7 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 		const query = sessionId ? `?sessionId=${sessionId}` : "";
 		const upstream = await fetchAgentJson<unknown[]>(c, projectId, `/api/tasks${query}`);
 		if (upstream) return c.json(upstream);
-		return c.json([]);
+		return c.json(await c.var.projectDatabaseManager.getTasks(projectId, sessionId));
 	})
 	.post("/:projectId/sessions/:sessionId/stop", async (c) => {
 		const { projectId, sessionId } = c.req.param();

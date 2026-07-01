@@ -14,7 +14,7 @@ import type {
 import { asc, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "./project-schema";
-import { checkins, compactions, messages, questions, sessions, toolCalls } from "./project-schema";
+import { checkins, compactions, messages, questions, sessions, tasks, toolCalls } from "./project-schema";
 
 export type {
 	CheckinRecord,
@@ -158,5 +158,14 @@ export class ProjectDatabase {
 		return this.safeList(projectId, (db) =>
 			db.select().from(compactions).where(eq(compactions.sessionId, sessionId)).orderBy(asc(compactions.createdAt)).all()
 		);
+	}
+
+	async getTasks(projectId: string, sessionId?: string) {
+		return this.safeList(projectId, (db) => {
+			if (sessionId) {
+				return db.select().from(tasks).where(eq(tasks.sessionId, sessionId)).all();
+			}
+			return db.select().from(tasks).all();
+		});
 	}
 }

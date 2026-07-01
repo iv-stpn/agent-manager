@@ -61,6 +61,7 @@ export const techStacks = sqliteTable("tech_stacks", {
 	name: text("name").notNull(),
 	description: text("description").notNull().default(""),
 	stack: json<StackEntry[]>("stack").notNull(),
+	templateGithubUrl: text("template_github_url"),
 	createdAt: integer("created_at").notNull(),
 	updatedAt: integer("updated_at").notNull(),
 });

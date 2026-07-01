@@ -47,6 +47,16 @@ export type ToolcallStartPayload = { id: string; name: string };
 export type ToolcallDeltaPayload = { inputDelta: string };
 
 // Session stream: per-session events emitted by runner.ts.
+export type TaskPayload = {
+	id: string;
+	sessionId: string;
+	text: string;
+	status: string;
+	metadata: string | null;
+	createdAt: number;
+	updatedAt: number;
+};
+
 export type SessionStreamEvent =
 	| { type: "message"; data: MessageRecord }
 	| { type: "text_delta"; data: { text: string } }
@@ -64,6 +74,8 @@ export type SessionStreamEvent =
 	| { type: "checkin_completed"; data: CheckinRecord }
 	| { type: "compaction"; data: CompactionRecord }
 	| { type: "session_updated"; data: Pick<SessionRecord, "id" | "status"> }
+	| { type: "task_created"; data: TaskPayload }
+	| { type: "task_updated"; data: TaskPayload }
 	| { type: "error"; data: unknown }
 	| { type: "ping"; data: string };
 
@@ -91,6 +103,8 @@ export type ProjectStreamEvent =
 	| { type: "checkin_started"; data: WithSession<CheckinStartedPayload> }
 	| { type: "checkin_completed"; data: WithSession<CheckinRecord> }
 	| { type: "compaction"; data: WithSession<CompactionRecord> }
+	| { type: "task_created"; data: TaskPayload }
+	| { type: "task_updated"; data: TaskPayload }
 	| { type: "error"; data: WithSession<{ message: string }> }
 	| { type: "ping"; data: string };
 
@@ -113,6 +127,8 @@ export const SESSION_STREAM_EVENTS = [
 	"checkin_completed",
 	"compaction",
 	"session_updated",
+	"task_created",
+	"task_updated",
 	"error",
 	"ping",
 ] as const satisfies ReadonlyArray<SessionStreamEvent["type"]>;

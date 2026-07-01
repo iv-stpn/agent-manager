@@ -47,6 +47,12 @@ const MessageSchema = z.object({
 	content: z.string().min(1),
 });
 
+const GraphFormSchema = z.object({
+	sessionId: z.string().min(1),
+	title: z.string().nullable().optional(),
+	file: z.instanceof(File),
+});
+
 let channelStore: ChannelStore | null = null;
 
 export function setDiscordRouteChannelStore(store: ChannelStore) {
@@ -93,7 +99,14 @@ export const discordRouter = new Hono<HonoHostEnv>()
 		const timeout = setTimeout(() => controller.abort(), 10 * 60 * 1000);
 
 		try {
-			const answers = await sendQuestions(channelRecord.id, body.sessionId, body.title, body.questions, body.urgent, controller.signal);
+			const answers = await sendQuestions(
+				channelRecord.id,
+				body.sessionId,
+				body.title,
+				body.questions,
+				body.urgent,
+				controller.signal
+			);
 			return c.json({ answers });
 		} finally {
 			clearTimeout(timeout);
@@ -118,12 +131,17 @@ export const discordRouter = new Hono<HonoHostEnv>()
 
 	.post("/:id/discord/graph", async (c) => {
 		const formData = await c.req.formData();
-		const sessionId = formData.get("sessionId") as string;
-		const title = formData.get("title") as string | null;
-		const fileEntry = formData.get("file");
-		const file = fileEntry instanceof File ? fileEntry : null;
+		const parsed = GraphFormSchema.safeParse({
+			sessionId: formData.get("sessionId"),
+			title: formData.get("title"),
+			file: formData.get("file"),
+		});
+		if (!parsed.success) {
+			const missing = parsed.error.issues.map((i) => i.path.join(".")).filter(Boolean);
+			return c.json({ error: `Missing or invalid: ${missing.join(", ")}` }, 400);
+		}
+		const { sessionId, title, file } = parsed.data;
 
-		if (!sessionId || !file) return c.json({ error: "Missing sessionId or file" }, 400);
 		if (!channelStore) return c.json({ error: "Discord not configured" }, 503);
 
 		const channelRecord = channelStore.getBySession(sessionId);

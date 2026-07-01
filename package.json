@@ -9,8 +9,7 @@
 	"scripts": {
 		"clean": "find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +",
 		"dev": "scripts/dev.sh",
-		"reset:host-db": "bun run scripts/reset-host-db.ts",
-		"reset:seed": "bun run scripts/reset-seed-db.ts",
+		"db:reset:seed": "bun run scripts/reset-seed-db.ts",
 		"gen:db-md": "bun run scripts/gen-db-md.ts",
 		"gen:tools-md": "bun run scripts/gen-tools-md.ts",
 		"gen:docs": "bun run gen:db-md && bun run gen:tools-md",

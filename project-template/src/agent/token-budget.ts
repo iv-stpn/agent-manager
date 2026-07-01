@@ -87,12 +87,21 @@ const MAX_CONSECUTIVE_FAILURES = 3;
 export class CompactionCircuitBreaker {
 	private consecutiveFailures = 0;
 
-	shouldAutoCompact(estimatedTokens: number, isCompactionCall = false): boolean {
+	/**
+	 * Decide whether to auto-compact. `configuredThreshold` is the per-session
+	 * `compactThresholdTokens` the user set (and that's shown in the system
+	 * prompt). It drives the decision, but is clamped to the window-safe ceiling
+	 * (`getAutoCompactThreshold()`) so a too-high configured value can never push
+	 * compaction past the point where the request would overflow the context window.
+	 */
+	shouldAutoCompact(estimatedTokens: number, configuredThreshold?: number, isCompactionCall = false): boolean {
 		// Escape condition: don't compact during a compaction call
 		if (isCompactionCall) return false;
 		// Circuit open
 		if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) return false;
-		return estimatedTokens >= getAutoCompactThreshold();
+		const ceiling = getAutoCompactThreshold();
+		const threshold = configuredThreshold && configuredThreshold > 0 ? Math.min(configuredThreshold, ceiling) : ceiling;
+		return estimatedTokens >= threshold;
 	}
 
 	recordSuccess(): void {

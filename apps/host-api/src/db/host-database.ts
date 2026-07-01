@@ -73,6 +73,7 @@ export class HostDatabase {
 				name TEXT NOT NULL,
 				description TEXT NOT NULL DEFAULT '',
 				stack TEXT NOT NULL DEFAULT '[]',
+				template_github_url TEXT,
 				created_at INTEGER NOT NULL,
 				updated_at INTEGER NOT NULL
 			);
@@ -89,6 +90,7 @@ export class HostDatabase {
 				name TEXT NOT NULL,
 				description TEXT NOT NULL DEFAULT '',
 				category_id TEXT,
+				language TEXT,
 				content TEXT NOT NULL DEFAULT '',
 				created_at INTEGER NOT NULL,
 				updated_at INTEGER NOT NULL,
@@ -168,18 +170,6 @@ export class HostDatabase {
 			.onConflictDoNothing()
 			.run();
 
-		// Migration: add color column to guideline_categories if missing.
-		const cols = this.sqlite.query("PRAGMA table_info(guideline_categories)").all() as { name: string }[];
-		if (!cols.some((c) => c.name === "color")) {
-			this.sqlite.exec("ALTER TABLE guideline_categories ADD COLUMN color TEXT NOT NULL DEFAULT '#6b7280'");
-		}
-
-		// Migration: add language column to guidelines if missing.
-		const guidelineCols = this.sqlite.query("PRAGMA table_info(guidelines)").all() as { name: string }[];
-		if (!guidelineCols.some((c) => c.name === "language")) {
-			this.sqlite.exec("ALTER TABLE guidelines ADD COLUMN language TEXT");
-		}
-
 		this.seedDefaults();
 	}
 
@@ -192,6 +182,8 @@ export class HostDatabase {
 		if (catCount === 0) {
 			const categoryDefaults = [
 				{ name: "Code quality", description: "Code structure, reuse, and maintainability.", color: "#8b5cf6" },
+				{ name: "Behavior", description: "Communication style and interaction patterns.", color: "#3b82f6" },
+				{ name: "UI", description: "User interface design and responsiveness.", color: "#10b981" },
 			];
 			const catIds: Record<string, string> = {};
 			for (const cat of categoryDefaults) {
@@ -225,6 +217,20 @@ export class HostDatabase {
 					content:
 						"Never create one-off components or utilities that could otherwise be reusable. Build things generically from the start. Only create custom components and logic for very rare use cases or one-off compositions of existing utilities and components.",
 				},
+				{
+					name: "Be brief",
+					description: "Keep responses concise and to the point.",
+					category: "Behavior",
+					content:
+						"Keep responses brief and focused. Avoid unnecessary verbosity or over-explanation. Get straight to the point while maintaining clarity.",
+				},
+				{
+					name: "Make UI responsive",
+					description: "Ensure all UI components adapt to different screen sizes.",
+					category: "UI",
+					content:
+						"Build responsive user interfaces that work seamlessly across all device sizes. Use responsive design patterns, flexible layouts, and appropriate breakpoints. Test on mobile, tablet, and desktop viewports.",
+				},
 			];
 			for (const g of guidelineDefaults) {
 				this.db
@@ -249,6 +255,7 @@ export class HostDatabase {
 					language: "TypeScript",
 					name: "TypeScript Full-Stack (Web)",
 					description: "Hono on Cloudflare Workers backend, Vite + React + React Router frontend, in a Bun monorepo.",
+					templateGithubUrl: null,
 					stack: [
 						{
 							label: "Tooling",
@@ -293,6 +300,7 @@ export class HostDatabase {
 					language: "TypeScript",
 					name: "TypeScript Full-Stack (Mobile)",
 					description: "Hono on Cloudflare Workers backend, Expo for mobile and web, in a Bun monorepo.",
+					templateGithubUrl: null,
 					stack: [
 						{
 							label: "Backend",
@@ -320,6 +328,58 @@ export class HostDatabase {
 								"Use Vitest for unit and integration tests",
 								"Use Maestro for end-to-end mobile testing",
 								"Use Bun workspaces for monorepo package management",
+							],
+						},
+					],
+				},
+				{
+					language: "TypeScript",
+					name: "TypeScript Next.js + Hono API",
+					description: "Next.js with TanStack Query frontend, Hono + SQLite backend, in a Bun monorepo.",
+					templateGithubUrl: null,
+					stack: [
+						{
+							label: "Tooling",
+							libraries: [{ name: "biome" }, { name: "vitest" }, { name: "playwright" }],
+							usagePatterns: [
+								"Use Biome for linting and formatting (no eslint/prettier)",
+								"Use Vitest for unit and integration tests",
+								"Use Playwright for end-to-end tests",
+								"Use Bun workspaces for monorepo package management",
+							],
+						},
+						{
+							label: "Workspace",
+							libraries: [{ name: "bun" }],
+							usagePatterns: [
+								"Use a bun monorepo subdivided into /apps and /packages (/packages/utils) for reusable utils between apps",
+								"Put scripts in a /scripts folder at the root, with its own tsconfig.json to ensure typesafety",
+								"Add `typecheck`, `lint` and `lint:fix` commands to package.json and use them to ensure code quality after major implementations",
+							],
+						},
+						{
+							label: "Backend",
+							libraries: [{ name: "hono", version: "4" }, { name: "better-sqlite3" }, { name: "drizzle-orm" }],
+							usagePatterns: [
+								"Use Hono for the API server with bun serve",
+								"Use better-sqlite3 for local SQLite database",
+								"Use Drizzle ORM for type-safe database queries",
+								"Use Hono middleware for CORS, auth, and error handling",
+								"Use zod for request validation with @hono/zod-validator",
+							],
+						},
+						{
+							label: "Frontend",
+							libraries: [
+								{ name: "next", version: "15" },
+								{ name: "react", version: "19" },
+								{ name: "@tanstack/react-query", version: "5" },
+							],
+							usagePatterns: [
+								"Use Next.js App Router for server and client components",
+								"Use TanStack Query for data fetching and caching",
+								"Use standard fetch or axios for API requests (no hono/client)",
+								"Implement proper loading states and error boundaries",
 							],
 						},
 					],

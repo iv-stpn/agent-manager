@@ -495,11 +495,13 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 							question: { type: "string", description: "The complete question to ask the user" },
 							header: {
 								type: "string",
-								description: "Very short label displayed as a chip/tag (max 12 chars). Examples: 'Auth method', 'Library', 'Approach'.",
+								description:
+									"Very short label displayed as a chip/tag (max 12 chars). Examples: 'Auth method', 'Library', 'Approach'.",
 							},
 							options: {
 								type: "array",
-								description: "The available choices for this question (2-4 options). The user can always provide a custom free-form answer instead.",
+								description:
+									"The available choices for this question (2-4 options). The user can always provide a custom free-form answer instead.",
 								items: {
 									type: "object",
 									properties: {
@@ -529,8 +531,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 				},
 				urgent: {
 					type: "boolean",
-					description:
-						"If true, sends with high-priority notifications (use only when fully blocked). Default: false.",
+					description: "If true, sends with high-priority notifications (use only when fully blocked). Default: false.",
 				},
 			},
 			required: ["questions"],

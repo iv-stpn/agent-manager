@@ -4,9 +4,9 @@ import type { StackEntry, TechStack } from "@/lib/agent-api";
 import { createTechStack, deleteTechStack, getTechStacks, updateTechStack } from "@/lib/agent-api";
 import { mutateCache, useQuery } from "@/lib/query-cache";
 
-type Form = { language: string; name: string; description: string; stack: StackEntry[] };
+type Form = { language: string; name: string; description: string; stack: StackEntry[]; templateGithubUrl: string };
 
-const EMPTY_FORM: Form = { language: "", name: "", description: "", stack: [] };
+const EMPTY_FORM: Form = { language: "", name: "", description: "", stack: [], templateGithubUrl: "" };
 const EMPTY_ENTRY: StackEntry = { label: "", libraries: [], usagePatterns: [] };
 
 const inputCls = "w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
@@ -25,7 +25,13 @@ export default function TechStacksPage() {
 	}
 
 	function openEdit(s: TechStack) {
-		setForm({ language: s.language, name: s.name, description: s.description, stack: s.stack });
+		setForm({
+			language: s.language,
+			name: s.name,
+			description: s.description,
+			stack: s.stack,
+			templateGithubUrl: s.templateGithubUrl || "",
+		});
 		setEditing(s);
 		setCreating(false);
 	}
@@ -259,6 +265,24 @@ function StackDialog({ editing, form, setForm, patchEntry, addEntry, removeEntry
 							className={inputCls}
 							placeholder="Short description"
 						/>
+					</div>
+
+					<div className="space-y-1.5">
+						<label className="text-sm font-medium text-gray-700" htmlFor="ts-template">
+							Template GitHub URL
+							<span className="ml-1 text-xs text-gray-500 font-normal">(optional)</span>
+						</label>
+						<input
+							id="ts-template"
+							type="url"
+							value={form.templateGithubUrl}
+							onChange={(e) => setForm((f) => ({ ...f, templateGithubUrl: e.target.value }))}
+							className={inputCls}
+							placeholder="https://github.com/user/repo.git"
+						/>
+						<p className="text-xs text-gray-500">
+							GitHub repository to use as a project template when this tech stack is selected
+						</p>
 					</div>
 
 					<div className="space-y-2">

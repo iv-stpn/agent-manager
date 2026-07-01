@@ -426,17 +426,15 @@ export interface AskUserQuestionInput extends Input {
 	urgent?: boolean;
 }
 export function validateAskUserQuestion(input: Input): asserts input is AskUserQuestionInput {
-	assertValid(
-		optionalString(input, "title"),
-		optionalString(input, "context"),
-		optionalBoolean(input, "urgent")
-	);
+	assertValid(optionalString(input, "title"), optionalString(input, "context"), optionalBoolean(input, "urgent"));
 	// Validate questions array
 	const questions = input.questions;
-	if (!questions || !Array.isArray(questions)) throw new ToolValidationError('Missing required parameter: "questions" (must be an array)');
+	if (!questions || !Array.isArray(questions))
+		throw new ToolValidationError('Missing required parameter: "questions" (must be an array)');
 	if (questions.length < 1) throw new ToolValidationError('"questions" must have at least 1 item');
 	for (let i = 0; i < questions.length; i++) {
-		const q = questions[i] as Input;
+		const q = questions[i];
+
 		if (typeof q !== "object" || q === null) throw new ToolValidationError(`"questions[${i}]" must be an object`);
 		const errors: string[] = [];
 		const qErr = requireString(q, "question", "question text");
@@ -449,7 +447,10 @@ export function validateAskUserQuestion(input: Input): asserts input is AskUserQ
 		else {
 			for (let j = 0; j < q.options.length; j++) {
 				const opt = q.options[j] as Input;
-				if (typeof opt !== "object" || opt === null) { errors.push(`questions[${i}].options[${j}]: must be an object`); continue; }
+				if (typeof opt !== "object" || opt === null) {
+					errors.push(`questions[${i}].options[${j}]: must be an object`);
+					continue;
+				}
 				const lErr = requireString(opt, "label", "option label");
 				if (lErr) errors.push(`questions[${i}].options[${j}]: ${lErr}`);
 				const dErr = requireString(opt, "description", "option description");

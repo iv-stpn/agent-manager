@@ -29,7 +29,9 @@ export type AgentEvent =
 	| { type: "error"; data: { message: string } }
 	| { type: "plan_mode"; data: PlanModePayload }
 	| { type: "token_warning"; data: TokenWarningPayload }
-	| { type: "error_recovered"; data: ErrorRecoveredPayload };
+	| { type: "error_recovered"; data: ErrorRecoveredPayload }
+	| { type: "task_created"; data: Record<string, unknown> }
+	| { type: "task_updated"; data: Record<string, unknown> };
 
 // A global event carries the same payload plus the originating session id, so a
 // project-wide stream can fan in events from every session.

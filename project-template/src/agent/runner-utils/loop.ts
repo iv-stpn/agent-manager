@@ -143,14 +143,22 @@ export async function runLoop(agent: AgentState): Promise<void> {
 				});
 			}
 
+			// Effective threshold = configured value clamped to the window-safe ceiling.
+			const effectiveCompactThreshold =
+				agent.config.compactThresholdTokens > 0
+					? Math.min(agent.config.compactThresholdTokens, warningInfo.autoCompactThreshold)
+					: warningInfo.autoCompactThreshold;
+
 			console.log("[Compaction]", {
 				state: warningInfo.state,
-				threshold: warningInfo.autoCompactThreshold,
+				configuredThreshold: agent.config.compactThresholdTokens,
+				effectiveThreshold: effectiveCompactThreshold,
+				ceiling: warningInfo.autoCompactThreshold,
 				tokens: estTokens,
 				circuitBreakerOpen: agent.circuitBreaker.isOpen,
 			});
 
-			if (agent.circuitBreaker.shouldAutoCompact(estTokens)) {
+			if (agent.circuitBreaker.shouldAutoCompact(estTokens, agent.config.compactThresholdTokens)) {
 				await doCompaction(agent);
 			}
 
@@ -165,7 +173,8 @@ export async function runLoop(agent: AgentState): Promise<void> {
 			// ── Drain steering queue (non-disruptive message injection) ────
 			// Pick up any messages queued via steerAgent() before calling the LLM.
 			while (agent.steeringQueue.length > 0) {
-				const text = agent.steeringQueue.shift()!;
+				const text = agent.steeringQueue.shift();
+				if (text === undefined) break;
 				const steered = insertMessage(agent.db, {
 					sessionId: agent.sessionId,
 					role: "user",
@@ -255,7 +264,8 @@ export async function runLoop(agent: AgentState): Promise<void> {
 					});
 					agent.messages.push({ role: "assistant", content: response.content });
 					while (agent.followUpQueue.length > 0) {
-						const text = agent.followUpQueue.shift()!;
+						const text = agent.followUpQueue.shift();
+						if (text === undefined) break;
 						const followUp = insertMessage(agent.db, {
 							sessionId: agent.sessionId,
 							role: "user",

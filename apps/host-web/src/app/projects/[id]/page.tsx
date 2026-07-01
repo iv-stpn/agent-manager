@@ -1,4 +1,4 @@
-import { createProjectStream, type ProgressStreamAction } from "@agent-manager/utils";
+import type { ProgressStreamAction } from "@agent-manager/utils";
 import {
 	Activity,
 	AlertTriangle,
@@ -29,14 +29,16 @@ import { NewSessionDialog } from "@/components/dialog/new-session-dialog";
 import { SessionCard } from "@/components/session-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { API_URL } from "@/constants";
-import type { Guideline, GuidelineCategory, Report, Session, TechStack } from "@/lib/agent-api";
+import type { Guideline, GuidelineCategory, LlmClient, Report, TechStack } from "@/lib/agent-api";
 import {
 	getGuidelineCategories,
 	getGuidelines,
+	getLlmClients,
 	getLogs,
 	getProject,
 	getProjectContext,
@@ -48,7 +50,8 @@ import {
 	updateSettings,
 	updateTechStack,
 } from "@/lib/agent-api";
-import { getCache, mutateCache, setCache, useQuery } from "@/lib/query-cache";
+import { mutateCache, useQuery } from "@/lib/query-cache";
+import { useProjectStream } from "@/lib/stores";
 import type { Project } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
 
@@ -109,79 +112,11 @@ function ProjectDetailContent() {
 
 	const isRunning = project?.dockerStatus.running ?? false;
 
-	// Subscribe to the project-wide stream while the project is running. It feeds
-	// the sessions list, reports and live stats caches, and its open/error events
-	// drive the running indicator — replacing every interval on this page.
-	useEffect(() => {
-		const projKey = `project:${projectId}`;
-		const sessKey = `sessions:${projectId}`;
-		const repKey = `reports:${projectId}`;
-
-		const setRunning = (running: boolean) =>
-			mutateCache<Project>(projKey, (p) => ({
-				...p,
-				dockerStatus: { ...p.dockerStatus, running },
-			}));
-
-		if (!isRunning || !project?.ports?.server) return;
-
-		const es = createProjectStream((event) => {
-			if (event.type === "sessions") {
-				setCache(sessKey, event.data);
-			} else if (event.type === "session_created") {
-				mutateCache<Session[]>(sessKey, (prev) => (prev.some((x) => x.id === event.data.id) ? prev : [event.data, ...prev]));
-				mutateCache<Project>(projKey, (p) => ({
-					...p,
-					stats: { ...p.stats, sessions: p.stats.sessions + 1 },
-				}));
-			} else if (event.type === "session_updated" || event.type === "token_update") {
-				mutateCache<Session[]>(sessKey, (prev) => prev.map((x) => (x.id === event.data.sessionId ? { ...x, ...event.data } : x)));
-			} else if (event.type === "message") {
-				mutateCache<Project>(projKey, (p) => ({
-					...p,
-					stats: { ...p.stats, messages: p.stats.messages + 1 },
-				}));
-			} else if (event.type === "checkin_started" || event.type === "checkin_completed") {
-				const d = event.data;
-				const session = (getCache<Session[]>(sessKey) ?? []).find((s) => s.id === d.sessionId);
-				const confirmed = event.type === "checkin_completed";
-				const report: Report = {
-					id: d.id,
-					sessionId: d.sessionId,
-					trigger: d.trigger,
-					summary: d.summary ?? "",
-					discordMessageId: d.discordMessageId ?? null,
-					status: confirmed ? "answered" : "pending",
-					createdAt: d.createdAt,
-					completedAt: confirmed ? Date.now() : null,
-					sessionName: session?.name ?? null,
-					sessionTask: session?.task ?? "",
-				};
-				mutateCache<Report[]>(repKey, (prev) => {
-					const next = prev.filter((r) => r.id !== report.id);
-					next.push(report);
-					return next.sort((a, b) => b.createdAt - a.createdAt);
-				});
-			}
-		}, project.ports.server);
-
-		es.onopen = () => {
-			setRunning(true);
-		};
-		es.onerror = () => {
-			// The browser auto-reconnects on a transient drop (readyState goes back
-			// to CONNECTING). Only treat this as "the project stopped" once the
-			// browser itself has given up (CLOSED) — otherwise closing here would
-			// permanently kill the stream on a one-off blip, with no way back short
-			// of a full page reload, and this cache key (`project:${projectId}`) is
-			// shared with the session detail page's own running-gated SSE effect.
-			if (es.readyState === EventSource.CLOSED) {
-				setRunning(false);
-			}
-		};
-
-		return () => es.close();
-	}, [projectId, isRunning, project?.ports?.server]);
+	// One shared project stream while running — it owns every fold into the
+	// sessions/reports/stats caches and drives the running indicator (see
+	// stores.ts). Ref-counted, so this page and the session page share one
+	// connection when both are mounted.
+	useProjectStream(projectId, isRunning, project?.ports?.server);
 
 	const startProject = () => {
 		setProgressAction("start");
@@ -426,6 +361,12 @@ function OverviewTab({ project }: { project: Project }) {
 						<div className="text-gray-500 mb-1">Created</div>
 						<div className="text-gray-900">{created}</div>
 					</div>
+					{project.binaries && project.binaries.length > 0 && (
+						<div>
+							<div className="text-gray-500 mb-1">Binaries</div>
+							<div className="text-gray-900">{project.binaries.join(", ")}</div>
+						</div>
+					)}
 					<div>
 						<div className="text-gray-500 mb-1">Server port</div>
 						<a
@@ -659,16 +600,15 @@ type SettingField = {
 	buildPayload: (value: string) => Parameters<typeof updateSettings>[1];
 };
 
-type SettingsSubTab = "general" | "anthropic" | "context";
+type SettingsSubTab = "general" | "llm" | "context";
 
 function SettingsTab({ projectId }: { projectId: string }) {
 	const [settingsTab, setSettingsTab] = useState<SettingsSubTab>("general");
 	const [projectName, setProjectName] = useState("");
 	const [serverPort, setServerPort] = useState("");
 	const [workspacePath, setWorkspacePath] = useState("");
-	const [anthropicKey, setAnthropicKey] = useState("");
-	const [anthropicBaseUrl, setAnthropicBaseUrl] = useState("");
-	const [model, setModel] = useState("");
+	const [selectedClientId, setSelectedClientId] = useState("");
+	const [llmClients, setLlmClients] = useState<LlmClient[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [editing, setEditing] = useState<SettingField | null>(null);
@@ -676,14 +616,13 @@ function SettingsTab({ projectId }: { projectId: string }) {
 
 	const load = useCallback(async () => {
 		try {
-			const p = await getProject(projectId);
+			const [p, clients] = await Promise.all([getProject(projectId), getLlmClients()]);
 			if (!p) return;
 			setProjectName(p.name ?? "");
 			setServerPort(String(p.ports?.server ?? ""));
 			setWorkspacePath(p.workspace?.path ?? "");
-			setAnthropicKey(p.agent?.anthropicApiKey ?? "");
-			setAnthropicBaseUrl(p.agent?.anthropicBaseUrl ?? "");
-			setModel(p.agent?.model ?? "");
+			setSelectedClientId(p.agent?.clientId ?? "");
+			setLlmClients(clients);
 		} catch (err) {
 			console.error("Failed to load project:", err);
 		} finally {
@@ -742,42 +681,30 @@ function SettingsTab({ projectId }: { projectId: string }) {
 		},
 	];
 
-	const anthropic: SettingField[] = [
-		{
-			key: "anthropic-key",
-			label: "API key",
-			value: anthropicKey,
-			display: anthropicKey ? "••••••••" : "",
-			placeholder: "sk-ant-...",
-			type: "password",
-			description: "Required for the agent to run. Leave empty to use no key (agent will fail to start).",
-			buildPayload: (v) => ({ agent: { anthropicApiKey: v || undefined } }),
-		},
-		{
-			key: "anthropic-base-url",
-			label: "Base URL (optional)",
-			value: anthropicBaseUrl,
-			placeholder: "https://api.anthropic.com",
-			buildPayload: (v) => ({ agent: { anthropicBaseUrl: v || undefined } }),
-		},
-		{
-			key: "model",
-			label: "Model (optional)",
-			value: model,
-			placeholder: "e.g. claude-sonnet-4-6",
-			buildPayload: (v) => ({ agent: { model: v || undefined } }),
-		},
-	];
-
 	if (loading) {
 		return <div className="text-gray-500">Loading settings...</div>;
 	}
 
 	const subTabs: Array<{ key: SettingsSubTab; label: string }> = [
 		{ key: "general", label: "General" },
-		{ key: "anthropic", label: "Anthropic" },
+		{ key: "llm", label: "LLM" },
 		{ key: "context", label: "Context" },
 	];
+
+	const selectedClient = llmClients.find((c) => c.id === selectedClientId);
+
+	async function saveLlmClient(clientId: string) {
+		setSaving(true);
+		try {
+			await updateSettings(projectId, { agent: { clientId: clientId || undefined } });
+			toast.success("Saved. Restart the project for changes to take effect.");
+			setSelectedClientId(clientId);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Failed to save settings.");
+		} finally {
+			setSaving(false);
+		}
+	}
 
 	return (
 		<div className="max-w-3xl space-y-6">
@@ -814,15 +741,71 @@ function SettingsTab({ projectId }: { projectId: string }) {
 				</Card>
 			)}
 
-			{settingsTab === "anthropic" && (
+			{settingsTab === "llm" && (
 				<Card>
 					<CardHeader>
-						<CardTitle>Anthropic</CardTitle>
+						<CardTitle>LLM</CardTitle>
 					</CardHeader>
-					<CardContent className="divide-y">
-						{anthropic.map((f) => (
-							<SettingRow key={f.key} field={f} onEdit={() => openEdit(f)} />
-						))}
+					<CardContent className="space-y-4">
+						<p className="text-sm text-muted-foreground">
+							Select an LLM client configured in your library. The client's API key, base URL, and model will be used by this
+							project.
+						</p>
+						<div className="space-y-2">
+							<label htmlFor="llm-client-select" className="text-sm font-medium">
+								LLM Client
+							</label>
+							{llmClients.length === 0 ? (
+								<div className="text-sm text-muted-foreground">
+									No LLM clients configured yet.{" "}
+									<Link to="/llm-clients" className="text-blue-600 hover:underline">
+										Create one
+									</Link>
+								</div>
+							) : (
+								<div className="flex gap-2">
+									<select
+										id="llm-client-select"
+										value={selectedClientId}
+										onChange={(e) => saveLlmClient(e.target.value)}
+										disabled={saving}
+										className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+									>
+										<option value="">-- Select a client --</option>
+										{llmClients.map((client) => (
+											<option key={client.id} value={client.id}>
+												{client.name} ({client.provider})
+											</option>
+										))}
+									</select>
+									{selectedClientId && (
+										<Link
+											to={`/llm-clients?edit=${selectedClientId}`}
+											className="inline-flex items-center gap-2 px-4 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100 text-sm"
+										>
+											Edit Client
+										</Link>
+									)}
+								</div>
+							)}
+							{selectedClient && (
+								<div className="mt-3 p-3 bg-gray-50 rounded-lg text-xs space-y-1 text-gray-600">
+									<div>
+										<strong>Provider:</strong> {selectedClient.provider}
+									</div>
+									{selectedClient.model && (
+										<div>
+											<strong>Model:</strong> {selectedClient.model}
+										</div>
+									)}
+									{selectedClient.baseUrl && (
+										<div>
+											<strong>Base URL:</strong> {selectedClient.baseUrl}
+										</div>
+									)}
+								</div>
+							)}
+						</div>
 					</CardContent>
 				</Card>
 			)}
@@ -884,6 +867,7 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 	const [techStackIds, setTechStackIds] = useState<string[]>([]);
 	const [guidelineIds, setGuidelineIds] = useState<string[]>([]);
 	const [instructions, setInstructions] = useState("");
+	const [binaries, setBinaries] = useState<string[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [editing, setEditing] = useState<LibraryEdit | null>(null);
@@ -892,11 +876,12 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 
 	const load = useCallback(async () => {
 		try {
-			const [stacks, guides, cats, ctx] = await Promise.all([
+			const [stacks, guides, cats, ctx, proj] = await Promise.all([
 				getTechStacks(),
 				getGuidelines(),
 				getGuidelineCategories(),
 				getProjectContext(projectId),
+				getProject(projectId),
 			]);
 			setTechStacks(stacks);
 			setGuidelines(guides);
@@ -904,6 +889,7 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 			setTechStackIds(ctx.techStackIds);
 			setGuidelineIds(ctx.guidelineIds);
 			setInstructions(ctx.instructions);
+			setBinaries(proj?.binaries ?? []);
 		} catch (err) {
 			console.error("Failed to load project context:", err);
 		} finally {
@@ -966,59 +952,115 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 		);
 	}
 
+	const selectedStacks = techStacks.filter((t) => techStackIds.includes(t.id));
+	const selectedGuidelines = guidelines.filter((g) => guidelineIds.includes(g.id));
+
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>Project context</CardTitle>
-			</CardHeader>
-			<CardContent className="space-y-6">
-				<p className="text-sm text-muted-foreground">
-					Selected tech stacks, guidelines, and instructions are injected into the agent&apos;s system prompt. Editing a library
-					item changes it for every project that uses it.
-				</p>
-
-				<ContextSelectList
-					title="Tech stacks"
-					empty="No tech stacks in the library yet."
-					items={techStacks.map((t) => ({ id: t.id, label: `${t.name} (${t.language})`, sub: t.description }))}
-					selectedIds={techStackIds}
-					onToggle={(id) => toggle(techStackIds, setTechStackIds, id)}
-					onEdit={(id) => {
-						const item = techStacks.find((t) => t.id === id);
-						if (item) openEntityEdit({ kind: "tech-stack", item });
-					}}
-				/>
-
-				<GuidelineSelectList
-					guidelines={guidelines}
-					categories={categories}
-					selectedIds={guidelineIds}
-					onToggle={(id) => toggle(guidelineIds, setGuidelineIds, id)}
-					onEdit={(id) => {
-						const item = guidelines.find((g) => g.id === id);
-						if (item) openEntityEdit({ kind: "guideline", item });
-					}}
-				/>
-
-				<div className="space-y-2">
-					<div className="text-sm font-medium">Project instructions</div>
-					<p className="text-xs text-muted-foreground">
-						Free-form instructions specific to this project. Layered on top of the selected library items.
+		<>
+			<Card>
+				<CardHeader>
+					<CardTitle>Context Summary</CardTitle>
+				</CardHeader>
+				<CardContent className="space-y-4">
+					<div>
+						<div className="text-sm font-medium mb-2">Selected Tech Stacks ({selectedStacks.length})</div>
+						{selectedStacks.length === 0 ? (
+							<p className="text-sm text-muted-foreground italic">None selected</p>
+						) : (
+							<ul className="space-y-1">
+								{selectedStacks.map((stack) => (
+									<li key={stack.id} className="text-sm text-gray-700">
+										• {stack.name} ({stack.language})
+									</li>
+								))}
+							</ul>
+						)}
+					</div>
+					<div>
+						<div className="text-sm font-medium mb-2">Selected Guidelines ({selectedGuidelines.length})</div>
+						{selectedGuidelines.length === 0 ? (
+							<p className="text-sm text-muted-foreground italic">None selected</p>
+						) : (
+							<ul className="space-y-1">
+								{selectedGuidelines.map((guideline) => (
+									<li key={guideline.id} className="text-sm text-gray-700">
+										• {guideline.name}
+									</li>
+								))}
+							</ul>
+						)}
+					</div>
+					<div>
+						<div className="text-sm font-medium mb-2">Project Instructions</div>
+						{instructions ? (
+							<p className="text-sm text-gray-700 whitespace-pre-wrap">{instructions}</p>
+						) : (
+							<p className="text-sm text-muted-foreground italic">None set</p>
+						)}
+					</div>
+					<div>
+						<div className="text-sm font-medium mb-2">Binaries</div>
+						{binaries.length > 0 ? (
+							<p className="text-sm text-gray-700">{binaries.join(", ")}</p>
+						) : (
+							<p className="text-sm text-muted-foreground italic">None configured</p>
+						)}
+					</div>
+				</CardContent>
+			</Card>
+			<Card>
+				<CardHeader>
+					<CardTitle>Edit Context</CardTitle>
+				</CardHeader>
+				<CardContent className="space-y-6">
+					<p className="text-sm text-muted-foreground">
+						Selected tech stacks, guidelines, and instructions are injected into the agent&apos;s system prompt. Editing a library
+						item changes it for every project that uses it.
 					</p>
-					<Textarea
-						value={instructions}
-						onChange={(e) => setInstructions(e.target.value)}
-						placeholder="e.g. Always run the full test suite before committing. Prefer functional components."
-						rows={5}
-					/>
-				</div>
 
-				<div className="flex justify-end">
-					<Button type="button" onClick={save} disabled={saving}>
-						{saving ? "Saving..." : "Save context"}
-					</Button>
-				</div>
-			</CardContent>
+					<ContextSelectList
+						title="Tech stacks"
+						empty="No tech stacks in the library yet."
+						items={techStacks.map((t) => ({ id: t.id, label: `${t.name} (${t.language})`, sub: t.description }))}
+						selectedIds={techStackIds}
+						onToggle={(id) => toggle(techStackIds, setTechStackIds, id)}
+						onEdit={(id) => {
+							const item = techStacks.find((t) => t.id === id);
+							if (item) openEntityEdit({ kind: "tech-stack", item });
+						}}
+					/>
+
+					<GuidelineSelectList
+						guidelines={guidelines}
+						categories={categories}
+						selectedIds={guidelineIds}
+						onToggle={(id) => toggle(guidelineIds, setGuidelineIds, id)}
+						onEdit={(id) => {
+							const item = guidelines.find((g) => g.id === id);
+							if (item) openEntityEdit({ kind: "guideline", item });
+						}}
+					/>
+
+					<div className="space-y-2">
+						<div className="text-sm font-medium">Project instructions</div>
+						<p className="text-xs text-muted-foreground">
+							Free-form instructions specific to this project. Layered on top of the selected library items.
+						</p>
+						<Textarea
+							value={instructions}
+							onChange={(e) => setInstructions(e.target.value)}
+							placeholder="e.g. Always run the full test suite before committing. Prefer functional components."
+							rows={5}
+						/>
+					</div>
+
+					<div className="flex justify-end">
+						<Button type="button" onClick={save} disabled={saving}>
+							{saving ? "Saving..." : "Save context"}
+						</Button>
+					</div>
+				</CardContent>
+			</Card>
 
 			<Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
 				<DialogContent>
@@ -1039,7 +1081,7 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
-		</Card>
+		</>
 	);
 }
 
@@ -1069,20 +1111,13 @@ function ContextSelectList({
 						const selected = selectedIds.includes(item.id);
 						return (
 							<li key={item.id} className="flex items-center justify-between gap-3 px-3 py-2">
-								<button type="button" onClick={() => onToggle(item.id)} className="flex min-w-0 items-center gap-3 text-left">
-									<span
-										className={cn(
-											"flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-											selected ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300"
-										)}
-									>
-										{selected && <CheckCircle2 className="h-3 w-3" />}
-									</span>
-									<span className="min-w-0">
+								<div className="flex min-w-0 items-center gap-3">
+									<Checkbox id={`checkbox-${item.id}`} checked={selected} onCheckedChange={() => onToggle(item.id)} />
+									<label htmlFor={`checkbox-${item.id}`} className="min-w-0 cursor-pointer">
 										<span className="block text-sm">{item.label}</span>
 										{item.sub && <span className="block truncate text-xs text-muted-foreground">{item.sub}</span>}
-									</span>
-								</button>
+									</label>
+								</div>
 								<Button type="button" variant="outline" size="sm" onClick={() => onEdit(item.id)}>
 									Edit
 								</Button>
@@ -1137,20 +1172,13 @@ function GuidelineSelectList({
 		const selected = selectedIds.includes(g.id);
 		return (
 			<li className="flex items-center justify-between gap-3 px-3 py-2">
-				<button type="button" onClick={() => onToggle(g.id)} className="flex min-w-0 items-center gap-3 text-left">
-					<span
-						className={cn(
-							"flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-							selected ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300"
-						)}
-					>
-						{selected && <CheckCircle2 className="h-3 w-3" />}
-					</span>
-					<span className="min-w-0">
+				<div className="flex min-w-0 items-center gap-3">
+					<Checkbox id={`checkbox-${g.id}`} checked={selected} onCheckedChange={() => onToggle(g.id)} />
+					<label htmlFor={`checkbox-${g.id}`} className="min-w-0 cursor-pointer">
 						<span className="block text-sm">{g.name}</span>
 						{g.description && <span className="block truncate text-xs text-muted-foreground">{g.description}</span>}
-					</span>
-				</button>
+					</label>
+				</div>
 				<Button type="button" variant="outline" size="sm" onClick={() => onEdit(g.id)}>
 					Edit
 				</Button>

@@ -86,7 +86,7 @@ export async function updateSettings(
 		description?: string;
 		ports?: { server?: number };
 		workspace?: { path: string; type: "external" | "internal" };
-		agent?: { anthropicApiKey?: string; anthropicBaseUrl?: string; model?: string };
+		agent?: { clientId?: string; anthropicApiKey?: string; anthropicBaseUrl?: string; model?: string };
 	}
 ) {
 	const req = { param: { projectId }, json: data };
@@ -237,7 +237,8 @@ export async function restartSession(projectId: string, id: string): Promise<voi
 
 export async function sendSessionMessage(projectId: string, id: string, message: string): Promise<void> {
 	const req = { param: { projectId, sessionId: id }, json: { message } };
-	await api.api.projects[":projectId"].sessions[":sessionId"].message.$post(req);
+	const res = await api.api.projects[":projectId"].sessions[":sessionId"].message.$post(req);
+	if (!res.ok) throw new Error(`Failed to send message (${res.status})`);
 }
 
 // ── Tech stack endpoints ────────────────────────────────────────────────────
@@ -343,4 +344,21 @@ export async function updateLlmClient(id: string, data: Partial<Omit<LlmClient, 
 export async function deleteLlmClient(id: string): Promise<void> {
 	const res = await api.api["llm-clients"][":id"].$delete({ param: { id } });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+}
+
+// ── Templates endpoints ──────────────────────────────────────────────────────
+
+export interface LocalTemplate {
+	name: string;
+	path: string;
+	description: string;
+	techStackIds: string[];
+	techStackNames: string[];
+	createdAt: string;
+}
+
+export async function getTemplates(): Promise<LocalTemplate[]> {
+	const res = await api.api.templates.$get();
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()).templates;
 }

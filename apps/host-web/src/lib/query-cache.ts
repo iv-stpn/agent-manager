@@ -75,6 +75,40 @@ export function mutateCache<T>(key: string, updater: (prev: T) => T) {
 	commit(entry, { data: updater(entry.snapshot.data), error: undefined, loading: false });
 }
 
+/**
+ * Upsert a cached value: apply `updater` whether or not the key has been
+ * fetched. Unlike `mutateCache` this seeds the entry when nothing is cached yet
+ * (the `updater` receives `undefined`). Used for store-owned state that has no
+ * fetch behind it — live streaming deltas, plan mode, token warnings — so a
+ * single SSE fold drives every mounted view.
+ */
+export function updateCache<T>(key: string, updater: (prev: T | undefined) => T) {
+	const entry = getEntry<T>(key);
+	entry.updatedAt = Date.now();
+	commit(entry, { data: updater(entry.snapshot.data), error: undefined, loading: false });
+}
+
+/**
+ * Subscribe to a cached value without a fetcher. Returns the current data (or
+ * `undefined`) and re-renders when any writer (`setCache`/`mutateCache`/
+ * `updateCache`) commits. For store-owned keys that a stream fills in.
+ */
+export function useCacheValue<T>(key: string | null): T | undefined {
+	const subscribe = useCallback(
+		(cb: () => void) => {
+			if (!key) return () => {};
+			const entry = getEntry<T>(key);
+			entry.listeners.add(cb);
+			return () => {
+				entry.listeners.delete(cb);
+			};
+		},
+		[key]
+	);
+	const getSnapshot = useCallback(() => (key ? getEntry<T>(key).snapshot.data : undefined), [key]);
+	return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
 function load<T>(key: string, fetcher: () => Promise<T>, force: boolean): Promise<void> {
 	const entry = getEntry<T>(key);
 	if (entry.promise && !force) return entry.promise;

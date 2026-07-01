@@ -76,7 +76,6 @@ export function LlmClientDialog({ open, onOpenChange, editing = null, onSaved }:
 						<Label htmlFor="client-name">Name *</Label>
 						<Input
 							id="client-name"
-							// biome-ignore lint/a11y/noAutofocus: intentional focus for modal
 							autoFocus
 							value={form.name}
 							onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}

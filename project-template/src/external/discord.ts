@@ -55,19 +55,18 @@ export async function sendReport(
 	pendingQuestions: Question[],
 	signal?: AbortSignal
 ): Promise<CheckinFormResult | null> {
-	try {
-		const res = await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/report`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ sessionId, report, trigger, freeze, pendingQuestions }),
-			signal: signal ?? null,
-		});
-		if (!res.ok) return null;
-		const data = (await res.json()) as CheckinFormResult;
-		return data;
-	} catch {
-		return null;
+	const res = await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/report`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ sessionId, report, trigger, freeze, pendingQuestions }),
+		signal: signal ?? null,
+	});
+	if (!res.ok) {
+		const errorText = await res.text().catch(() => "Unknown error");
+		throw new Error(`Discord report failed (${res.status}): ${errorText}`);
 	}
+	const data = (await res.json()) as CheckinFormResult;
+	return data;
 }
 
 /**
@@ -80,33 +79,32 @@ export async function sendQuestions(
 	urgent?: boolean,
 	signal?: AbortSignal
 ): Promise<ChecklistResult> {
-	try {
-		const res = await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/questions`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ sessionId, title, questions, urgent: urgent ?? false }),
-			signal: signal ?? null,
-		});
-		if (!res.ok) return { answers: {}, completed: false };
-		const data = (await res.json()) as { answers: Record<string, string> };
-		return { answers: data.answers, completed: Object.keys(data.answers).length > 0 };
-	} catch {
-		return { answers: {}, completed: false };
+	const res = await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/questions`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ sessionId, title, questions, urgent: urgent ?? false }),
+		signal: signal ?? null,
+	});
+	if (!res.ok) {
+		const errorText = await res.text().catch(() => "Unknown error");
+		throw new Error(`Discord questions failed (${res.status}): ${errorText}`);
 	}
+	const data = (await res.json()) as { answers: Record<string, string> };
+	return { answers: data.answers, completed: Object.keys(data.answers).length > 0 };
 }
 
 /**
  * Send a plain message to the session's Discord channel.
  */
 export async function sendMessage(sessionId: string, content: string): Promise<void> {
-	try {
-		await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/message`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ sessionId, content }),
-		});
-	} catch {
-		// Silent failure — Discord is non-critical
+	const res = await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/message`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ sessionId, content }),
+	});
+	if (!res.ok) {
+		const errorText = await res.text().catch(() => "Unknown error");
+		throw new Error(`Discord message failed (${res.status}): ${errorText}`);
 	}
 }
 
@@ -114,17 +112,17 @@ export async function sendMessage(sessionId: string, content: string): Promise<v
  * Send a rendered Mermaid graph (PNG buffer) to the session's Discord channel.
  */
 export async function sendGraph(sessionId: string, png: Buffer, title?: string): Promise<void> {
-	try {
-		const formData = new FormData();
-		formData.append("sessionId", sessionId);
-		if (title) formData.append("title", title);
-		formData.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "graph.png");
+	const formData = new FormData();
+	formData.append("sessionId", sessionId);
+	if (title) formData.append("title", title);
+	formData.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "graph.png");
 
-		await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/graph`, {
-			method: "POST",
-			body: formData,
-		});
-	} catch {
-		// Silent failure — Discord is non-critical
+	const res = await fetch(`${HOST_API_URL}/api/projects/${PROJECT_ID}/discord/graph`, {
+		method: "POST",
+		body: formData,
+	});
+	if (!res.ok) {
+		const errorText = await res.text().catch(() => "Unknown error");
+		throw new Error(`Discord graph upload failed (${res.status}): ${errorText}`);
 	}
 }

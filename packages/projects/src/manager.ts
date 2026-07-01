@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { CreateProjectInput, LooseOptional, ProjectConfig, ProjectContext } from "./types";
@@ -11,6 +11,69 @@ const BASE_SERVER_PORT = 4000;
 /** Expand a leading `~` / `~/` in a path to the user's home directory. */
 function expandHome(path: string): string {
 	return path === "~" || path.startsWith("~/") ? path.replace("~", homedir()) : path;
+}
+
+/**
+ * Check if a path is a protected system directory that should never be deleted.
+ * Returns true if the path should be protected from deletion.
+ */
+export function isProtectedDirectory(path: string): boolean {
+	const home = homedir();
+	const expanded = path === "~" || path.startsWith("~/") ? path.replace("~", home) : path;
+	const resolved = resolve(expanded);
+
+	const protectedPaths = [
+		home,
+		join(home, "Desktop"),
+		join(home, "Downloads"),
+		join(home, "Documents"),
+		join(home, "Pictures"),
+		join(home, "Music"),
+		join(home, "Videos"),
+		join(home, "Library"),
+		join(home, "Applications"),
+		"/",
+		"/System",
+		"/Library",
+		"/Applications",
+		"/usr",
+		"/bin",
+		"/sbin",
+		"/etc",
+		"/var",
+		"/tmp",
+	];
+
+	return protectedPaths.some((protectedPath) => {
+		const resolvedProtected = resolve(protectedPath);
+		return resolved === resolvedProtected;
+	});
+}
+
+/**
+ * Recursively copy a directory from source to destination.
+ */
+async function copyDirectory(src: string, dest: string): Promise<void> {
+	const { cp } = await import("node:fs/promises");
+	await cp(src, dest, { recursive: true });
+}
+
+/**
+ * Clone a GitHub repository to a destination directory.
+ */
+async function cloneGitHubRepo(repoUrl: string, dest: string): Promise<void> {
+	const { exec } = await import("node:child_process");
+	const { promisify } = await import("node:util");
+	const execAsync = promisify(exec);
+
+	// Clone the repo
+	await execAsync(`git clone ${repoUrl} "${dest}"`);
+
+	// Remove .git directory to make it a fresh project
+	const gitDir = join(dest, ".git");
+	if (existsSync(gitDir)) {
+		await rm(gitDir, { recursive: true, force: true });
+	}
 }
 
 /**
@@ -81,7 +144,6 @@ export class ProjectManager {
 		return join(this.getProjectDir(projectId), "context.json");
 	}
 
-
 	// ── Read ─────────────────────────────────────────────────────────────────
 
 	/**
@@ -102,6 +164,8 @@ export class ProjectManager {
 		// Parse structural data from docker-compose comments + content
 		const nameMatch = compose.match(/^# Project: (.+)$/m);
 		const createdMatch = compose.match(/^# Created: (.+)$/m);
+		const binariesMatch = compose.match(/^# Binaries: (.+)$/m);
+		const clientIdMatch = compose.match(/^# LLM Client ID: (.+)$/m);
 		const portMatch = compose.match(/^\s+- "(\d+):\d+"$/m);
 		const volumeMatch = compose.match(/^\s+- ([^:]+):\/workspace$/m);
 		const workspaceType = volumeMatch?.[1]?.includes("/workspace") ? ("internal" as const) : ("external" as const);
@@ -114,6 +178,11 @@ export class ProjectManager {
 		const createdAt = createdMatch?.[1] ?? stat.birthtime.toISOString();
 		const updatedAt = stat.mtime.toISOString();
 
+		// Parse binaries from comment
+		const binaries = binariesMatch?.[1]
+			? (binariesMatch[1].split(",").map((b) => b.trim()) as Array<"python3" | "workerd" | "cargo">)
+			: undefined;
+
 		const config: ProjectConfig = {
 			id: projectId,
 			name: env.PROJECT_NAME || nameMatch?.[1] || projectId,
@@ -123,10 +192,12 @@ export class ProjectManager {
 			ports: { server: serverPort },
 			workspace: { path: workspacePath, type: workspaceType },
 			status: "stopped",
+			binaries,
 		};
 
-		if (env.ANTHROPIC_API_KEY || env.ANTHROPIC_BASE_URL || env.ANTHROPIC_MODEL) {
+		if (env.ANTHROPIC_API_KEY || env.ANTHROPIC_BASE_URL || env.ANTHROPIC_MODEL || clientIdMatch) {
 			config.agent = {
+				...(clientIdMatch && { clientId: clientIdMatch[1] }),
 				...(env.ANTHROPIC_API_KEY && { anthropicApiKey: env.ANTHROPIC_API_KEY }),
 				...(env.ANTHROPIC_BASE_URL && { anthropicBaseUrl: env.ANTHROPIC_BASE_URL }),
 				...(env.ANTHROPIC_MODEL && { model: env.ANTHROPIC_MODEL }),
@@ -184,6 +255,55 @@ export class ProjectManager {
 			? { path: resolve(expandHome(input.workspacePath)), type: "external" as const }
 			: { path: join(projectDir, "workspace"), type: "internal" as const };
 
+		// Safety check: prevent deletion of protected directories
+		if (input.workspacePath && isProtectedDirectory(workspace.path)) {
+			throw new Error(
+				`Cannot use "${input.workspacePath}" as workspace: this is a protected system directory that cannot be modified`
+			);
+		}
+
+		// Handle template initialization if specified
+		if (input.templates && input.templates.length > 0) {
+			// If the workspace path exists and is not empty, clear its contents first
+			// so the template can be cloned into a clean directory.
+			if (existsSync(workspace.path)) {
+				const entries = await readdir(workspace.path);
+				await Promise.all(entries.map((entry) => rm(join(workspace.path, entry), { recursive: true, force: true })));
+			}
+
+			// Initialize from templates
+			await mkdir(workspace.path, { recursive: true });
+
+			// If multiple templates, each goes into a subdirectory
+			// If single template without subdirectory, goes directly into workspace
+			const multipleTemplates = input.templates.length > 1;
+
+			for (const template of input.templates) {
+				const targetPath =
+					multipleTemplates || template.subdirectory
+						? join(workspace.path, template.subdirectory || template.source.replace(/[^a-z0-9-]/gi, "-"))
+						: workspace.path;
+
+				if (template.type === "local") {
+					// Copy from local template
+					const templatePath = join(resolveWorkspaceRoot(), "templates", template.source);
+					if (!existsSync(templatePath)) {
+						throw new Error(`Template "${template.source}" not found`);
+					}
+
+					if (targetPath !== workspace.path) {
+						await mkdir(targetPath, { recursive: true });
+					}
+
+					await copyDirectory(templatePath, targetPath);
+				} else if (template.type === "github") {
+					// Clone from GitHub
+					await mkdir(targetPath, { recursive: true });
+					await cloneGitHubRepo(template.source, targetPath);
+				}
+			}
+		}
+
 		const now = new Date().toISOString();
 		const config: ProjectConfig = {
 			id: projectId,
@@ -195,13 +315,15 @@ export class ProjectManager {
 			workspace,
 			agent: input.agent,
 			status: "stopped",
+			binaries: input.binaries,
 		};
 
 		// Create project directory structure
 		await mkdir(projectDir, { recursive: true });
 		await mkdir(join(projectDir, "data"), { recursive: true });
 
-		if (workspace.type === "internal") {
+		if (workspace.type === "internal" && !input.templates) {
+			// Only create empty workspace if no template was used
 			await mkdir(workspace.path, { recursive: true });
 		}
 
@@ -326,6 +448,7 @@ export class ProjectManager {
 	private async generateDockerCompose(projectId: string, config: ProjectConfig): Promise<void> {
 		const projectName = this.dockerProjectName(projectId);
 		const networkName = `${projectName}_network`;
+		const projectDir = this.getProjectDir(projectId);
 
 		const envLines = [
 			`      DATABASE_PATH: /data/agent.db`,
@@ -346,16 +469,29 @@ export class ProjectManager {
 			envLines.push(`      ANTHROPIC_MODEL: "${config.agent.model}"`);
 		}
 
+		// Generate custom Dockerfile if binaries are specified
+		let buildContext = "../..";
+		let dockerfilePath = "project-template/Dockerfile";
+		if (config.binaries && config.binaries.length > 0) {
+			await this.generateCustomDockerfile(projectDir, config.binaries);
+			buildContext = "../..";
+			dockerfilePath = `.projects/${projectId}/Dockerfile`;
+		}
+
+		const binariesComment = config.binaries && config.binaries.length > 0 ? `# Binaries: ${config.binaries.join(", ")}\n` : "";
+
+		const clientIdComment = config.agent?.clientId ? `# LLM Client ID: ${config.agent.clientId}\n` : "";
+
 		const dockerCompose = `# Project: ${config.name}
 # Created: ${config.createdAt}
-
+${binariesComment}${clientIdComment}
 name: ${projectName}
 
 services:
   agent:
     build:
-      context: ../..
-      dockerfile: project-template/Dockerfile
+      context: ${buildContext}
+      dockerfile: ${dockerfilePath}
     environment:
 ${envLines.join("\n")}
     extra_hosts:
@@ -376,5 +512,70 @@ networks:
 
 		const composePath = join(this.getProjectDir(projectId), "docker-compose.yml");
 		await writeFile(composePath, dockerCompose);
+	}
+
+	private async generateCustomDockerfile(projectDir: string, binaries: Array<"python3" | "workerd" | "cargo">): Promise<void> {
+		// Map binary names to Alpine package names and additional installation commands
+		const binaryInstallCommands: string[] = [];
+		for (const binary of binaries) {
+			switch (binary) {
+				case "python3":
+					binaryInstallCommands.push("apk add --no-cache python3 py3-pip");
+					break;
+				case "workerd":
+					// workerd needs to be downloaded from GitHub releases
+					binaryInstallCommands.push(
+						"wget -O /tmp/workerd.gz https://github.com/cloudflare/workerd/releases/latest/download/workerd-linux-64.gz",
+						"    gunzip /tmp/workerd.gz",
+						"    chmod +x /tmp/workerd",
+						"    mv /tmp/workerd /usr/local/bin/workerd"
+					);
+					break;
+				case "cargo":
+					binaryInstallCommands.push("apk add --no-cache rust cargo");
+					break;
+			}
+		}
+
+		const installBlock =
+			binaryInstallCommands.length > 0
+				? `\n# Install additional binaries\nRUN ${binaryInstallCommands.join(" && \\\n    ")}\n`
+				: "";
+
+		const dockerfile = `FROM popwers/mini-bun:v1.3.14 AS base
+WORKDIR /app
+
+# install git + dependencies
+RUN apk add --no-cache git ca-certificates bash${binaries.includes("workerd") ? " wget" : ""}
+${installBlock}
+# Root workspace manifest for bun to resolve workspace:* deps
+COPY package.json ./package.json
+
+# Workspace packages
+COPY packages/db/package.json ./packages/db/package.json
+COPY packages/db/src ./packages/db/src
+COPY packages/utils/package.json ./packages/utils/package.json
+COPY packages/utils/src ./packages/utils/src
+COPY packages/projects/package.json ./packages/projects/package.json
+COPY packages/projects/src ./packages/projects/src
+
+# Project server
+COPY project-template/package.json ./project-template/package.json
+COPY project-template/src ./project-template/src
+
+# Install dependencies from the workspace root
+RUN bun install
+
+WORKDIR /app/project-template
+
+# Expose port
+EXPOSE 3010
+
+# Run
+CMD ["bun", "run", "src/index.ts"]
+`;
+
+		const dockerfilePath = join(projectDir, "Dockerfile");
+		await writeFile(dockerfilePath, dockerfile);
 	}
 }

@@ -57,13 +57,7 @@ export async function handleAskUserQuestion(agent: AgentState, input: AskUserQue
 	}
 
 	// Send to Discord and wait for answers
-	const result = await sendQuestions(
-		agent.sessionId,
-		title,
-		input.questions,
-		urgent,
-		agent.abortController.signal
-	);
+	const result = await sendQuestions(agent.sessionId, title, input.questions, urgent, agent.abortController.signal);
 
 	if (result.completed) {
 		const answersText = Object.entries(result.answers)

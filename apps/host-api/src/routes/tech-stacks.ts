@@ -20,6 +20,7 @@ const CreateTechStackSchema = z.object({
 	name: z.string().min(1),
 	description: z.string().default(""),
 	stack: z.array(StackEntrySchema).default([]),
+	templateGithubUrl: z.string().url().nullable().optional(),
 });
 
 const UpdateTechStackSchema = CreateTechStackSchema.partial();
@@ -30,7 +31,11 @@ export const techStacksRouter = new Hono<HonoHostEnv>()
 	})
 	.post("/", zValidator("json", CreateTechStackSchema), async (c) => {
 		try {
-			const stack = c.var.hostDb.createTechStack(c.req.valid("json"));
+			const data = c.req.valid("json");
+			const stack = c.var.hostDb.createTechStack({
+				...data,
+				templateGithubUrl: data.templateGithubUrl || null,
+			});
 			return c.json(stack, 201);
 		} catch (error) {
 			return c.json({ error: getErrorMessage(error) }, 400);

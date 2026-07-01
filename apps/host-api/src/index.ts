@@ -26,6 +26,7 @@ import { memoryRouter } from "./routes/memory";
 import { projectsRouter } from "./routes/projects";
 import { renderRouter } from "./routes/render";
 import { techStacksRouter } from "./routes/tech-stacks";
+import { templatesRouter } from "./routes/templates";
 import type { HonoHostEnv } from "./types";
 
 export type {
@@ -87,7 +88,8 @@ const app = new Hono<HonoHostEnv>()
 	.route("/api/guidelines", guidelinesRouter)
 	.route("/api/llm-clients", llmClientsRouter)
 	.route("/api/render", renderRouter)
-	.route("/api/memory", memoryRouter);
+	.route("/api/memory", memoryRouter)
+	.route("/api/templates", templatesRouter);
 
 const chromiumReady = await checkChromium();
 if (chromiumReady) {
@@ -102,6 +104,7 @@ if (chromiumReady) {
 const lanceReady = await fetch(`${env.LANCEDB_URL}/health`, { signal: AbortSignal.timeout(3000) })
 	.then((r) => r.ok)
 	.catch(() => false);
+
 if (lanceReady) {
 	logger.info("Memory enabled — connected to LanceDB container");
 } else {
@@ -115,7 +118,6 @@ logger.info(`Workspace root: ${rootDir}`);
 logger.info(`Projects dir: ${join(rootDir, ".projects")}`);
 
 // ── Discord bot ──────────────────────────────────────────────────────────────
-console.log(env);
 const discordToken = env.DISCORD_TOKEN;
 const discordClientId = env.DISCORD_CLIENT_ID;
 const discordGuildId = env.DISCORD_GUILD_ID;

@@ -21,3 +21,6 @@ if (stopped.length === 0) {
 } else {
 	console.log(`[stop-all] Stopped ${stopped.length} project(s): ${stopped.join(", ")}`);
 }
+
+// Force exit to prevent hanging on open handles
+process.exit(0);

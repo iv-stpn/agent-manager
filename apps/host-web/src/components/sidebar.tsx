@@ -1,11 +1,10 @@
 import { BarChart2, BookOpen, Home, Key, Layers, Plus, Tags } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { NewProjectDialog } from "@/components/dialog/new-project-dialog";
-import type { EnrichedProject } from "@/lib/agent-api";
 import { getProjects } from "@/lib/agent-api";
-import { createHostStream } from "@/lib/host-stream";
-import { mutateCache, setCache, useQuery } from "@/lib/query-cache";
+import { useQuery } from "@/lib/query-cache";
+import { useHostStream } from "@/lib/stores";
 import { cn } from "@/lib/utils";
 
 export function Sidebar() {
@@ -14,24 +13,9 @@ export function Sidebar() {
 
 	const { data: projects = [] } = useQuery("projects", () => getProjects());
 
-	useEffect(() => {
-		const es = createHostStream<EnrichedProject>(
-			(type, { projectId, data }) => {
-				if (type === "project_status") {
-					const running = Boolean((data as { running?: boolean }).running);
-					mutateCache<EnrichedProject[]>("projects", (list) =>
-						list.map((p) => (p.id === projectId ? { ...p, dockerStatus: { ...p.dockerStatus, running } } : p))
-					);
-				} else if (type === "session_created") {
-					mutateCache<EnrichedProject[]>("projects", (list) =>
-						list.map((p) => (p.id === projectId ? { ...p, stats: { ...p.stats, sessions: p.stats.sessions + 1 } } : p))
-					);
-				}
-			},
-			(snapshot) => setCache("projects", snapshot)
-		);
-		return () => es.close();
-	}, []);
+	// Shared host stream — ref-counted, so mounting it here and on the home page
+	// opens exactly one connection and folds each event into "projects" once.
+	useHostStream();
 
 	const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1];
 

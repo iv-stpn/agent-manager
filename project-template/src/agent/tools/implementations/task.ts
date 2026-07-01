@@ -1,6 +1,7 @@
 import { type TaskMetadata, tasks } from "@agent-manager/db/project-schema";
 import { eq, inArray } from "drizzle-orm";
 import type { Db } from "../../../db/client";
+import { sessionEmitter } from "../../../emitter";
 
 type TaskStatus = "pending" | "in_progress" | "done" | "cancelled";
 
@@ -43,9 +44,17 @@ export async function addTask(
 	const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 	const meta: TaskMetadata = {};
 	if (dependsOn && dependsOn.length > 0) meta.dependsOn = dependsOn;
+	const createdAt = Date.now();
 	db.insert(tasks)
-		.values({ id, sessionId, text, status, metadata: serializeMeta(meta) })
+		.values({ id, sessionId, text, status, metadata: serializeMeta(meta), createdAt, updatedAt: createdAt })
 		.run();
+
+	// Emit task_created event
+	sessionEmitter.emit(sessionId, {
+		type: "task_created",
+		data: { id, sessionId, text, status, metadata: serializeMeta(meta), createdAt, updatedAt: createdAt },
+	});
+
 	const depNote = dependsOn && dependsOn.length > 0 ? ` (depends on: ${dependsOn.join(", ")})` : "";
 	return `Added [${id}]: ${text}${depNote}`;
 }
@@ -81,8 +90,33 @@ export async function setCurrentTask(db: Db, sessionId: string, id: string): Pro
 	const [task] = db.select().from(tasks).where(eq(tasks.id, id)).all();
 	if (!task) return `Task not found: ${id}`;
 	const now = Date.now();
-	db.update(tasks).set({ status: "pending", updatedAt: now }).where(eq(tasks.status, "in_progress")).run();
-	db.update(tasks).set({ status: "in_progress", sessionId, updatedAt: now }).where(eq(tasks.id, id)).run();
+
+	// Demote any other in_progress tasks
+	const previousTasks = db
+		.update(tasks)
+		.set({ status: "pending", updatedAt: now })
+		.where(eq(tasks.status, "in_progress"))
+		.returning()
+		.all();
+	for (const prevTask of previousTasks) {
+		if (!prevTask.sessionId) continue;
+		sessionEmitter.emit(prevTask.sessionId, {
+			type: "task_updated",
+			data: { ...prevTask, status: "pending", updatedAt: now },
+		});
+	}
+
+	// Set the new current task
+	const [updatedTask] = db
+		.update(tasks)
+		.set({ status: "in_progress", sessionId, updatedAt: now })
+		.where(eq(tasks.id, id))
+		.returning()
+		.all();
+	sessionEmitter.emit(sessionId, {
+		type: "task_updated",
+		data: updatedTask,
+	});
 
 	const deps = parseMeta(task.metadata).dependsOn ?? [];
 	let warning = "";
@@ -112,6 +146,15 @@ export async function updateTask(
 		meta.dependsOn = dependsOn;
 		updates.metadata = serializeMeta(meta);
 	}
-	db.update(tasks).set(updates).where(eq(tasks.id, id)).run();
+	const [updatedTask] = db.update(tasks).set(updates).where(eq(tasks.id, id)).returning().all();
+
+	// Emit task_updated event
+	if (task.sessionId) {
+		sessionEmitter.emit(task.sessionId, {
+			type: "task_updated",
+			data: updatedTask,
+		});
+	}
+
 	return `Updated [${id}]: ${text ?? task.text} → ${status ?? task.status}`;
 }

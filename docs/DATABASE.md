@@ -68,10 +68,10 @@ The orchestrator's own database (`host.db`): templates, archived projects/sessio
 | `name` | `TEXT` | not null | — |
 | `description` | `TEXT` | not null, default `''` | — |
 | `category_id` | `TEXT` | → `guideline_categories.id` | — |
+| `language` | `TEXT` | — | — |
 | `content` | `TEXT` | not null, default `''` | — |
 | `created_at` | `INTEGER` | not null | — |
 | `updated_at` | `INTEGER` | not null | — |
-| `language` | `TEXT` | — | — |
 
 ### `llm_clients`
 
@@ -110,6 +110,7 @@ The orchestrator's own database (`host.db`): templates, archived projects/sessio
 | `name` | `TEXT` | not null | — |
 | `description` | `TEXT` | not null, default `''` | — |
 | `stack` | `TEXT` | not null, default `'[]'` | — |
+| `template_github_url` | `TEXT` | — | — |
 | `created_at` | `INTEGER` | not null | — |
 | `updated_at` | `INTEGER` | not null | — |
 

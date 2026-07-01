@@ -90,7 +90,12 @@ export function recordApiTokens(
 	cacheReadTokens: number,
 	cacheWriteTokens: number
 ): void {
-	agent.lastApiInputTokens = inputTokens;
+	// Total context occupying the window = uncached input + cache reads + cache writes.
+	// With prompt caching, `inputTokens` alone is only the uncached delta (new user
+	// message + response that didn't hit cache), while the bulk of the context lives
+	// in `cacheReadTokens`. If we only tracked `inputTokens`, compaction would never
+	// fire because the estimate would be 5k when the real context is 630k+.
+	agent.lastApiInputTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
 
 	// Attribute input/cache-write tokens to the user message; cache-read to the assistant
 	if (agent.lastUserMessageId) {

@@ -15,7 +15,7 @@ export function createHostStream<T = unknown>(
 		}
 	});
 
-	const events = ["project_status", "session_created", "message"];
+	const events = ["project_status", "session_created", "message", "task_created", "task_updated"];
 	for (const event of events) {
 		es.addEventListener(event, (e) => {
 			if (!(e instanceof MessageEvent)) return;

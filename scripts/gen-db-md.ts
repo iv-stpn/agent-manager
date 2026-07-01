@@ -45,6 +45,36 @@ interface TableDoc {
 	columns: ColumnDoc[];
 }
 
+/**
+ * Build a ColumnDoc, only setting optional fields when their value is defined.
+ * Needed because `exactOptionalPropertyTypes` forbids assigning `undefined` to
+ * an optional `string` field — the raw schema lookups all return `| undefined`.
+ */
+function makeColumn(c: {
+	name: string;
+	type: string;
+	notNull: boolean;
+	primaryKey: boolean;
+	default: string | undefined;
+	enumValues?: string[] | undefined;
+	references: string | undefined;
+	comment: string | undefined;
+}): ColumnDoc {
+	const doc: ColumnDoc = { name: c.name, type: c.type, notNull: c.notNull, primaryKey: c.primaryKey };
+	if (c.default !== undefined) doc.default = c.default;
+	if (c.enumValues !== undefined) doc.enumValues = c.enumValues;
+	if (c.references !== undefined) doc.references = c.references;
+	if (c.comment !== undefined) doc.comment = c.comment;
+	return doc;
+}
+
+/** Build a TableDoc, only setting `comment` when defined (see makeColumn). */
+function makeTable(name: string, comment: string | undefined, columns: ColumnDoc[]): TableDoc {
+	const t: TableDoc = { name, columns };
+	if (comment !== undefined) t.comment = comment;
+	return t;
+}
+
 // Comments parsed out of a schema source file, keyed by table then column.
 // The special "" column key holds the table-level description.
 type CommentMap = Map<string, Map<string, string>>;
@@ -149,18 +179,20 @@ async function buildProjectTables(): Promise<TableDoc[]> {
 		const pkColumns = new Set(config.primaryKeys.flatMap((pk) => pk.columns.map((c) => c.name)));
 		const tableComments = comments.get(config.name) ?? new Map<string, string>();
 
-		const columns: ColumnDoc[] = config.columns.map((col) => ({
-			name: col.name,
-			type: col.getSQLType(),
-			notNull: col.notNull,
-			primaryKey: col.primary || pkColumns.has(col.name),
-			default: formatDefault(col.default, col.hasDefault),
-			enumValues: (col.enumValues as string[] | undefined)?.length ? (col.enumValues as string[]) : undefined,
-			references: fkByColumn.get(col.name),
-			comment: tableComments.get(col.name),
-		}));
+		const columns: ColumnDoc[] = config.columns.map((col) =>
+			makeColumn({
+				name: col.name,
+				type: col.getSQLType(),
+				notNull: col.notNull,
+				primaryKey: col.primary || pkColumns.has(col.name),
+				default: formatDefault(col.default, col.hasDefault),
+				enumValues: (col.enumValues as string[] | undefined)?.length ? (col.enumValues as string[]) : undefined,
+				references: fkByColumn.get(col.name),
+				comment: tableComments.get(col.name),
+			})
+		);
 
-		tables.push({ name: config.name, comment: tableComments.get(""), columns });
+		tables.push(makeTable(config.name, tableComments.get(""), columns));
 	}
 
 	tables.sort((a, b) => a.name.localeCompare(b.name));
@@ -233,17 +265,19 @@ function buildHostTables(): TableDoc[] {
 			}[];
 			const fkByColumn = new Map(fks.map((fk) => [fk.from, `${fk.table}.${fk.to}`]));
 
-			const columns: ColumnDoc[] = info.map((c) => ({
-				name: c.name,
-				type: c.type || "TEXT",
-				notNull: c.notnull === 1,
-				primaryKey: c.pk > 0,
-				default: c.dflt_value ?? undefined,
-				references: fkByColumn.get(c.name),
-				comment: tableComments.get(c.name),
-			}));
+			const columns: ColumnDoc[] = info.map((c) =>
+				makeColumn({
+					name: c.name,
+					type: c.type || "TEXT",
+					notNull: c.notnull === 1,
+					primaryKey: c.pk > 0,
+					default: c.dflt_value ?? undefined,
+					references: fkByColumn.get(c.name),
+					comment: tableComments.get(c.name),
+				})
+			);
 
-			return { name, comment: tableComments.get(""), columns };
+			return makeTable(name, tableComments.get(""), columns);
 		});
 
 		dbInstance.close();

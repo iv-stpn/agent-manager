@@ -36,6 +36,7 @@ export const ProjectConfigSchema = z.object({
 	}),
 	agent: AgentConfigSchema.optional(),
 	status: z.enum(["active", "stopped", "error"]).default("stopped"),
+	binaries: z.array(z.enum(["python3", "workerd", "cargo"])).optional(),
 });
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
@@ -87,6 +88,16 @@ export const CreateProjectSchema = z.object({
 		})
 		.optional(),
 	agent: AgentConfigSchema.optional(),
+	templates: z
+		.array(
+			z.object({
+				type: z.enum(["local", "github"]),
+				source: z.string(), // For local: template name, for github: repo URL
+				subdirectory: z.string().optional(), // For multiple templates: subdirectory name under workspace
+			})
+		)
+		.optional(),
+	binaries: z.array(z.enum(["python3", "workerd", "cargo"])).optional(),
 });
 
 export type CreateProjectInput = z.infer<typeof CreateProjectSchema>;

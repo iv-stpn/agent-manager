@@ -1,4 +1,3 @@
-import { createSessionStream } from "@agent-manager/utils";
 import { ArrowDownToLine, ArrowLeft, Pause, RefreshCw, RotateCcw, Send, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -15,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { Checkin, Compaction, Message, Question, Session, Task, ToolCall } from "@/lib/agent-api";
+import type { Session, Task } from "@/lib/agent-api";
 import {
 	getCheckins,
 	getCompactions,
@@ -32,6 +31,7 @@ import {
 } from "@/lib/agent-api";
 import { containerClassName } from "@/lib/classes";
 import { mutateCache, useQuery } from "@/lib/query-cache";
+import { cacheKeys, useSessionStream, useSessionStreamingState } from "@/lib/stores";
 import type { Project } from "@/lib/types";
 import { cn, formatTokens, statusBg } from "@/lib/utils";
 
@@ -45,22 +45,26 @@ export default function SessionPage() {
 	const [restarting, setRestarting] = useState(false);
 	const [chatInput, setChatInput] = useState("");
 	const [sending, setSending] = useState(false);
-	const [streamingText, setStreamingText] = useState("");
-	const [streamingThinking, setStreamingThinking] = useState("");
-	const [streamingToolcall, setStreamingToolcall] = useState<{ name: string; inputDelta: string } | null>(null);
-	const [planMode, setPlanMode] = useState(false);
-	const [tokenWarning, setTokenWarning] = useState<{
-		state: string;
-		estimatedTokens: number;
-		threshold: number;
-		contextWindow: number;
-	} | null>(null);
 	const chatRef = useRef<HTMLTextAreaElement>(null);
 	const [viewport, setViewport] = useState<HTMLElement | null>(null);
 	const [isAtBottom, setIsAtBottom] = useState(true);
 	const scrollAreaRef = useCallback((node: HTMLDivElement | null) => {
 		setViewport(node?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]") ?? null);
 	}, []);
+
+	// Auto-resize textarea as user types, up to 5 lines
+	// biome-ignore lint/correctness/useExhaustiveDependencies: update height every time text changes
+	useEffect(() => {
+		const textarea = chatRef.current;
+		if (!textarea) return;
+
+		// Reset height to auto to get the correct scrollHeight
+		textarea.style.height = "auto";
+
+		// Calculate new height (capped at 120px for ~5 lines)
+		const newHeight = Math.min(textarea.scrollHeight, 120);
+		textarea.style.height = `${newHeight}px`;
+	}, [chatInput]);
 
 	useEffect(() => {
 		if (!viewport) return;
@@ -82,16 +86,17 @@ export default function SessionPage() {
 	const [progressOpen, setProgressOpen] = useState(false);
 	const pendingMessageRef = useRef<string | null>(null);
 
-	// Cache keys — shared across mounts so navigating away and back reuses what
-	// we already fetched instead of re-querying.
-	const sKey = `session:${projectId}:${sessionId}`;
-	const mKey = `messages:${projectId}:${sessionId}`;
-	const tKey = `tools:${projectId}:${sessionId}`;
-	const cKey = `checkins:${projectId}:${sessionId}`;
-	const qKey = `questions:${projectId}:${sessionId}`;
-	const xKey = `compactions:${projectId}:${sessionId}`;
-	const tkKey = `tasks:${projectId}`;
-	const rKey = `project:${projectId}`;
+	// Cache keys — built through the shared `cacheKeys` map so the store folds and
+	// these reads can never disagree on a key. Shared across mounts, so navigating
+	// away and back reuses what we already fetched instead of re-querying.
+	const sKey = projectId && sessionId ? cacheKeys.session(projectId, sessionId) : null;
+	const mKey = projectId && sessionId ? cacheKeys.messages(projectId, sessionId) : null;
+	const tKey = projectId && sessionId ? cacheKeys.tools(projectId, sessionId) : null;
+	const cKey = projectId && sessionId ? cacheKeys.checkins(projectId, sessionId) : null;
+	const qKey = projectId && sessionId ? cacheKeys.questions(projectId, sessionId) : null;
+	const xKey = projectId && sessionId ? cacheKeys.compactions(projectId, sessionId) : null;
+	const tkKey = projectId ? cacheKeys.tasks(projectId) : null;
+	const rKey = projectId ? cacheKeys.project(projectId) : null;
 
 	function wrapQueryList<T>(
 		fn: (projectId: string, sessionId: string) => Promise<T[]>,
@@ -147,125 +152,19 @@ export default function SessionPage() {
 	const running = project?.dockerStatus?.running ?? false;
 	const serverPort = project?.ports?.server;
 
-	useEffect(() => {
-		// Only open the SSE stream against a running agent server; against a
-		// stopped project the stream endpoint returns 502 and EventSource would
-		// retry forever.
-		if (!running || !serverPort || !sessionId) return;
-		const es = createSessionStream(
-			sessionId,
-			(event) => {
-				if (event.type === "turn_start") {
-					// New LLM turn beginning — clear all live streaming state
-					setStreamingThinking("");
-					setStreamingToolcall(null);
-				} else if (event.type === "text_delta") {
-					setStreamingText((prev) => prev + event.data.text);
-				} else if (event.type === "thinking_delta") {
-					setStreamingThinking((prev) => prev + event.data.thinking);
-				} else if (event.type === "toolcall_start") {
-					setStreamingToolcall({ name: event.data.name, inputDelta: "" });
-				} else if (event.type === "toolcall_delta") {
-					setStreamingToolcall((prev) => (prev ? { ...prev, inputDelta: prev.inputDelta + event.data.inputDelta } : prev));
-				} else if (event.type === "session_updated") {
-					mutateCache<Session>(sKey, (s) => (s ? { ...s, ...event.data } : s));
-				} else if (event.type === "message") {
-					if ((event.data as { role?: string }).role === "assistant") {
-						setStreamingText("");
-						setStreamingThinking("");
-						setStreamingToolcall(null);
-					}
-					mutateCache<Message[]>(mKey, (prev = []) => (prev.some((m) => m.id === event.data.id) ? prev : [...prev, event.data]));
-				} else if (event.type === "tool_call") {
-					mutateCache<ToolCall[]>(tKey, (prev = []) => {
-						const idx = prev.findIndex((t) => t.id === event.data.id);
-						if (idx < 0) return [...prev, event.data];
-						const next = [...prev];
-						next[idx] = { ...next[idx], ...event.data };
-						return next;
-					});
-				} else if (event.type === "token_update") {
-					// The event already carries the running totals — merge them in
-					// directly instead of re-fetching the whole session.
-					mutateCache<Session>(sKey, (s) =>
-						s
-							? {
-									...s,
-									totalInputTokens: event.data.totalInputTokens,
-									totalOutputTokens: event.data.totalOutputTokens,
-									totalCacheReadTokens: event.data.totalCacheReadTokens,
-									totalCacheWriteTokens: event.data.totalCacheWriteTokens,
-								}
-							: s
-					);
-				} else if (event.type === "checkin_started" || event.type === "checkin_completed") {
-					// The check-in payload carries the record (and, on start, its
-					// pending questions; on completion, the answers). Fold it into the
-					// cache rather than re-fetching every check-in and question.
-					const payload = event.data;
-					mutateCache<Checkin[]>(cKey, (prev = []) => {
-						const idx = prev.findIndex((c) => c.id === payload.id);
-						if (idx < 0) return [...prev, payload];
-						const next = [...prev];
-						next[idx] = { ...next[idx], ...payload };
-						return next;
-					});
-					if ("questions" in payload && payload.questions?.length) {
-						mutateCache<Question[]>(qKey, (prev = []) => {
-							const byId = new Map(prev.map((q) => [q.id, q]));
-							for (const q of payload.questions) byId.set(q.id, { ...byId.get(q.id), ...q });
-							return [...byId.values()];
-						});
-					}
-				} else if (event.type === "compaction") {
-					// A context compaction fired (token threshold reached). Append it to
-					// the Compactions timeline — separate from check-ins.
-					mutateCache<Compaction[]>(xKey, (prev = []) =>
-						prev.some((c) => c.id === event.data.id) ? prev : [...prev, event.data]
-					);
-				} else if (event.type === "plan_mode") {
-					setPlanMode(event.data.active);
-					if (event.data.active) {
-						toast.info("Agent entered plan mode (read-only)");
-					} else {
-						toast.success("Agent exited plan mode");
-					}
-				} else if (event.type === "token_warning") {
-					setTokenWarning(event.data);
-					if (event.data.state === "warning") {
-						toast.warning(
-							`Context reaching capacity (${Math.round((event.data.estimatedTokens / event.data.contextWindow) * 100)}%)`
-						);
-					} else if (event.data.state === "error") {
-						toast.error("Context near limit — auto-compacting");
-					} else if (event.data.state === "blocking") {
-						toast.error("Context at maximum capacity");
-					}
-				} else if (event.type === "error_recovered") {
-					toast.info(
-						`API retry #${event.data.attempt}: ${event.data.error} (retrying in ${Math.round(event.data.nextRetryMs / 1000)}s)`
-					);
-				}
-			},
-			serverPort
-		);
-
-		es.onopen = () => {
-			refreshAll();
-		};
-		es.onerror = () => {
-			// The browser auto-reconnects on a transient drop (readyState goes back
-			// to CONNECTING). Only treat this as "the project stopped" once the
-			// browser itself has given up (CLOSED) — otherwise closing here would
-			// permanently kill the stream on a one-off blip, with no way back short
-			// of a full page reload.
-			if (es.readyState === EventSource.CLOSED) {
-				mutateCache<Project>(rKey, (p) => (p ? { ...p, dockerStatus: { ...p.dockerStatus, running: false } } : p));
-			}
-		};
-
-		return () => es.close();
-	}, [serverPort, sessionId, running, sKey, mKey, tKey, cKey, qKey, xKey, rKey, refreshAll]);
+	// One shared session stream while running — it owns every fold into the
+	// per-session caches (messages, tools, check-ins, questions, compactions,
+	// tasks, the session record) plus the ephemeral live-streaming state, and
+	// drives session-scoped toasts. See stores.ts. Ref-counted, so this page and
+	// the project page share connections where their keys overlap.
+	useSessionStream(projectId, sessionId, running, serverPort);
+	const {
+		text: streamingText,
+		thinking: streamingThinking,
+		toolcall: streamingToolcall,
+		planMode,
+		tokenWarning,
+	} = useSessionStreamingState(sessionId);
 
 	async function handleStop() {
 		if (!projectId || !sessionId) {
@@ -276,7 +175,7 @@ export default function SessionPage() {
 		await stopSession(projectId, sessionId);
 		// Don't wait on the SSE round-trip for the badge/buttons to reflect this —
 		// update locally now; the eventual session_updated event is a no-op merge.
-		mutateCache<Session>(sKey, (s) => (s ? { ...s, status: "aborted" } : s));
+		mutateCache<Session>(cacheKeys.session(projectId, sessionId), (s) => (s ? { ...s, status: "aborted" } : s));
 		setStopping(false);
 	}
 
@@ -300,7 +199,7 @@ export default function SessionPage() {
 		}
 		setRestarting(true);
 		await restartSession(projectId, sessionId);
-		mutateCache<Session>(sKey, (s) => (s ? { ...s, status: "running" } : s));
+		mutateCache<Session>(cacheKeys.session(projectId, sessionId), (s) => (s ? { ...s, status: "running" } : s));
 		setRestarting(false);
 	}
 
@@ -325,6 +224,9 @@ export default function SessionPage() {
 		setSending(true);
 		try {
 			await sendSessionMessage(projectId, sessionId, text);
+		} catch (e) {
+			setChatInput(text);
+			toast.error(e instanceof Error ? e.message : "Failed to send message.");
 		} finally {
 			setSending(false);
 			chatRef.current?.focus();
@@ -336,10 +238,19 @@ export default function SessionPage() {
 		refetchProject();
 		const text = pendingMessageRef.current;
 		pendingMessageRef.current = null;
-		if (!success || !text || !projectId || !sessionId) return;
+		if (!success || !text || !projectId || !sessionId) {
+			if (!success && text) {
+				setChatInput(text);
+				toast.error("Project failed to start — message not sent.");
+			}
+			return;
+		}
 		setSending(true);
 		try {
 			await sendSessionMessage(projectId, sessionId, text);
+		} catch (e) {
+			setChatInput(text);
+			toast.error(e instanceof Error ? e.message : "Failed to send message after startup.");
 		} finally {
 			setSending(false);
 			chatRef.current?.focus();
@@ -472,19 +383,19 @@ export default function SessionPage() {
 						)}
 						<textarea
 							ref={chatRef}
-							className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring min-h-[38px] max-h-[120px]"
+							className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring min-h-[38px] max-h-[120px] overflow-y-auto"
 							rows={1}
 							placeholder={
 								!running
-									? "Project is stopped — sending a message will start it… (⌘↵ to send)"
+									? "Project is stopped — sending a message will start it… (Enter to send, Shift+Enter for newline)"
 									: session.status === "running" || session.status === "paused" || session.status === "compacting"
-										? "Interrupt agent… (⌘↵ to send)"
-										: "Resume session with a message… (⌘↵ to send)"
+										? "Interrupt agent… (Enter to send, Shift+Enter for newline)"
+										: "Resume session with a message… (Enter to send, Shift+Enter for newline)"
 							}
 							value={chatInput}
 							onChange={(e) => setChatInput(e.target.value)}
 							onKeyDown={(e) => {
-								if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+								if (e.key === "Enter" && !e.shiftKey) {
 									e.preventDefault();
 									handleSendMessage();
 								}

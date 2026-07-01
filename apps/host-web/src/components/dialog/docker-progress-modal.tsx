@@ -19,7 +19,6 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 	const [done, setDone] = useState(false);
 	const [success, setSuccess] = useState(false);
 	const [stopping, setStopping] = useState(false);
-	const logRef = useRef<HTMLPreElement>(null);
 	const onCompleteRef = useRef(onComplete);
 	onCompleteRef.current = onComplete;
 	const cancelRef = useRef<(() => void) | null>(null);
@@ -70,12 +69,6 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 		};
 	}, [open, projectId, action]);
 
-	useEffect(() => {
-		if (logRef.current) {
-			logRef.current.scrollTop = logRef.current.scrollHeight;
-		}
-	}, []);
-
 	function handleStop() {
 		setStopping(true);
 		cancelRef.current?.();
@@ -123,14 +116,8 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 								<div className={cn("text-sm font-medium", step.status === "error" ? "text-red-700" : "text-gray-900")}>
 									{step.label}
 								</div>
-								{step.log && (
-									<pre
-										ref={logRef}
-										className={cn(
-											"text-xs mt-1 whitespace-pre-wrap break-all max-h-32 overflow-y-auto rounded p-2",
-											step.status === "error" ? "bg-red-50 text-red-700" : "bg-gray-50 text-gray-600"
-										)}
-									>
+								{step.status === "error" && step.log && (
+									<pre className="text-xs mt-1 whitespace-pre-wrap break-all max-h-96 overflow-y-auto rounded p-2 bg-red-50 text-red-700">
 										{step.log}
 									</pre>
 								)}

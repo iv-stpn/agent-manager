@@ -255,10 +255,7 @@ export async function sendCheckinForm(
 			);
 			if (step > 0) {
 				actionButtons.push(
-					new ButtonBuilder()
-						.setCustomId(`checkin_back_${sessionId}_${step}`)
-						.setLabel("⬅️ Back")
-						.setStyle(ButtonStyle.Secondary)
+					new ButtonBuilder().setCustomId(`checkin_back_${sessionId}_${step}`).setLabel("⬅️ Back").setStyle(ButtonStyle.Secondary)
 				);
 			}
 			actionButtons.push(
@@ -299,10 +296,7 @@ export async function sendCheckinForm(
 			// Confirm + Skip row
 			rows.push(
 				new ActionRowBuilder<ButtonBuilder>().addComponents(
-					new ButtonBuilder()
-						.setCustomId(`checkin_confirm_${sessionId}`)
-						.setLabel("✅ Confirm")
-						.setStyle(ButtonStyle.Success),
+					new ButtonBuilder().setCustomId(`checkin_confirm_${sessionId}`).setLabel("✅ Confirm").setStyle(ButtonStyle.Success),
 					new ButtonBuilder().setCustomId(`checkin_skip_${sessionId}`).setLabel("Skip").setStyle(ButtonStyle.Danger)
 				)
 			);
@@ -439,7 +433,12 @@ export async function sendQuestions(
 	channelId: string,
 	sessionId: string,
 	title: string,
-	questions: Array<{ question: string; header: string; options: Array<{ label: string; description: string }>; multiSelect?: boolean | undefined }>,
+	questions: Array<{
+		question: string;
+		header: string;
+		options: Array<{ label: string; description: string }>;
+		multiSelect?: boolean | undefined;
+	}>,
 	urgent?: boolean,
 	signal?: AbortSignal
 ): Promise<Record<string, string>> {
@@ -453,9 +452,7 @@ export async function sendQuestions(
 	const embed = new EmbedBuilder()
 		.setColor(embedColor)
 		.setTitle(`${urgent ? "🚨 " : ""}${title}`)
-		.setDescription(
-			questions.map((q, i) => `**${i + 1}.** \`${q.header}\` — ${q.question}`).join("\n\n")
-		);
+		.setDescription(questions.map((q, i) => `**${i + 1}.** \`${q.header}\` — ${q.question}`).join("\n\n"));
 
 	const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
 		new ButtonBuilder()
@@ -521,10 +518,7 @@ export async function sendQuestions(
 			const navButtons: ButtonBuilder[] = [];
 			if (isMulti) {
 				navButtons.push(
-					new ButtonBuilder()
-						.setCustomId(`q_multidone_${sessionId}_${step}`)
-						.setLabel("✅ Done")
-						.setStyle(ButtonStyle.Success)
+					new ButtonBuilder().setCustomId(`q_multidone_${sessionId}_${step}`).setLabel("✅ Done").setStyle(ButtonStyle.Success)
 				);
 			}
 			navButtons.push(
@@ -535,15 +529,10 @@ export async function sendQuestions(
 			);
 			if (step > 0) {
 				navButtons.push(
-					new ButtonBuilder()
-						.setCustomId(`q_back_${sessionId}_${step}`)
-						.setLabel("⬅️ Back")
-						.setStyle(ButtonStyle.Secondary)
+					new ButtonBuilder().setCustomId(`q_back_${sessionId}_${step}`).setLabel("⬅️ Back").setStyle(ButtonStyle.Secondary)
 				);
 			}
-			navButtons.push(
-				new ButtonBuilder().setCustomId(`q_skip_${sessionId}`).setLabel("Skip All").setStyle(ButtonStyle.Danger)
-			);
+			navButtons.push(new ButtonBuilder().setCustomId(`q_skip_${sessionId}`).setLabel("Skip All").setStyle(ButtonStyle.Danger));
 			rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons));
 
 			await msg.edit({ embeds: [qEmbed], components: rows });
@@ -575,10 +564,7 @@ export async function sendQuestions(
 			}
 			rows.push(
 				new ActionRowBuilder<ButtonBuilder>().addComponents(
-					new ButtonBuilder()
-						.setCustomId(`q_confirm_${sessionId}`)
-						.setLabel("✅ Confirm")
-						.setStyle(ButtonStyle.Success),
+					new ButtonBuilder().setCustomId(`q_confirm_${sessionId}`).setLabel("✅ Confirm").setStyle(ButtonStyle.Success),
 					new ButtonBuilder().setCustomId(`q_skip_${sessionId}`).setLabel("Skip All").setStyle(ButtonStyle.Danger)
 				)
 			);

@@ -1,15 +1,14 @@
 import { Activity, Database, ExternalLink, FolderOpen, Play, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { StartupProgressModal } from "@/components/dialog/docker-progress-modal";
 import { NewProjectDialog } from "@/components/dialog/new-project-dialog";
 import { API_URL } from "@/constants";
 import { containerClassName } from "@/lib/classes";
-import { createHostStream } from "@/lib/host-stream";
+import { useHostStream } from "@/lib/stores";
 import { cn } from "@/lib/utils";
 import { getProjects } from "../lib/agent-api";
-import { mutateCache, setCache, useQuery } from "../lib/query-cache";
-import type { EnrichedProject as Project } from "../lib/types";
+import { useQuery } from "../lib/query-cache";
 
 export default function Home() {
 	const [creating, setCreating] = useState(false);
@@ -33,31 +32,10 @@ export default function Home() {
 		}
 	});
 
-	useEffect(() => {
-		const patch = (projectId: string, fn: (p: Project) => Project) =>
-			mutateCache<Project[]>("projects", (list) => list.map((p) => (p.id === projectId ? fn(p) : p)));
-
-		const es = createHostStream<Project>(
-			(type, { projectId, data }) => {
-				if (type === "project_status") {
-					const running = Boolean((data as { running?: boolean }).running);
-					patch(projectId, (p) => ({ ...p, dockerStatus: { ...p.dockerStatus, running } }));
-				} else if (type === "session_created") {
-					patch(projectId, (p) => ({
-						...p,
-						stats: { ...p.stats, sessions: p.stats.sessions + 1 },
-					}));
-				} else if (type === "message") {
-					patch(projectId, (p) => ({
-						...p,
-						stats: { ...p.stats, messages: p.stats.messages + 1 },
-					}));
-				}
-			},
-			(snapshot) => setCache("projects", snapshot)
-		);
-		return () => es.close();
-	}, []);
+	// Live project list — one shared host stream owns every fold into the
+	// "projects" cache (see stores.ts). Home, sidebar, and statistics all read
+	// the same key, so counts and running state stay identical across screens.
+	useHostStream();
 
 	const openProgress = (projectId: string, action: "start" | "stop" | "delete") => {
 		setProgressProjectId(projectId);

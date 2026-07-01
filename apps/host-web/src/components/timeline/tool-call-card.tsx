@@ -39,16 +39,16 @@ export function ToolCallCard({ tc }: { tc: ToolCall }) {
 				className="flex items-center gap-2 w-full px-3 py-2 bg-muted/50 hover:bg-muted text-left"
 			>
 				{open ? (
-					<ChevronDown className="h-3 w-3 text-muted-foreground" />
+					<ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
 				) : (
-					<ChevronRight className="h-3 w-3 text-muted-foreground" />
+					<ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
 				)}
-				{statusIcon}
-				<ToolIconBox name={tc.toolName} className="h-5 w-5" />
+				<div className="shrink-0">{statusIcon}</div>
+				<ToolIconBox name={tc.toolName} className="h-5 w-5 shrink-0" />
 				<span className="font-semibold text-foreground">{tc.toolName}</span>
 				{input.command && <span className="truncate text-muted-foreground">{String(input.command).slice(0, 50)}</span>}
 				{input.path && !input.command && <span className="truncate text-muted-foreground">{String(input.path)}</span>}
-				<span className="ml-auto text-muted-foreground">{formatRelativeTime(tc.createdAt)}</span>
+				<span className="ml-auto text-muted-foreground shrink-0">{formatRelativeTime(tc.createdAt)}</span>
 			</button>
 			{open && (
 				<div className="border-t">
