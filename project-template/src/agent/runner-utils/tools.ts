@@ -1,3 +1,4 @@
+import { isObj } from "@agent-manager/utils";
 import type Anthropic from "@anthropic-ai/sdk";
 import { nanoid } from "nanoid";
 import { completeToolCall, insertToolCall } from "../../db";
@@ -64,10 +65,6 @@ import {
 	PLAN_MODE_TOOLS,
 } from "../utils/plan-mode";
 import { handleAskUserQuestion, handleQueueQuestion, handleSendGraph, handleSendReport } from "./question-handlers";
-
-function isObj(v: unknown): v is Record<string, unknown> {
-	return typeof v === "object" && v !== null;
-}
 
 const WORKSPACE = env.WORKSPACE_PATH;
 
@@ -238,14 +235,14 @@ export async function dispatchTool(agent: AgentState, name: ToolName, input: Rec
 			validateRecall(input);
 			const results = await recall(input.query, input.type, input.limit ?? 10);
 			return results.length > 0
-				? results.map((r) => `[${r.id}] (${r.type}) ${r.title}:\n${r.content}`).join("\n\n---\n\n")
+				? results.map((result) => `[${result.id}] (${result.type}) ${result.title}:\n${result.content}`).join("\n\n---\n\n")
 				: "No matching memories found.";
 		}
 		case ToolName.ListMemories: {
 			validateListMemories(input);
 			const entries = await listMemories(input.type, input.limit ?? 100);
 			return entries.length > 0
-				? entries.map((e) => `[${e.id}] (${e.type}) ${e.title}: ${e.content.slice(0, 150)}`).join("\n")
+				? entries.map((entry) => `[${entry.id}] (${entry.type}) ${entry.title}: ${entry.content.slice(0, 150)}`).join("\n")
 				: "No memories found.";
 		}
 

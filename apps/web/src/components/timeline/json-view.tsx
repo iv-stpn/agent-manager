@@ -5,14 +5,14 @@ import { cn } from "@/lib/utils";
 // Pulls renderable markdown text out of a `content` value. It may be a plain
 // string, an array of content blocks (`{ type: "text", text }`), or a single
 // such block. Returns null when there's nothing markdown-able to show.
-function markdownFromContent(v: unknown): string | null {
-	if (typeof v === "string") return v.length > 0 ? v : null;
-	if (Array.isArray(v)) {
-		const parts = v.map(markdownFromContent).filter((p): p is string => p != null);
+function markdownFromContent(value: unknown): string | null {
+	if (typeof value === "string") return value.length > 0 ? value : null;
+	if (Array.isArray(value)) {
+		const parts = value.map(markdownFromContent).filter((part): part is string => part != null);
 		return parts.length > 0 ? parts.join("\n\n") : null;
 	}
-	if (v && typeof v === "object") {
-		const text = (v as { text?: unknown }).text;
+	if (value && typeof value === "object") {
+		const text = (value as { text?: unknown }).text;
 		if (typeof text === "string" && text.length > 0) return text;
 	}
 	return null;
@@ -56,13 +56,13 @@ function ValueNode({ value, depth }: { value: unknown; depth: number }): ReactNo
 		return (
 			<>
 				{"{\n"}
-				{entries.map(([k, v], i) => {
-					const md = k === "content" ? markdownFromContent(v) : null;
+				{entries.map(([key, value], i) => {
+					const md = key === "content" ? markdownFromContent(value) : null;
 					const last = i === entries.length - 1;
 					return (
-						<Fragment key={k}>
+						<Fragment key={key}>
 							{indent(depth + 1)}
-							<span className="text-foreground">{JSON.stringify(k)}</span>
+							<span className="text-foreground">{JSON.stringify(key)}</span>
 							{": "}
 							{md != null ? (
 								// Block element interrupts the pre flow, so it sits on its own
@@ -75,7 +75,7 @@ function ValueNode({ value, depth }: { value: unknown; depth: number }): ReactNo
 								</div>
 							) : (
 								<>
-									<ValueNode value={v} depth={depth + 1} />
+									<ValueNode value={value} depth={depth + 1} />
 									{last ? "\n" : ",\n"}
 								</>
 							)}

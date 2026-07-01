@@ -50,6 +50,12 @@ export const sessions = sqliteTable("sessions", {
 	totalCacheReadTokens: integer("total_cache_read_tokens").notNull().default(0), // Cumulative prompt-cache read tokens.
 	totalCacheWriteTokens: integer("total_cache_write_tokens").notNull().default(0), // Cumulative prompt-cache write tokens.
 
+	// Tokens consumed since the last compaction (reset to 0 on each compaction)
+	tokensInputSinceCompaction: integer("tokens_input_since_compaction").notNull().default(0),
+	tokensOutputSinceCompaction: integer("tokens_output_since_compaction").notNull().default(0),
+	tokensCacheReadSinceCompaction: integer("tokens_cache_read_since_compaction").notNull().default(0),
+	tokensCacheWriteSinceCompaction: integer("tokens_cache_write_since_compaction").notNull().default(0),
+
 	// Discord
 	discordChannelId: text("discord_channel_id"), // Discord channel mirroring this session, if any.
 
@@ -73,6 +79,7 @@ export const messages = sqliteTable("messages", {
 	cacheWriteTokens: integer("cache_write_tokens").notNull().default(0), // Prompt-cache write tokens for this message.
 	error: text("error"), // Short error message if generation failed.
 	errorDetails: text("error_details"), // Full error detail / stack, if any.
+	compactedOut: integer("compacted_out", { mode: "boolean" }).notNull().default(false), // True once a compaction has summarized this message out of the active context. Kept for the timeline; skipped when rebuilding API history.
 	createdAt: integer("created_at").notNull().default(sql`(unixepoch() * 1000)`), // Creation time (epoch ms).
 });
 

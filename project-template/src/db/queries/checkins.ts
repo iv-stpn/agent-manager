@@ -42,7 +42,7 @@ export function getPendingQuestions(db: Db, sessionId: string): Question[] {
 		.from(questions)
 		.where(eq(questions.sessionId, sessionId))
 		.all()
-		.filter((q) => q.answer === null);
+		.filter((query) => query.answer === null);
 }
 
 export function getQuestions(db: Db, sessionId: string): Question[] {

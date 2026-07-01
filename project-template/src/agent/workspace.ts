@@ -34,68 +34,30 @@ export async function bootstrapWorkspace(workspace: string): Promise<{
 	return { isNewRepo: isNew, isNewProject, isFirstSession };
 }
 
-// ── Exploration prompt ─────────────────────────────────────────────────────────
-
-export function buildExplorationPrompt(hasExistingMemories: boolean): string {
-	if (hasExistingMemories) {
-		return `**STARTUP TASK — Codebase Exploration (complete before implementing anything)**
-
-The workspace already contains code. Explore and document it:
-
-1. **Recall** previous memory with \`recall("project overview")\` — restore context from prior sessions.
-2. **Check** for active tasks: \`list_tasks\` and plans: \`list_memories("plan")\` — carry over unfinished work.
-3. **Explore** anything that's changed or unfamiliar — read key files, check for new modules.
-4. **Update** memory if you discover anything new or outdated.
-
-Then proceed to the main task.`;
-	}
-
-	return `**STARTUP TASK — Codebase Exploration (complete before implementing anything)**
-
-The workspace already contains code but this is your first session. Explore and document it:
-
-1. **Explore** project structure with \`list_directory\` and read key files:
-   - Package manifests (package.json, pyproject.toml, go.mod, Cargo.toml, …)
-   - README.md, CONTRIBUTING.md, docs/
-   - Entry points, main modules, test directories
-2. **Remember** what you learn:
-   - \`remember("memory", "Architecture", "...")\` — system design, components, data flow
-   - \`remember("memory", "Codebase Map", "...")\` — key files, modules, entry points
-   - \`remember("memory", "Conventions", "...")\` — coding style, naming, commit format
-   - \`remember("memory", "Tech Stack", "...")\` — languages, frameworks, tools
-   - \`remember("context", "Project Goals", "...")\` — goals, constraints, stakeholders
-
-Then proceed to the main task.`;
-}
-
 // ── Startup context ────────────────────────────────────────────────────────────
 
 export async function buildStartupContext(task: string, isNewProject: boolean): Promise<string[]> {
 	const messages: string[] = [];
 
 	// Load relevant memories from vector DB (skip for brand-new projects — nothing to recall)
-	let hasExistingMemories = false;
 	if (!isNewProject) {
 		try {
 			const context = await recall("project overview architecture current state", undefined, 5);
 			if (context.length > 0) {
-				hasExistingMemories = true;
-				const summary = context.map((e) => `**[${e.type}] ${e.title}:**\n${e.content.slice(0, 500)}`).join("\n\n");
+				const summary = context
+					.map((entry) => `**[${entry.type}] ${entry.title}:**\n${entry.content.slice(0, 500)}`)
+					.join("\n\n");
 				messages.push(`**Recalled project context:**\n\n${summary}`);
 			}
 
 			const plans = await listMemories("plan", 3);
 			if (plans.length > 0) {
-				hasExistingMemories = true;
-				const planSummary = plans.map((e) => `- **${e.title}:** ${e.content.slice(0, 200)}`).join("\n");
+				const planSummary = plans.map((entry) => `- **${entry.title}:** ${entry.content.slice(0, 200)}`).join("\n");
 				messages.push(`**Active plans:**\n\n${planSummary}`);
 			}
 		} catch {
 			// LanceDB not available — proceed without memory context
 		}
-
-		// Exploration prompt for existing projects
-		messages.push(buildExplorationPrompt(hasExistingMemories));
 	}
 
 	// Main task

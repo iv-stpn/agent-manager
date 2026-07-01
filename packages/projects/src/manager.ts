@@ -180,7 +180,7 @@ export class ProjectManager {
 
 		// Parse binaries from comment
 		const binaries = binariesMatch?.[1]
-			? (binariesMatch[1].split(",").map((b) => b.trim()) as Array<"python3" | "workerd" | "cargo">)
+			? (binariesMatch[1].split(",").map((binary) => binary.trim()) as Array<"python3" | "workerd" | "cargo">)
 			: undefined;
 
 		const config: ProjectConfig = {

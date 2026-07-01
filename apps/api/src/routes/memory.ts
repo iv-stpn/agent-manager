@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { z } from "zod";
+import z from "zod";
 import { env } from "../env";
 import type { HonoOrchestratorEnv } from "../types";
 
@@ -26,14 +26,14 @@ const createSchema = z.object({
 	type: z.enum(["decision", "todo", "plan", "question", "memory", "report", "context"]),
 	title: z.string(),
 	content: z.string(),
-	metadata: z.record(z.any()).optional(),
+	metadata: z.record(z.string(), z.any()).optional(),
 });
 
 const updateSchema = z.object({
 	title: z.string().optional(),
 	content: z.string().optional(),
 	type: z.enum(["decision", "todo", "plan", "question", "memory", "report", "context"]).optional(),
-	metadata: z.record(z.any()).optional(),
+	metadata: z.record(z.string(), z.any()).optional(),
 });
 
 // ── Router ───────────────────────────────────────────────────────────────────

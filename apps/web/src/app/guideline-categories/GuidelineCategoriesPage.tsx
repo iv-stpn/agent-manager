@@ -25,9 +25,9 @@ export default function GuidelineCategoriesPage() {
 		setEditing(null);
 	}
 
-	function openEdit(c: GuidelineCategory) {
-		setForm({ name: c.name, description: c.description, color: c.color });
-		setEditing(c);
+	function openEdit(category: GuidelineCategory) {
+		setForm({ name: category.name, description: category.description, color: category.color });
+		setEditing(category);
 		setCreating(false);
 	}
 
@@ -41,11 +41,13 @@ export default function GuidelineCategoriesPage() {
 		try {
 			if (editing) {
 				const updated = await updateGuidelineCategory(editing.id, form);
-				mutateCache<GuidelineCategory[]>("guideline-categories", (list) => list.map((c) => (c.id === editing.id ? updated : c)));
+				mutateCache<GuidelineCategory[]>("guideline-categories", (list) =>
+					list.map((category) => (category.id === editing.id ? updated : category))
+				);
 			} else {
 				const created = await createGuidelineCategory(form);
 				mutateCache<GuidelineCategory[]>("guideline-categories", (list) =>
-					[...list, created].sort((a, b) => a.name.localeCompare(b.name))
+					[...list, created].sort((category1, category2) => category1.name.localeCompare(category2.name))
 				);
 			}
 			closeDialog();
@@ -58,7 +60,7 @@ export default function GuidelineCategoriesPage() {
 		if (!confirm("Delete this category? Guidelines using it will become uncategorized.")) return;
 		try {
 			await deleteGuidelineCategory(id);
-			mutateCache<GuidelineCategory[]>("guideline-categories", (list) => list.filter((c) => c.id !== id));
+			mutateCache<GuidelineCategory[]>("guideline-categories", (list) => list.filter((category) => category.id !== id));
 		} catch (err) {
 			console.error("Failed to delete guideline category:", err);
 		}
@@ -95,19 +97,19 @@ export default function GuidelineCategoriesPage() {
 					</div>
 				) : (
 					<div className="bg-white rounded-xl border border-gray-200 divide-y">
-						{categories.map((c) => (
-							<div key={c.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
+						{categories.map((category) => (
+							<div key={category.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
 								<div className="flex items-center gap-3 min-w-0">
-									<span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+									<span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: category.color }} />
 									<div className="min-w-0">
-										<h3 className="font-semibold text-gray-900">{c.name}</h3>
-										{c.description && <p className="text-sm text-gray-500 mt-0.5">{c.description}</p>}
+										<h3 className="font-semibold text-gray-900">{category.name}</h3>
+										{category.description && <p className="text-sm text-gray-500 mt-0.5">{category.description}</p>}
 									</div>
 								</div>
 								<div className="flex gap-1 shrink-0">
 									<button
 										type="button"
-										onClick={() => openEdit(c)}
+										onClick={() => openEdit(category)}
 										className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
 										title="Edit"
 									>
@@ -115,7 +117,7 @@ export default function GuidelineCategoriesPage() {
 									</button>
 									<button
 										type="button"
-										onClick={() => remove(c.id)}
+										onClick={() => remove(category.id)}
 										className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
 										title="Delete"
 									>
@@ -131,8 +133,8 @@ export default function GuidelineCategoriesPage() {
 			{dialogOpen && (
 				<div
 					className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-					onClick={(e) => e.target === e.currentTarget && closeDialog()}
-					onKeyDown={(e) => e.key === "Escape" && closeDialog()}
+					onClick={(event) => event.target === event.currentTarget && closeDialog()}
+					onKeyDown={(event) => event.key === "Escape" && closeDialog()}
 					role="dialog"
 					aria-modal="true"
 				>
@@ -154,7 +156,7 @@ export default function GuidelineCategoriesPage() {
 									autoFocus
 									type="text"
 									value={form.name}
-									onChange={(e) => setForm({ ...form, name: e.target.value })}
+									onChange={(event) => setForm({ ...form, name: event.target.value })}
 									className={inputCls}
 									placeholder="Category name"
 								/>
@@ -167,7 +169,7 @@ export default function GuidelineCategoriesPage() {
 									id="gc-desc"
 									type="text"
 									value={form.description}
-									onChange={(e) => setForm({ ...form, description: e.target.value })}
+									onChange={(event) => setForm({ ...form, description: event.target.value })}
 									className={inputCls}
 									placeholder="Short description"
 								/>
@@ -181,7 +183,7 @@ export default function GuidelineCategoriesPage() {
 										id="gc-color"
 										type="color"
 										value={form.color}
-										onChange={(e) => setForm({ ...form, color: e.target.value })}
+										onChange={(event) => setForm({ ...form, color: event.target.value })}
 										className="w-9 h-9 rounded-lg border border-gray-300 cursor-pointer p-0.5"
 									/>
 									<span className="text-sm text-gray-500">{form.color}</span>

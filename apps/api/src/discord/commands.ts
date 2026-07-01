@@ -4,36 +4,38 @@ export const COMMANDS = [
 	new SlashCommandBuilder()
 		.setName("timeout")
 		.setDescription("Change the agent run timeout (minutes)")
-		.addNumberOption((o) => o.setName("minutes").setDescription("Timeout in minutes (1–1440)").setRequired(true))
-		.addStringOption((o) => o.setName("project").setDescription("Project ID"))
-		.addStringOption((o) => o.setName("session").setDescription("Session ID")),
+		.addNumberOption((option) => option.setName("minutes").setDescription("Timeout in minutes (1–1440)").setRequired(true))
+		.addStringOption((option) => option.setName("project").setDescription("Project ID"))
+		.addStringOption((option) => option.setName("session").setDescription("Session ID")),
 
 	new SlashCommandBuilder()
 		.setName("report-interval")
 		.setDescription("Change the automatic report interval (minutes)")
-		.addNumberOption((o) => o.setName("minutes").setDescription("Minutes between reports (0 to disable)").setRequired(true))
-		.addStringOption((o) => o.setName("project").setDescription("Project ID"))
-		.addStringOption((o) => o.setName("session").setDescription("Session ID")),
+		.addNumberOption((option) =>
+			option.setName("minutes").setDescription("Minutes between reports (0 to disable)").setRequired(true)
+		)
+		.addStringOption((option) => option.setName("project").setDescription("Project ID"))
+		.addStringOption((option) => option.setName("session").setDescription("Session ID")),
 
 	new SlashCommandBuilder()
 		.setName("await-report")
 		.setDescription("Control whether reports await the agent")
-		.addStringOption((o) =>
-			o
+		.addStringOption((option) =>
+			option
 				.setName("mode")
 				.setDescription("always | never | custom")
 				.setRequired(true)
 				.addChoices({ name: "always", value: "always" }, { name: "never", value: "never" }, { name: "custom", value: "custom" })
 		)
-		.addStringOption((o) => o.setName("rule").setDescription("Custom rule (when mode=custom)"))
-		.addStringOption((o) => o.setName("project").setDescription("Project ID"))
-		.addStringOption((o) => o.setName("session").setDescription("Session ID")),
+		.addStringOption((option) => option.setName("rule").setDescription("Custom rule (when mode=custom)"))
+		.addStringOption((option) => option.setName("project").setDescription("Project ID"))
+		.addStringOption((option) => option.setName("session").setDescription("Session ID")),
 
 	new SlashCommandBuilder()
 		.setName("await-ask")
 		.setDescription("Control how questions are sent to the user")
-		.addStringOption((o) =>
-			o
+		.addStringOption((option) =>
+			option
 				.setName("mode")
 				.setDescription("always | requiredOnly | onReportOnly | never")
 				.setRequired(true)
@@ -44,53 +46,53 @@ export const COMMANDS = [
 					{ name: "never", value: "never" }
 				)
 		)
-		.addStringOption((o) => o.setName("project").setDescription("Project ID"))
-		.addStringOption((o) => o.setName("session").setDescription("Session ID")),
+		.addStringOption((option) => option.setName("project").setDescription("Project ID"))
+		.addStringOption((option) => option.setName("session").setDescription("Session ID")),
 
 	new SlashCommandBuilder()
 		.setName("compact-threshold")
 		.setDescription("Change the auto-compaction token threshold")
-		.addNumberOption((o) => o.setName("tokens").setDescription("Threshold in tokens (0 to disable)").setRequired(true))
-		.addStringOption((o) => o.setName("project").setDescription("Project ID"))
-		.addStringOption((o) => o.setName("session").setDescription("Session ID")),
+		.addNumberOption((option) => option.setName("tokens").setDescription("Threshold in tokens (0 to disable)").setRequired(true))
+		.addStringOption((option) => option.setName("project").setDescription("Project ID"))
+		.addStringOption((option) => option.setName("session").setDescription("Session ID")),
 
 	new SlashCommandBuilder()
 		.setName("stop-threshold")
 		.setDescription("Change the cumulative token budget for auto-stop")
-		.addNumberOption((o) => o.setName("tokens").setDescription("Token budget (0 to disable)").setRequired(true))
-		.addStringOption((o) => o.setName("project").setDescription("Project ID"))
-		.addStringOption((o) => o.setName("session").setDescription("Session ID")),
+		.addNumberOption((option) => option.setName("tokens").setDescription("Token budget (0 to disable)").setRequired(true))
+		.addStringOption((option) => option.setName("project").setDescription("Project ID"))
+		.addStringOption((option) => option.setName("session").setDescription("Session ID")),
 
 	new SlashCommandBuilder()
 		.setName("always-improve")
 		.setDescription("Control what happens after the original task is complete")
-		.addStringOption((o) =>
-			o
+		.addStringOption((option) =>
+			option
 				.setName("mode")
 				.setDescription("yes | no | custom")
 				.setRequired(true)
 				.addChoices({ name: "yes", value: "yes" }, { name: "no", value: "no" }, { name: "custom", value: "custom" })
 		)
-		.addStringOption((o) => o.setName("scope").setDescription("Scope of improvements (when mode=custom)"))
-		.addStringOption((o) => o.setName("project").setDescription("Project ID"))
-		.addStringOption((o) => o.setName("session").setDescription("Session ID")),
+		.addStringOption((option) => option.setName("scope").setDescription("Scope of improvements (when mode=custom)"))
+		.addStringOption((option) => option.setName("project").setDescription("Project ID"))
+		.addStringOption((option) => option.setName("session").setDescription("Session ID")),
 
 	new SlashCommandBuilder()
 		.setName("agent-stop")
 		.setDescription("Stop a running session")
-		.addStringOption((o) => o.setName("project").setDescription("Project ID"))
-		.addStringOption((o) => o.setName("session").setDescription("Session ID")),
+		.addStringOption((option) => option.setName("project").setDescription("Project ID"))
+		.addStringOption((option) => option.setName("session").setDescription("Session ID")),
 
 	new SlashCommandBuilder()
 		.setName("agent-status")
 		.setDescription("Show status of running sessions")
-		.addStringOption((o) => o.setName("project").setDescription("Project ID")),
+		.addStringOption((option) => option.setName("project").setDescription("Project ID")),
 ];
 
 export async function registerCommands(token: string, clientId: string) {
 	const rest = new REST({ version: "10" }).setToken(token);
 	await rest.put(Routes.applicationCommands(clientId), {
-		body: COMMANDS.map((c) => c.toJSON()),
+		body: COMMANDS.map((command) => command.toJSON()),
 	});
 	console.log("[Discord] Slash commands registered");
 }
@@ -99,10 +101,10 @@ export async function registerCommands(token: string, clientId: string) {
  * Forward settings commands to the project's agent server.
  * The orchestrator API knows each project's port from its config.
  */
-let _resolveProject: ((projectId: string) => Promise<{ port: number } | null>) | null = null;
+let resolveProject: ((projectId: string) => Promise<{ port: number } | null>) | null = null;
 
 export function setProjectResolver(resolver: (projectId: string) => Promise<{ port: number } | null>) {
-	_resolveProject = resolver;
+	resolveProject = resolver;
 }
 
 export async function handleInteraction(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -125,12 +127,12 @@ export async function handleInteraction(interaction: ChatInputCommandInteraction
 			await interaction.reply({ content: "❌ `project` is required for settings commands.", ephemeral: true });
 			return;
 		}
-		if (!_resolveProject) {
+		if (!resolveProject) {
 			await interaction.reply({ content: "❌ Project resolver not configured.", ephemeral: true });
 			return;
 		}
 
-		const project = await _resolveProject(projectId);
+		const project = await resolveProject(projectId);
 		if (!project) {
 			await interaction.reply({ content: `❌ Project \`${projectId}\` not found or not running.`, ephemeral: true });
 			return;
@@ -188,11 +190,11 @@ export async function handleInteraction(interaction: ChatInputCommandInteraction
 			await interaction.reply({ content: "❌ `project` is required.", ephemeral: true });
 			return;
 		}
-		if (!_resolveProject) {
+		if (!resolveProject) {
 			await interaction.reply({ content: "❌ Project resolver not configured.", ephemeral: true });
 			return;
 		}
-		const project = await _resolveProject(projectId);
+		const project = await resolveProject(projectId);
 		if (!project) {
 			await interaction.reply({ content: `❌ Project \`${projectId}\` not found or not running.`, ephemeral: true });
 			return;

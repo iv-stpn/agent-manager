@@ -2,13 +2,13 @@ export function createHostStream<T = unknown>(
 	onEvent: (type: string, payload: { projectId: string; data: unknown }) => void,
 	onSnapshot: (projects: T[]) => void
 ): EventSource {
-	const es = new EventSource("/api/projects/events");
+	const eventSource = new EventSource("/api/projects/events");
 
-	es.addEventListener("projects", (e) => {
-		if (!(e instanceof MessageEvent)) return;
+	eventSource.addEventListener("projects", (event) => {
+		if (!(event instanceof MessageEvent)) return;
 		try {
-			const parsed = JSON.parse(e.data);
-			console.log("[SSE:host] projects (snapshot)", parsed);
+			const parsed = JSON.parse(event.data);
+			console.log("[SSE:orchestrator] projects (snapshot)", parsed);
 			onSnapshot(parsed);
 		} catch {
 			// ignore malformed snapshot
@@ -16,18 +16,18 @@ export function createHostStream<T = unknown>(
 	});
 
 	const events = ["project_status", "session_created", "message", "task_created", "task_updated"];
-	for (const event of events) {
-		es.addEventListener(event, (e) => {
-			if (!(e instanceof MessageEvent)) return;
+	for (const eventType of events) {
+		eventSource.addEventListener(eventType, (event) => {
+			if (!(event instanceof MessageEvent)) return;
 			try {
-				const parsed = JSON.parse(e.data);
-				console.log(`[SSE:host] ${event}`, parsed);
-				onEvent(event, parsed);
+				const parsed = JSON.parse(event.data);
+				console.log(`[SSE:orchestrator] ${eventType}`, parsed);
+				onEvent(eventType, parsed);
 			} catch {
 				// ignore malformed event
 			}
 		});
 	}
 
-	return es;
+	return eventSource;
 }

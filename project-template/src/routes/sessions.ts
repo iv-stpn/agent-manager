@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
-import { z } from "zod";
+import z from "zod";
+
 import { initAgent, interjectAgent, pauseAgent, queueFollowUp, runners, steerAgent, stopAgent } from "../agent/definition";
 import { restart, resume, run } from "../agent/runner-utils/loop";
 import type { AgentStateConfig } from "../agent/types";
@@ -34,6 +35,19 @@ const CreateSessionSchema = z.object({
 	stopThresholdTokens: z.number().optional(),
 	alwaysImproveMode: z.enum(["yes", "no", "custom"]).optional(),
 	alwaysImproveScope: z.string().optional(),
+});
+
+const UpdateSessionSchema = z.object({
+	name: z.string().optional(),
+	reportIntervalMins: z.number().optional(),
+	stopThresholdMins: z.number().optional(),
+	awaitReportMode: z.enum(["always", "never", "custom"]).optional(),
+	awaitReportCustomRule: z.string().nullable().optional(),
+	awaitAskMode: z.enum(["always", "requiredOnly", "onReportOnly", "never"]).optional(),
+	compactThresholdTokens: z.number().optional(),
+	stopThresholdTokens: z.number().optional(),
+	alwaysImproveMode: z.enum(["yes", "no", "custom"]).optional(),
+	alwaysImproveScope: z.string().nullable().optional(),
 });
 
 const MessageSchema = z.object({ message: z.string().min(1) });
@@ -69,49 +83,94 @@ function autoNameSession(db: Db, sessionId: string, task: string) {
 
 const defaultChatName = () => {
 	const now = new Date();
-	const pad = (n: number) => String(n).padStart(2, "0");
+	const pad = (number: number) => String(number).padStart(2, "0");
 	return `New chat session at ${pad(now.getHours())}:${pad(now.getMinutes())} on ${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
 };
 
 export const sessionsRouter = new Hono<HonoProjectEnv>()
 	.get("/", (c) => c.json(listSessions(c.get("db"))))
-
 	.get("/:id", (c) => {
 		const session = getSession(c.get("db"), c.req.param("id"));
 		if (!session) return c.json({ error: "Not found" }, 404);
 		return c.json(session);
 	})
-
 	.get("/:id/messages", (c) => {
 		const session = getSession(c.get("db"), c.req.param("id"));
 		if (!session) return c.json({ error: "Not found" }, 404);
 		return c.json(getMessages(c.get("db"), session.id));
 	})
-
 	.get("/:id/tools", (c) => {
 		const session = getSession(c.get("db"), c.req.param("id"));
 		if (!session) return c.json({ error: "Not found" }, 404);
 		return c.json(getToolCalls(c.get("db"), session.id));
 	})
-
 	.get("/:id/checkins", (c) => {
 		const session = getSession(c.get("db"), c.req.param("id"));
 		if (!session) return c.json({ error: "Not found" }, 404);
 		return c.json(getCheckins(c.get("db"), session.id));
 	})
-
 	.get("/:id/questions", (c) => {
 		const session = getSession(c.get("db"), c.req.param("id"));
 		if (!session) return c.json({ error: "Not found" }, 404);
 		return c.json(getQuestions(c.get("db"), session.id));
 	})
-
 	.get("/:id/compactions", (c) => {
 		const session = getSession(c.get("db"), c.req.param("id"));
 		if (!session) return c.json({ error: "Not found" }, 404);
 		return c.json(getCompactions(c.get("db"), session.id));
 	})
+	.put("/:id/settings", async (c) => {
+		const id = c.req.param("id");
+		const db = c.get("db");
+		const session = getSession(db, id);
+		if (!session) return c.json({ error: "Not found" }, 404);
 
+		let body: z.infer<typeof UpdateSessionSchema>;
+		try {
+			body = UpdateSessionSchema.parse(await c.req.json());
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : "Invalid request" }, 400);
+		}
+
+		// Build the change set from only the fields the client sent. With
+		// exactOptionalPropertyTypes, passing `undefined` through to updateSession
+		// (which expects `field?: T` without `undefined`) would type-error, so we
+		// pick defined values explicitly.
+		const changes: Partial<Parameters<typeof updateSession>[2]> = {};
+		if (body.name !== undefined) changes.name = body.name;
+		if (body.reportIntervalMins !== undefined) changes.reportIntervalMins = body.reportIntervalMins;
+		if (body.stopThresholdMins !== undefined) changes.stopThresholdMins = body.stopThresholdMins;
+		if (body.awaitReportMode !== undefined) changes.awaitReportMode = body.awaitReportMode;
+		if (body.awaitReportCustomRule !== undefined) changes.awaitReportCustomRule = body.awaitReportCustomRule;
+		if (body.awaitAskMode !== undefined) changes.awaitAskMode = body.awaitAskMode;
+		if (body.compactThresholdTokens !== undefined) changes.compactThresholdTokens = body.compactThresholdTokens;
+		if (body.stopThresholdTokens !== undefined) changes.stopThresholdTokens = body.stopThresholdTokens;
+		if (body.alwaysImproveMode !== undefined) changes.alwaysImproveMode = body.alwaysImproveMode;
+		if (body.alwaysImproveScope !== undefined) changes.alwaysImproveScope = body.alwaysImproveScope;
+		updateSession(db, id, changes);
+
+		// Apply to the live runner so runtime checks (compaction/stop thresholds,
+		// report interval, ask gating) pick up the new values on the next turn.
+		// Settings baked into the system prompt (await/always-improve wording)
+		// only take full effect on the next restart, but persisting them here
+		// ensures that restart sees them.
+		const runner = runners.get(id);
+		if (runner) {
+			if (body.reportIntervalMins !== undefined) runner.config.reportIntervalMins = body.reportIntervalMins;
+			if (body.stopThresholdMins !== undefined) runner.config.stopThresholdMins = body.stopThresholdMins;
+			if (body.awaitReportMode !== undefined) runner.config.awaitReportMode = body.awaitReportMode;
+			if (body.awaitReportCustomRule !== undefined) runner.config.awaitReportCustomRule = body.awaitReportCustomRule;
+			if (body.awaitAskMode !== undefined) runner.config.awaitAskMode = body.awaitAskMode;
+			if (body.compactThresholdTokens !== undefined) runner.config.compactThresholdTokens = body.compactThresholdTokens;
+			if (body.stopThresholdTokens !== undefined) runner.config.stopThresholdTokens = body.stopThresholdTokens;
+			if (body.alwaysImproveMode !== undefined) runner.config.alwaysImproveMode = body.alwaysImproveMode;
+			if (body.alwaysImproveScope !== undefined) runner.config.alwaysImproveScope = body.alwaysImproveScope;
+		}
+
+		const updated = getSession(db, id);
+		if (updated) sessionEmitter.emit(id, { type: "session_updated", data: updated });
+		return c.json(updated);
+	})
 	.post("/", async (c) => {
 		let body: z.infer<typeof CreateSessionSchema>;
 		try {
@@ -156,7 +215,6 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 
 		return c.json(session, 201);
 	})
-
 	.post("/:id/stop", (c) => {
 		const id = c.req.param("id");
 		const db = c.get("db");
@@ -173,7 +231,6 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 		sessionEmitter.emit(id, { type: "session_updated", data: { id, status: "aborted" } });
 		return c.json({ ok: true });
 	})
-
 	.post("/:id/pause", (c) => {
 		const id = c.req.param("id");
 		const db = c.get("db");
@@ -190,7 +247,6 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 		pauseAgent(runner);
 		return c.json({ ok: true });
 	})
-
 	.post("/:id/restart", async (c) => {
 		const id = c.req.param("id");
 		const db = c.get("db");
@@ -221,7 +277,6 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 
 		return c.json({ ok: true });
 	})
-
 	.post("/:id/steer", async (c) => {
 		const id = c.req.param("id");
 		const db = c.get("db");
@@ -241,7 +296,6 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 		steerAgent(existing, message);
 		return c.json({ ok: true });
 	})
-
 	.post("/:id/follow-up", async (c) => {
 		const id = c.req.param("id");
 		const db = c.get("db");
@@ -261,7 +315,6 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 		queueFollowUp(existing, message);
 		return c.json({ ok: true });
 	})
-
 	.post("/:id/message", async (c) => {
 		const id = c.req.param("id");
 		const db = c.get("db");
@@ -277,6 +330,12 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 
 		const existing = runners.get(id);
 		if (existing) {
+			// Don't let a reply abort the summarization call mid-compaction —
+			// the user must wait for the compaction to finish. The loop flips
+			// the status back to "running" (over SSE) as soon as it's done.
+			if (session.status === "compacting") {
+				return c.json({ error: "Agent is compacting context — please wait." }, 409);
+			}
 			interjectAgent(existing, message);
 			return c.json({ ok: true });
 		}

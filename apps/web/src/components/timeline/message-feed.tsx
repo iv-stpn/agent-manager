@@ -1,3 +1,5 @@
+import type { ContentBlock } from "@agent-manager/utils/blocks";
+import { stringifyResult } from "@agent-manager/utils/blocks";
 import {
 	AlertCircle,
 	ArrowDownToLine,
@@ -16,17 +18,6 @@ import { ToolIconBox } from "@/components/timeline/tool-icons";
 import type { Message, ToolCall } from "@/lib/agent-api";
 import { cn, formatRelativeTime } from "@/lib/utils";
 
-interface ContentBlock {
-	type: string;
-	text?: string;
-	name?: string;
-	input?: Record<string, unknown>;
-	id?: string;
-	tool_use_id?: string;
-	content?: string | ContentBlock[];
-	is_error?: boolean;
-}
-
 function parseContent(content: string | ContentBlock[]): ContentBlock[] {
 	if (Array.isArray(content)) return content;
 	try {
@@ -44,7 +35,7 @@ function ToolCallBubble({ name, input }: { name: string; input: Record<string, u
 		<div className="rounded-md border border-dashed border-border bg-muted/40 text-xs font-mono">
 			<button
 				type="button"
-				onClick={() => setOpen((x) => !x)}
+				onClick={() => setOpen((isOpen) => !isOpen)}
 				className="flex items-center gap-2 w-full px-3 py-2 text-muted-foreground hover:text-foreground"
 			>
 				{open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -59,16 +50,6 @@ function ToolCallBubble({ name, input }: { name: string; input: Record<string, u
 	);
 }
 
-function stringifyResult(content: string | ContentBlock[] | undefined): string {
-	if (content == null) return "";
-	if (typeof content === "string") return content;
-	try {
-		return content.map((b) => (typeof b === "string" ? b : (b.text ?? JSON.stringify(b)))).join("\n");
-	} catch {
-		return JSON.stringify(content);
-	}
-}
-
 function ToolResultBubble({ name, content, isError }: { name: string | null; content: string; isError: boolean }) {
 	const [open, setOpen] = useState(false);
 	const preview = content.trim().split("\n")[0]?.slice(0, 60) ?? "";
@@ -78,7 +59,7 @@ function ToolResultBubble({ name, content, isError }: { name: string | null; con
 		>
 			<button
 				type="button"
-				onClick={() => setOpen((x) => !x)}
+				onClick={() => setOpen((isOpen) => !isOpen)}
 				className="flex items-center gap-2 w-full px-3 py-2 text-muted-foreground hover:text-foreground"
 			>
 				{open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -111,13 +92,13 @@ function useStreamText(text: string, streaming: boolean) {
 		}
 		setCount(0);
 		const id = setInterval(() => {
-			setCount((c) => {
-				if (c >= text.length) {
+			setCount((count) => {
+				if (count >= text.length) {
 					clearInterval(id);
-					return c;
+					return count;
 				}
 				// ~40 chars per frame ≈ comfortable reading speed at 60 fps
-				return Math.min(c + 40, text.length);
+				return Math.min(count + 40, text.length);
 			});
 		}, 16);
 		return () => clearInterval(id);
@@ -273,7 +254,7 @@ function LiveThinkingBubble({ thinking }: { thinking: string }) {
 			<div className="bg-muted/60 border border-violet-300/40 dark:border-violet-700/40 rounded-lg text-sm max-w-[85%] overflow-hidden">
 				<button
 					type="button"
-					onClick={() => setOpen((x) => !x)}
+					onClick={() => setOpen((isOpen) => !isOpen)}
 					className="flex items-center gap-2 w-full px-3 py-2 text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300"
 				>
 					{open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -324,7 +305,7 @@ function AwaitingAnswerBubble() {
 			</div>
 			<div className="bg-amber-500/10 border border-amber-400/40 rounded-lg px-4 py-3 text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2">
 				<span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
-				Await user answers
+				Awaiting user answers
 			</div>
 		</div>
 	);
@@ -372,17 +353,18 @@ export function MessageFeed({
 	const bottomRef = useRef<HTMLDivElement>(null);
 
 	// Track which message IDs are "new" so we can apply entrance animation
-	const prevIdsRef = useRef(new Set(messages.map((m) => m.id)));
+	const prevIdsRef = useRef(new Set(messages.map((message) => message.id)));
 	const [newIds, setNewIds] = useState<Set<string>>(new Set());
 
 	useEffect(() => {
-		const incoming = messages.filter((m) => !prevIdsRef.current.has(m.id));
+		const incoming = messages.filter((message) => !prevIdsRef.current.has(message.id));
 		if (incoming.length > 0) {
-			const ids = new Set(incoming.map((m) => m.id));
+			const ids = new Set(incoming.map((message) => message.id));
 			setNewIds(ids);
-			for (const m of incoming) prevIdsRef.current.add(m.id);
-			const t = setTimeout(() => setNewIds(new Set()), 600);
-			return () => clearTimeout(t);
+
+			for (const message of incoming) prevIdsRef.current.add(message.id);
+			const timeout = setTimeout(() => setNewIds(new Set()), 600);
+			return () => clearTimeout(timeout);
 		}
 	}, [messages]);
 
@@ -445,7 +427,9 @@ export function MessageFeed({
 			{isRunning && !streamingText && !streamingToolcall && !streamingThinking && !awaitingAnswer && pendingToolCalls > 0 && (
 				<ThinkingBubble label={`Running ${pendingToolCalls} tool${pendingToolCalls > 1 ? "s" : ""}…`} />
 			)}
-			{isRunning && !streamingText && !streamingToolcall && !streamingThinking && !awaitingAnswer && pendingToolCalls === 0 && <ThinkingBubble />}
+			{isRunning && !streamingText && !streamingToolcall && !streamingThinking && !awaitingAnswer && pendingToolCalls === 0 && (
+				<ThinkingBubble />
+			)}
 			{(isPaused || awaitingAnswer) && <AwaitingAnswerBubble />}
 			{isCompacting && <ThinkingBubble label="Compacting context…" />}
 			{isAborted && <AbortedBubble />}

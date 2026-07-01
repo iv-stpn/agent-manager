@@ -52,7 +52,7 @@ function parseTableCells(line: string): string[] {
 	return line
 		.replace(/^\||\|$/g, "")
 		.split("|")
-		.map((c) => c.trim());
+		.map((cell) => cell.trim());
 }
 
 function parseAlignment(cell: string): "left" | "center" | "right" | null {
@@ -93,9 +93,9 @@ function parseBlocks(src: string): Block[] {
 			i++;
 			continue;
 		}
-		const h = line.match(HEADING);
-		if (h) {
-			blocks.push({ type: "heading", level: h[1].length, text: h[2].trim() });
+		const height = line.match(HEADING);
+		if (height) {
+			blocks.push({ type: "heading", level: height[1].length, text: height[2].trim() });
 			i++;
 			continue;
 		}
@@ -203,89 +203,89 @@ function renderInline(text: string): ReactNode[] {
 
 function renderTextWithBreaks(text: string): ReactNode {
 	const lines = text.split("\n");
-	return lines.map((l, j) => (
+	return lines.map((line, idx) => (
 		// biome-ignore lint/suspicious/noArrayIndexKey: static line list, never reordered
-		<Fragment key={j}>
-			{renderInline(l)}
-			{j < lines.length - 1 && <br />}
+		<Fragment key={idx}>
+			{renderInline(line)}
+			{idx < lines.length - 1 && <br />}
 		</Fragment>
 	));
 }
 
-function renderBlock(b: Block, i: number): ReactNode {
-	switch (b.type) {
+function renderBlock(block: Block, idx: number): ReactNode {
+	switch (block.type) {
 		case "code":
 			return (
-				<pre key={i} className="my-1 overflow-x-auto rounded-md bg-gray-900 p-3 text-[11px] leading-relaxed text-gray-100">
-					<code>{b.content}</code>
+				<pre key={idx} className="my-1 overflow-x-auto rounded-md bg-gray-900 p-3 text-[11px] leading-relaxed text-gray-100">
+					<code>{block.content}</code>
 				</pre>
 			);
 		case "heading": {
 			const sizes = ["text-base", "text-base", "text-sm", "text-sm", "text-xs", "text-xs"];
 			return (
-				<div key={i} className={cn("font-semibold", sizes[b.level - 1])}>
-					{renderInline(b.text)}
+				<div key={idx} className={cn("font-semibold", sizes[block.level - 1])}>
+					{renderInline(block.text)}
 				</div>
 			);
 		}
 		case "quote":
 			return (
-				<blockquote key={i} className="border-l-2 border-border pl-3 text-muted-foreground">
-					{b.text.split("\n").map((l, j) => (
+				<blockquote key={idx} className="border-l-2 border-border pl-3 text-muted-foreground">
+					{block.text.split("\n").map((line, lineIndex) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: static list
-						<p key={j}>{renderInline(l)}</p>
+						<p key={lineIndex}>{renderInline(line)}</p>
 					))}
 				</blockquote>
 			);
 		case "ul":
 			return (
-				<ul key={i} className="list-disc space-y-0.5 pl-5">
-					{b.items.map((item, j) => (
+				<ul key={idx} className="list-disc space-y-0.5 pl-5">
+					{block.items.map((item, itemIndex) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: static list
-						<li key={j}>{renderInline(item)}</li>
+						<li key={itemIndex}>{renderInline(item)}</li>
 					))}
 				</ul>
 			);
 		case "ol":
 			return (
-				<ol key={i} className="list-decimal space-y-0.5 pl-5">
-					{b.items.map((item, j) => (
+				<ol key={idx} className="list-decimal space-y-0.5 pl-5">
+					{block.items.map((item, itemIndex) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: static list
-						<li key={j}>{renderInline(item)}</li>
+						<li key={itemIndex}>{renderInline(item)}</li>
 					))}
 				</ol>
 			);
 		case "hr":
-			return <hr key={i} className="my-2 border-border" />;
+			return <hr key={idx} className="my-2 border-border" />;
 		case "table": {
-			const align = (idx: number) => b.alignments[idx] ?? undefined;
+			const align = (idx: number) => block.alignments[idx] ?? undefined;
 			return (
-				<div key={i} className="overflow-x-auto">
+				<div key={idx} className="overflow-x-auto">
 					<table className="min-w-full border-collapse text-xs">
 						<thead>
 							<tr className="border-b border-border">
-								{b.headers.map((h, j) => (
+								{block.headers.map((header, headerIndex) => (
 									<th
 										// biome-ignore lint/suspicious/noArrayIndexKey: static list
-										key={j}
+										key={headerIndex}
 										className="px-2 py-1 font-semibold text-left"
-										style={{ textAlign: align(j) }}
+										style={{ textAlign: align(headerIndex) }}
 									>
-										{renderInline(h)}
+										{renderInline(header)}
 									</th>
 								))}
 							</tr>
 						</thead>
 						<tbody>
-							{b.rows.map((row, ri) => (
+							{block.rows.map((row, rowIndex) => (
 								// biome-ignore lint/suspicious/noArrayIndexKey: static list
-								<tr key={ri} className="border-b border-border/50">
-									{row.map((cell, ci) => (
+								<tr key={rowIndex} className="border-b border-border/50">
+									{row.map((cell, cellIndex) => (
 										<td
 											// biome-ignore lint/suspicious/noArrayIndexKey: static list
-											key={ci}
+											key={cellIndex}
 											className="px-2 py-1"
-											style={{ textAlign: align(ci) }}
+											style={{ textAlign: align(cellIndex) }}
 										>
 											{renderInline(cell)}
 										</td>
@@ -298,7 +298,7 @@ function renderBlock(b: Block, i: number): ReactNode {
 			);
 		}
 		case "p":
-			return <p key={i}>{renderTextWithBreaks(b.text)}</p>;
+			return <p key={idx}>{renderTextWithBreaks(block.text)}</p>;
 	}
 }
 

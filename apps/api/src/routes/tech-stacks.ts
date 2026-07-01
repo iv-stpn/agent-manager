@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import { z } from "zod";
+import z from "zod";
 import { getErrorMessage } from "../lib/errors";
 import type { HonoOrchestratorEnv } from "../types";
 

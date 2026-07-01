@@ -48,5 +48,9 @@ export function addTokens(
 		totalOutputTokens: session.totalOutputTokens + outputTokens,
 		totalCacheReadTokens: session.totalCacheReadTokens + cacheReadTokens,
 		totalCacheWriteTokens: session.totalCacheWriteTokens + cacheWriteTokens,
+		tokensInputSinceCompaction: session.tokensInputSinceCompaction + inputTokens,
+		tokensOutputSinceCompaction: session.tokensOutputSinceCompaction + outputTokens,
+		tokensCacheReadSinceCompaction: session.tokensCacheReadSinceCompaction + cacheReadTokens,
+		tokensCacheWriteSinceCompaction: session.tokensCacheWriteSinceCompaction + cacheWriteTokens,
 	});
 }

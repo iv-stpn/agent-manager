@@ -4,7 +4,6 @@
 
 import type { AppType, Guideline, GuidelineCategory, LlmClient, TechStack, WorkspaceFolderStatus } from "../../../api/src";
 
-export type { Guideline, GuidelineCategory, LlmClient, LlmProvider, StackEntry, TechStack } from "../../../api/src";
 export type {
 	CheckinRecord as Checkin,
 	CompactionRecord as Compaction,
@@ -15,8 +14,9 @@ export type {
 	ToolCallRecord as ToolCall,
 } from "@agent-manager/projects";
 export type { EnrichedProject } from "@/lib/types";
+export type { Guideline, GuidelineCategory, LlmClient, LlmProvider, StackEntry, TechStack } from "../../../api/src";
 
-import type { CreateProjectInput } from "@agent-manager/projects";
+import type { CreateProjectInput, SessionRecord as Session } from "@agent-manager/projects";
 import { hc } from "hono/client";
 import { API_URL } from "@/constants";
 
@@ -239,6 +239,26 @@ export async function sendSessionMessage(projectId: string, id: string, message:
 	const req = { param: { projectId, sessionId: id }, json: { message } };
 	const res = await api.api.projects[":projectId"].sessions[":sessionId"].message.$post(req);
 	if (!res.ok) throw new Error(`Failed to send message (${res.status})`);
+}
+
+export interface SessionSettingsInput {
+	name?: string;
+	reportIntervalMins?: number;
+	stopThresholdMins?: number;
+	awaitReportMode?: "always" | "never" | "custom";
+	awaitReportCustomRule?: string | null;
+	awaitAskMode?: "always" | "requiredOnly" | "onReportOnly" | "never";
+	compactThresholdTokens?: number;
+	stopThresholdTokens?: number;
+	alwaysImproveMode?: "yes" | "no" | "custom";
+	alwaysImproveScope?: string | null;
+}
+
+export async function updateSessionSettings(projectId: string, id: string, data: SessionSettingsInput): Promise<Session> {
+	const req = { param: { projectId, sessionId: id }, json: data };
+	const res = await api.api.projects[":projectId"].sessions[":sessionId"].settings.$put(req);
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as Session;
 }
 
 // ── Tech stack endpoints ────────────────────────────────────────────────────

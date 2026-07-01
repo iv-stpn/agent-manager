@@ -62,7 +62,14 @@ function TaskNode({ task, children, allTasks, active, stoppedTaskId, defaultOpen
 			{hasChildren && open && (
 				<ul className="ml-4 border-l border-border pl-2">
 					{children.map((child) => (
-						<TaskNode key={child.id} task={child} allTasks={allTasks} active={active} stoppedTaskId={stoppedTaskId} defaultOpen={child.status === "in_progress"}>
+						<TaskNode
+							key={child.id}
+							task={child}
+							allTasks={allTasks}
+							active={active}
+							stoppedTaskId={stoppedTaskId}
+							defaultOpen={child.status === "in_progress"}
+						>
 							{getChildren(child.id, allTasks)}
 						</TaskNode>
 					))}
@@ -73,10 +80,10 @@ function TaskNode({ task, children, allTasks, active, stoppedTaskId, defaultOpen
 }
 
 function getChildren(taskId: string, allTasks: Task[]): Task[] {
-	return allTasks.filter((t) => {
-		if (!t.metadata) return false;
+	return allTasks.filter((task) => {
+		if (!task.metadata) return false;
 		try {
-			const meta = JSON.parse(t.metadata);
+			const meta = JSON.parse(task.metadata);
 			return meta.parentId === taskId;
 		} catch {
 			return false;
@@ -95,7 +102,7 @@ function getRootTasks(tasks: Task[]): Task[] {
 			// ignore
 		}
 	}
-	return tasks.filter((t) => !childIds.has(t.id));
+	return tasks.filter((task) => !childIds.has(task.id));
 }
 
 interface Props {
@@ -110,8 +117,8 @@ export function TaskTree({ tasks, active = true }: Props) {
 		return <p className="text-sm text-muted-foreground text-center py-4">No tasks yet</p>;
 	}
 
-	const activeCount = tasks.filter((t) => t.status === "pending" || t.status === "in_progress");
-	const completedCount = tasks.filter((t) => t.status === "done" || t.status === "cancelled");
+	const activeCount = tasks.filter((task) => task.status === "pending" || task.status === "in_progress");
+	const completedCount = tasks.filter((task) => task.status === "done" || task.status === "cancelled");
 	const roots = getRootTasks(tasks);
 
 	// When stopped, only the most recently updated in-progress task is flagged as
@@ -143,7 +150,14 @@ export function TaskTree({ tasks, active = true }: Props) {
 			{!collapsed && (
 				<ul className="space-y-0.5">
 					{roots.map((task) => (
-						<TaskNode key={task.id} task={task} allTasks={tasks} active={active} stoppedTaskId={stoppedTaskId} defaultOpen={task.status === "in_progress"}>
+						<TaskNode
+							key={task.id}
+							task={task}
+							allTasks={tasks}
+							active={active}
+							stoppedTaskId={stoppedTaskId}
+							defaultOpen={task.status === "in_progress"}
+						>
 							{getChildren(task.id, tasks)}
 						</TaskNode>
 					))}

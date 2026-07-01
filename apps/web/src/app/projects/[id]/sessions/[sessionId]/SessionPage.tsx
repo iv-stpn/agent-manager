@@ -3,9 +3,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { StartupProgressModal } from "@/components/dialog/docker-progress-modal";
+import { SessionSettings } from "@/components/session-settings";
 import { TaskTree } from "@/components/task-tree";
 import { CheckinTimeline } from "@/components/timeline/checkin-timeline";
-import { CompactionTimeline } from "@/components/timeline/compaction-timeline";
 import { MessageFeed } from "@/components/timeline/message-feed";
 import { ToolCallCard } from "@/components/timeline/tool-call-card";
 import { TokenChart } from "@/components/token-chart";
@@ -29,11 +29,10 @@ import {
 	sendSessionMessage,
 	stopSession,
 } from "@/lib/agent-api";
-import { containerClassName } from "@/lib/utils";
 import { mutateCache, useQuery } from "@/lib/query-cache";
 import { cacheKeys, useSessionStream, useSessionStreamingState } from "@/lib/stores";
 import type { Project } from "@/lib/types";
-import { cn, formatTokens, statusBg } from "@/lib/utils";
+import { cn, containerClassName, formatTokens, statusBg } from "@/lib/utils";
 
 export default function SessionPage() {
 	const params = useParams<{ id: string; sessionId: string }>();
@@ -45,9 +44,13 @@ export default function SessionPage() {
 	const [restarting, setRestarting] = useState(false);
 	const [chatInput, setChatInput] = useState("");
 	const [sending, setSending] = useState(false);
+
 	const chatRef = useRef<HTMLTextAreaElement>(null);
+
 	const [viewport, setViewport] = useState<HTMLElement | null>(null);
 	const [isAtBottom, setIsAtBottom] = useState(true);
+	const [timelineTab, setTimelineTab] = useState<"sinceLastCompaction" | "full">("sinceLastCompaction");
+
 	const scrollAreaRef = useCallback((node: HTMLDivElement | null) => {
 		setViewport(node?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]") ?? null);
 	}, []);
@@ -145,6 +148,15 @@ export default function SessionPage() {
 		refetchCompactions();
 	}, [refetchSession, refetchMessages, refetchTools, refetchCheckins, refetchQuestions, refetchCompactions]);
 
+	// Auto-switch to "Since Last Compaction" tab when a new compaction arrives
+	const prevCompactionsCountRef = useRef(compactions.length);
+	useEffect(() => {
+		if (compactions.length > prevCompactionsCountRef.current) {
+			setTimelineTab("sinceLastCompaction");
+		}
+		prevCompactionsCountRef.current = compactions.length;
+	}, [compactions.length]);
+
 	// Reuse the shared project cache populated by the project page. If arriving
 	// directly on this URL, fetch it once here; the project page's SSE stream
 	// will keep it live if both pages are mounted simultaneously.
@@ -175,7 +187,9 @@ export default function SessionPage() {
 		await stopSession(projectId, sessionId);
 		// Don't wait on the SSE round-trip for the badge/buttons to reflect this —
 		// update locally now; the eventual session_updated event is a no-op merge.
-		mutateCache<Session>(cacheKeys.session(projectId, sessionId), (s) => (s ? { ...s, status: "aborted" } : s));
+		mutateCache<Session>(cacheKeys.session(projectId, sessionId), (session) =>
+			session ? { ...session, status: "aborted" } : session
+		);
 		setStopping(false);
 	}
 
@@ -199,7 +213,9 @@ export default function SessionPage() {
 		}
 		setRestarting(true);
 		await restartSession(projectId, sessionId);
-		mutateCache<Session>(cacheKeys.session(projectId, sessionId), (s) => (s ? { ...s, status: "running" } : s));
+		mutateCache<Session>(cacheKeys.session(projectId, sessionId), (session) =>
+			session ? { ...session, status: "running" } : session
+		);
 		setRestarting(false);
 	}
 
@@ -211,6 +227,10 @@ export default function SessionPage() {
 
 		const text = chatInput.trim();
 		if (!text || sending) return;
+		if (isCompacting) {
+			toast.info("Agent is compacting context — please wait.");
+			return;
+		}
 		setChatInput("");
 
 		if (!running) {
@@ -224,9 +244,9 @@ export default function SessionPage() {
 		setSending(true);
 		try {
 			await sendSessionMessage(projectId, sessionId, text);
-		} catch (e) {
+		} catch (err) {
 			setChatInput(text);
-			toast.error(e instanceof Error ? e.message : "Failed to send message.");
+			toast.error(err instanceof Error ? err.message : "Failed to send message.");
 		} finally {
 			setSending(false);
 			chatRef.current?.focus();
@@ -248,9 +268,9 @@ export default function SessionPage() {
 		setSending(true);
 		try {
 			await sendSessionMessage(projectId, sessionId, text);
-		} catch (e) {
+		} catch (err) {
 			setChatInput(text);
-			toast.error(e instanceof Error ? e.message : "Failed to send message after startup.");
+			toast.error(err instanceof Error ? err.message : "Failed to send message after startup.");
 		} finally {
 			setSending(false);
 			chatRef.current?.focus();
@@ -280,11 +300,17 @@ export default function SessionPage() {
 	}
 
 	const isActive = session.status === "running" || session.status === "paused" || session.status === "compacting";
+	// Input is blocked while the agent is compacting: a reply mid-compaction
+	// would abort the summarization call. The user can send again as soon as
+	// the status flips back to "running" (driven over SSE).
+	const isCompacting = session.status === "compacting";
 
 	// Estimate system prompt + tool definition tokens from the first message that
 	// reads the cache: its cacheReadTokens is the constant system prompt + tool
 	// definitions that get replayed (as cache reads) on every subsequent turn.
-	const firstCacheRead = messages.find((m) => (m.role === "assistant" || m.role === "system") && (m.cacheReadTokens ?? 0) > 0);
+	const firstCacheRead = messages.find(
+		(message) => (message.role === "assistant" || message.role === "system") && (message.cacheReadTokens ?? 0) > 0
+	);
 	const systemPromptTokens = firstCacheRead?.cacheReadTokens ?? 0;
 
 	return (
@@ -388,21 +414,28 @@ export default function SessionPage() {
 							placeholder={
 								!running
 									? "Project is stopped — sending a message will start it… (Enter to send, Shift+Enter for newline)"
-									: session.status === "running" || session.status === "paused" || session.status === "compacting"
-										? "Interrupt agent… (Enter to send, Shift+Enter for newline)"
-										: "Resume session with a message… (Enter to send, Shift+Enter for newline)"
+									: isCompacting
+										? "Compacting context — please wait…"
+										: session.status === "running" || session.status === "paused"
+											? "Interrupt agent… (Enter to send, Shift+Enter for newline)"
+											: "Resume session with a message… (Enter to send, Shift+Enter for newline)"
 							}
 							value={chatInput}
-							onChange={(e) => setChatInput(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === "Enter" && !e.shiftKey) {
-									e.preventDefault();
+							onChange={(event) => setChatInput(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter" && !event.shiftKey) {
+									event.preventDefault();
 									handleSendMessage();
 								}
 							}}
-							disabled={sending}
+							disabled={sending || isCompacting}
 						/>
-						<Button size="sm" onClick={handleSendMessage} disabled={!chatInput.trim() || sending} className="shrink-0 self-end">
+						<Button
+							size="sm"
+							onClick={handleSendMessage}
+							disabled={!chatInput.trim() || sending || isCompacting}
+							className="shrink-0 self-end"
+						>
 							<Send className="h-3 w-3" />
 						</Button>
 					</div>
@@ -425,14 +458,14 @@ export default function SessionPage() {
 							</TabsTrigger>
 							<TabsTrigger value="checkins" className="flex-1">
 								Check-ins
-							</TabsTrigger>
-							<TabsTrigger value="compactions" className="flex-1">
-								Compactions
 								{compactions.length > 0 && (
 									<span className="ml-1.5 h-4 min-w-4 px-1 rounded-full bg-purple-500 text-white text-[10px] flex items-center justify-center">
 										{compactions.length}
 									</span>
 								)}
+							</TabsTrigger>
+							<TabsTrigger value="settings" className="flex-1">
+								Settings
 							</TabsTrigger>
 						</TabsList>
 
@@ -454,6 +487,42 @@ export default function SessionPage() {
 										</div>
 									</CardContent>
 								</Card>
+								{compactions.length > 0 && (
+									<>
+										<div className="text-xs font-medium text-muted-foreground px-1">Since Last Compaction</div>
+										<div className="grid grid-cols-2 gap-3">
+											<Card>
+												<CardContent className="pt-4 pb-3">
+													<p className="text-xs text-muted-foreground">Input tokens</p>
+													<p className="text-xl font-bold text-blue-500">{formatTokens(session.tokensInputSinceCompaction)}</p>
+												</CardContent>
+											</Card>
+											<Card>
+												<CardContent className="pt-4 pb-3">
+													<p className="text-xs text-muted-foreground">Output tokens</p>
+													<p className="text-xl font-bold text-teal-500">{formatTokens(session.tokensOutputSinceCompaction)}</p>
+												</CardContent>
+											</Card>
+											<Card>
+												<CardContent className="pt-4 pb-3">
+													<p className="text-xs text-muted-foreground">Cache read tokens</p>
+													<p className="text-xl font-bold text-cyan-500">
+														{formatTokens(session.tokensCacheReadSinceCompaction)}
+													</p>
+												</CardContent>
+											</Card>
+											<Card>
+												<CardContent className="pt-4 pb-3">
+													<p className="text-xs text-muted-foreground">Cache write tokens</p>
+													<p className="text-xl font-bold text-emerald-500">
+														{formatTokens(session.tokensCacheWriteSinceCompaction)}
+													</p>
+												</CardContent>
+											</Card>
+										</div>
+									</>
+								)}
+								<div className="text-xs font-medium text-muted-foreground px-1">Total (Session)</div>
 								<div className="grid grid-cols-2 gap-3">
 									<Card>
 										<CardContent className="pt-4 pb-3">
@@ -563,12 +632,36 @@ export default function SessionPage() {
 							</div>
 						</TabsContent>
 
-						<TabsContent value="checkins" className="flex-1 overflow-auto px-3 pb-3 mt-0">
-							<CheckinTimeline checkins={checkins} questions={questions} />
+						<TabsContent value="checkins" className="flex-1 overflow-hidden mt-0">
+							<Tabs
+								value={timelineTab}
+								onValueChange={(value) => setTimelineTab(value as "sinceLastCompaction" | "full")}
+								className="flex flex-col h-full"
+							>
+								<TabsList className="mx-3 mt-3 shrink-0">
+									<TabsTrigger value="sinceLastCompaction" className="flex-1">
+										Since Last Compaction
+									</TabsTrigger>
+									<TabsTrigger value="full" className="flex-1">
+										Full Timeline
+									</TabsTrigger>
+								</TabsList>
+								<TabsContent value="sinceLastCompaction" className="flex-1 overflow-auto px-3 pb-3 mt-3">
+									<CheckinTimeline
+										checkins={checkins}
+										questions={questions}
+										compactions={compactions}
+										mode="sinceLastCompaction"
+									/>
+								</TabsContent>
+								<TabsContent value="full" className="flex-1 overflow-auto px-3 pb-3 mt-3">
+									<CheckinTimeline checkins={checkins} questions={questions} compactions={compactions} mode="full" />
+								</TabsContent>
+							</Tabs>
 						</TabsContent>
 
-						<TabsContent value="compactions" className="flex-1 overflow-auto px-3 pb-3 mt-0">
-							<CompactionTimeline compactions={compactions} />
+						<TabsContent value="settings" className="flex-1 overflow-auto mt-0">
+							{projectId && sessionId && <SessionSettings projectId={projectId} sessionId={sessionId} session={session} />}
 						</TabsContent>
 					</Tabs>
 				</div>

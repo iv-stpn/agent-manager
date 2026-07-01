@@ -86,16 +86,15 @@ export async function handleSendReport(agent: AgentState, input: SendReportInput
 	try {
 		const result = await sendReport(agent.sessionId, report, "manual", awaiting, questionsToAsk, agent.abortController.signal);
 
-		insertReport(agent.db, {
-			id: nanoid(),
-			sessionId: agent.sessionId,
-			trigger: "manual",
-			title: report.title,
-			content: JSON.stringify(report),
-		});
+		const content = JSON.stringify(report);
+		insertReport(agent.db, { id: nanoid(), sessionId: agent.sessionId, trigger: "manual", title: report.title, content });
 
 		// Record in vector memory for semantic recall
-		remember("report", report.title, report.sections.map((s) => `${s.title ?? ""}\n${s.content}`).join("\n\n")).catch(() => {});
+		remember(
+			"report",
+			report.title,
+			report.sections.map((section) => `${section.title ?? ""}\n${section.content}`).join("\n\n")
+		).catch(() => {});
 
 		if (result?.confirmed) injectAnswers(agent, result.answers, pending);
 	} finally {

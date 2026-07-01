@@ -4,9 +4,13 @@
 	"private": true,
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts"
+		".": "./src/index.ts",
+		"./blocks": "./src/blocks.ts"
 	},
 	"dependencies": {
 		"@agent-manager/projects": "workspace:*"
+	},
+	"devDependencies": {
+		"@anthropic-ai/sdk": "^0.54.0"
 	}
 }

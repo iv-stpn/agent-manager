@@ -54,9 +54,9 @@ Tone: concise and direct, lead with results. Markdown, minimal emoji.`);
 function renderStartingPoint(templates?: TemplateRef[]): string | null {
 	if (!templates?.length) return null;
 
-	const lines = templates.map((t) => {
-		const origin = t.type === "github" ? `GitHub repo ${t.source}` : `Local template "${t.source}"`;
-		return `- ${origin}${t.subdirectory ? ` → ./${t.subdirectory}` : ""}`;
+	const lines = templates.map((template) => {
+		const origin = template.type === "github" ? `GitHub repo ${template.source}` : `Local template "${template.source}"`;
+		return `- ${origin}${template.subdirectory ? ` → ./${template.subdirectory}` : ""}`;
 	});
 
 	const plural = templates.length > 1 ? "s" : "";
@@ -79,10 +79,12 @@ function renderProjectContext(ctx?: ResolvedProjectContext): string | null {
 		parts.push(`## Tech Stack: ${stack.name} (${stack.language})`);
 		if (stack.description) parts.push(stack.description);
 		for (const entry of stack.stack) {
-			const libs = entry.libraries.map((l) => (l.version ? `${l.name}@${l.version}` : l.name)).join(", ");
-			parts.push(`### ${entry.label}${libs ? `\nLibraries: ${libs}` : ""}`);
+			const libraries = entry.libraries
+				.map((library) => (library.version ? `${library.name}@${library.version}` : library.name))
+				.join(", ");
+			parts.push(`### ${entry.label}${libraries ? `\nLibraries: ${libraries}` : ""}`);
 			if (entry.usagePatterns.length) {
-				parts.push(entry.usagePatterns.map((p) => `- ${p}`).join("\n"));
+				parts.push(entry.usagePatterns.map((pattern) => `- ${pattern}`).join("\n"));
 			}
 		}
 	}
@@ -97,7 +99,7 @@ function renderProjectContext(ctx?: ResolvedProjectContext): string | null {
 	}
 
 	// Adaptive hint based on primary language
-	const languages = [...new Set(techStacks.map((s) => s.language.toLowerCase()))];
+	const languages = [...new Set(techStacks.map((techStack) => techStack.language.toLowerCase()))];
 	const hint = buildStackHint(languages, techStacks);
 	if (hint) parts.push(hint);
 
@@ -136,23 +138,27 @@ function renderGuidelines(guidelines: ResolvedProjectContext["guidelines"]): str
 
 /** Generate language/framework-specific guidance based on the configured stack. */
 function buildStackHint(languages: string[], stacks: ResolvedProjectContext["techStacks"]): string | null {
-	const allLibs = stacks.flatMap((s) => s.stack.flatMap((e) => e.libraries.map((l) => l.name.toLowerCase())));
+	const allLibraries = stacks.flatMap((stack) =>
+		stack.stack.flatMap((entry) => entry.libraries.map((library) => library.name.toLowerCase()))
+	);
 	const hints: string[] = [];
 
 	// TypeScript / JavaScript
-	if (languages.some((l) => ["typescript", "javascript", "ts", "js"].includes(l))) {
+	if (languages.some((language) => ["typescript", "javascript", "ts", "js"].includes(language))) {
 		hints.push("- Make TypeScript strict. Use `const` over `let`, avoid `any`.");
-		if (allLibs.includes("react") || allLibs.includes("next") || allLibs.includes("next.js")) {
+		if (allLibraries.includes("react") || allLibraries.includes("next") || allLibraries.includes("next.js")) {
 			hints.push("- React: prefer functional components, hooks, and composition over inheritance.");
 		}
 		// Cloudflare and Bun are mutually exclusive runtimes — Cloudflare takes
 		// priority when present, since Bun-native APIs are unavailable there.
-		const isCloudflare = allLibs.some((l) => ["cloudflare", "cloudflare-workers", "workers", "wrangler", "hono"].includes(l));
+		const isCloudflare = allLibraries.some((library) =>
+			["cloudflare", "cloudflare-workers", "workers", "wrangler", "hono"].includes(library)
+		);
 		if (isCloudflare) {
 			hints.push(
-				"- Cloudflare Workers: use the runtime Web APIs (fetch, Request/Response, Headers, ReadableStream, crypto.subtle). Avoid Node.js built-ins and filesystem APIs — use bindings (KV, D1, Durable Objects, Queues), or infrastructure described by the user, for storage and state. Keep handlers stateless across requests; persist state through bindings."
+				"- Cloudflare Workers: use the runtime Web APIs (fetch, Request/Response, Headers, ReadableStream, crypto.subtle). Avoid Node.js/Bun built-ins and filesystem APIs — use bindings (KV, D1, Durable Objects, Queues), or infrastructure described by the user, for storage and state. Keep handlers stateless across requests; persist state through bindings."
 			);
-		} else if (allLibs.includes("bun") || allLibs.includes("elysia") || allLibs.includes("hono")) {
+		} else if (allLibraries.includes("bun") || allLibraries.includes("elysia") || allLibraries.includes("hono")) {
 			hints.push("- Use Bun-native APIs where available (Bun.file, Bun.serve, etc.).");
 		}
 	}
@@ -160,7 +166,7 @@ function buildStackHint(languages: string[], stacks: ResolvedProjectContext["tec
 	// Python
 	if (languages.includes("python")) {
 		hints.push("- Use type hints. Prefer f-strings, dataclasses, and pathlib over older patterns.");
-		if (allLibs.some((l) => ["fastapi", "pydantic"].includes(l))) {
+		if (allLibraries.some((library) => ["fastapi", "pydantic"].includes(library))) {
 			hints.push("- FastAPI: use Pydantic models for request/response validation.");
 		}
 	}
@@ -182,14 +188,14 @@ function buildStackHint(languages: string[], stacks: ResolvedProjectContext["tec
 // ── Memory sections (condensed) ─────────────────────────────────────────────
 
 const MEMORY_RETURNING = `# Memory
-You have persistent vector memory across sessions. At session start, \`recall\` previous context ("project overview", "current plan", "active tasks"). Record decisions and learnings as you go.`;
+You have persistent vector memory across sessions. At startup, \`recall\` previous context ("project overview", "current plan"), check \`list_tasks\` and \`list_memories("plan")\` for unfinished work, then explore anything unfamiliar before implementing. Keep memory updated as you learn.`;
 
 const MEMORY_FIRST_SESSION = `# Memory
-This is your first session — memory is empty. As you explore and work, \`remember\` what you learn: architecture, conventions, decisions, goals. Do not attempt to recall on an empty database.`;
+This is your first session — memory is empty. If the workspace already has code, explore it first (manifests, README, entry points), then \`remember\` what you learn: architecture, codebase map, conventions, tech stack, goals. Do not attempt to recall on an empty database.`;
 
 // ── Settings rendering ──────────────────────────────────────────────────────
 
-function renderSettings(cfg: AgentStateConfig): string {
+function renderSettings(config: AgentStateConfig): string {
 	return `# Settings
-await_report: ${cfg.awaitReportMode}${cfg.awaitReportCustomRule ? ` ("${cfg.awaitReportCustomRule}")` : ""} · await_ask: ${cfg.awaitAskMode} · always_improve: ${cfg.alwaysImproveMode}${cfg.alwaysImproveMode === "custom" ? ` (${cfg.alwaysImproveScope ?? ""})` : ""}`;
+await_report: ${config.awaitReportMode}${config.awaitReportCustomRule ? ` ("${config.awaitReportCustomRule}")` : ""} · await_ask: ${config.awaitAskMode} · always_improve: ${config.alwaysImproveMode}${config.alwaysImproveMode === "custom" ? ` (${config.alwaysImproveScope ?? ""})` : ""}`;
 }

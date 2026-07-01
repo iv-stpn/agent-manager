@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { z } from "zod";
+import z from "zod";
 import type { ChannelStore } from "../discord/channels";
 import { sendQuestions, sendReport } from "../discord/interactions";
 import type { HonoOrchestratorEnv } from "../types";
@@ -137,7 +137,7 @@ export const discordRouter = new Hono<HonoOrchestratorEnv>()
 			file: formData.get("file"),
 		});
 		if (!parsed.success) {
-			const missing = parsed.error.issues.map((i) => i.path.join(".")).filter(Boolean);
+			const missing = parsed.error.issues.map((issue) => issue.path.join(".")).filter(Boolean);
 			return c.json({ error: `Missing or invalid: ${missing.join(", ")}` }, 400);
 		}
 		const { sessionId, title, file } = parsed.data;

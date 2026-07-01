@@ -47,6 +47,8 @@ export type AgentState = {
 	planMode: boolean;
 	//
 	lastApiInputTokens: number;
+	/** Output tokens from the last API call. Combined with lastApiInputTokens for the compaction threshold (input + output). */
+	lastApiOutputTokens: number;
 	lastUserMessageId: string | null;
 	lastWarningState: TokenWarningState;
 	pendingQuestions: Question[];

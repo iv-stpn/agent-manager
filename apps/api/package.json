@@ -15,11 +15,11 @@
 		"@agent-manager/db": "workspace:*",
 		"@agent-manager/projects": "workspace:*",
 		"@agent-manager/utils": "workspace:*",
-		"@hono/zod-validator": "^0.8.0",
+		"@hono/zod-validator": "0.8.0",
 		"drizzle-orm": "0.45.2",
 		"hono": "4.12.14",
 		"puppeteer-core": "^23.11.1",
-		"zod": "^3.24.1",
+		"zod": "4.4.3",
 		"discord.js": "^14.16.3"
 	},
 	"devDependencies": {

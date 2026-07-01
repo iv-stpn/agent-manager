@@ -1,3 +1,5 @@
+import { groupBy, toggleItem } from "@agent-manager/utils";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { LlmClientDialog } from "@/components/dialog/llm-client-dialog";
@@ -61,15 +63,17 @@ function defaultGithubSubdir(url: string): string {
 }
 
 interface NewProjectFormProps {
+	loading: boolean;
+	onLoadingChange: (loading: boolean) => void;
 	onSuccess?: () => void;
 	onCancel?: () => void;
 }
 
-export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
+export function NewProjectForm({ loading, onLoadingChange, onSuccess, onCancel }: NewProjectFormProps) {
 	const [step, setStep] = useState<Step>("basic");
 	const [form, setForm] = useState<NewProjectFormValues>(emptyForm);
 	const [pathWarning, setPathWarning] = useState<PathWarning>(null);
-	const [loading, setLoading] = useState(false);
+	const [acknowledgeDelete, setAcknowledgeDelete] = useState(false);
 	const [llmClients, setLlmClients] = useState<LlmClient[]>([]);
 	const [addingClient, setAddingClient] = useState(false);
 
@@ -82,7 +86,7 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 
 	function onClientSaved(client: LlmClient) {
 		setLlmClients((prev) => [client, ...prev]);
-		setForm((f) => ({ ...f, clientId: client.id }));
+		setForm((form) => ({ ...form, clientId: client.id }));
 		setAddingClient(false);
 	}
 
@@ -101,7 +105,7 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 	const [templateSubdirs, setTemplateSubdirs] = useState<Record<string, string>>({});
 	const [templatesLoading, setTemplatesLoading] = useState(false);
 
-	const update = (field: keyof NewProjectFormValues, value: string) => setForm((f) => ({ ...f, [field]: value }));
+	const update = (field: keyof NewProjectFormValues, value: string) => setForm((form) => ({ ...form, [field]: value }));
 
 	// Load tech stacks + guidelines when switching to context step
 	useEffect(() => {
@@ -130,32 +134,31 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 	}, [step, templates.length]);
 
 	function toggleStack(id: string) {
-		setSelectedTechStacks((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+		setSelectedTechStacks((previous) => toggleItem(previous, id));
 	}
 
 	function toggleGuideline(id: string) {
-		setSelectedGuidelines((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+		setSelectedGuidelines((previous) => toggleItem(previous, id));
 	}
 
 	function toggleBinary(binary: "python3" | "workerd" | "cargo") {
-		setForm((f) => ({
-			...f,
-			binaries: f.binaries.includes(binary) ? f.binaries.filter((b) => b !== binary) : [...f.binaries, binary],
-		}));
+		setForm((form) => ({ ...form, binaries: toggleItem(form.binaries, binary) }));
 	}
 
 	function toggleTemplate(name: string) {
-		setSelectedTemplates((prev) => (prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]));
+		setSelectedTemplates((prev) => toggleItem(prev, name));
 	}
 
 	function addGithubTemplate(url = "") {
-		setGithubTemplates((prev) => [...prev, { id: crypto.randomUUID(), url, subdirectory: "" }]);
+		setGithubTemplates((previous) => [...previous, { id: crypto.randomUUID(), url, subdirectory: "" }]);
 	}
 	function updateGithubTemplate(id: string, field: "url" | "subdirectory", value: string) {
-		setGithubTemplates((prev) => prev.map((g) => (g.id === id ? { ...g, [field]: value } : g)));
+		setGithubTemplates((previous) =>
+			previous.map((githubTemplate) => (githubTemplate.id === id ? { ...githubTemplate, [field]: value } : githubTemplate))
+		);
 	}
 	function removeGithubTemplate(id: string) {
-		setGithubTemplates((prev) => prev.filter((g) => g.id !== id));
+		setGithubTemplates((previous) => previous.filter((githubTemplate) => githubTemplate.id !== id));
 	}
 
 	async function handleSubmit(skipPathCheck = false) {
@@ -173,7 +176,7 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 			}
 		}
 
-		setLoading(true);
+		onLoadingChange(true);
 		try {
 			// Build templates array — local + github templates.
 			// The backend places each template in its own subdirectory when more
@@ -184,10 +187,10 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 				const subdir = templateSubdirs[name]?.trim();
 				rawTemplates.push({ type: "local", source: name, ...(subdir && { subdirectory: subdir }) });
 			}
-			for (const g of githubTemplates) {
-				const url = g.url.trim();
+			for (const githubTemplate of githubTemplates) {
+				const url = githubTemplate.url.trim();
 				if (!url) continue;
-				const subdir = g.subdirectory.trim();
+				const subdir = githubTemplate.subdirectory.trim();
 				rawTemplates.push({ type: "github", source: url, ...(subdir && { subdirectory: subdir }) });
 			}
 
@@ -196,9 +199,9 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 			// it blank, so the created subfolders aren't slugified URLs.
 			const multipleTemplates = rawTemplates.length > 1;
 			const templatesList: TemplateSelection[] = multipleTemplates
-				? rawTemplates.map((t) => {
-						if (t.subdirectory || t.type !== "github") return t;
-						return { ...t, subdirectory: defaultGithubSubdir(t.source) };
+				? rawTemplates.map((template) => {
+						if (template.subdirectory || template.type !== "github") return template;
+						return { ...template, subdirectory: defaultGithubSubdir(template.source) };
 					})
 				: rawTemplates;
 
@@ -248,7 +251,7 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : "Failed to create project");
 		} finally {
-			setLoading(false);
+			onLoadingChange(false);
 		}
 	}
 
@@ -278,20 +281,54 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 				)}
 				{pathWarning.status === "not_empty" && (
 					<>
-						<p className="text-sm text-muted-foreground">
-							The folder <code className="bg-muted px-1 rounded">{pathWarning.path}</code> is not empty. Use it anyway?
-						</p>
+						<div className="flex gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+							<AlertTriangle className="h-5 w-5 shrink-0 text-destructive" />
+							<div className="space-y-1">
+								<p className="text-sm font-semibold text-destructive">
+									Warning: all files in this folder will be permanently deleted
+								</p>
+								<p className="text-sm text-muted-foreground">
+									The folder <code className="bg-muted px-1 rounded">{pathWarning.path}</code> is not empty. To apply the selected
+									template,{" "}
+									<span className="font-semibold text-destructive">
+										every file and subfolder currently in this folder will be permanently deleted
+									</span>
+									. This action cannot be undone.
+								</p>
+							</div>
+						</div>
+						{/* biome-ignore lint/a11y/noLabelWithoutControl: the Checkbox is bound to this label */}
+						<label className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 cursor-pointer">
+							<Checkbox
+								checked={acknowledgeDelete}
+								onCheckedChange={(value) => setAcknowledgeDelete(value === true)}
+								className="mt-0.5"
+							/>
+							<span className="text-sm text-muted-foreground">
+								I understand that all files currently in this folder will be permanently deleted.
+							</span>
+						</label>
 						<div className="flex gap-2">
 							<Button
+								variant="destructive"
 								className="flex-1"
+								disabled={!acknowledgeDelete}
 								onClick={() => {
 									setPathWarning(null);
+									setAcknowledgeDelete(false);
 									handleSubmit(true);
 								}}
 							>
-								Continue
+								Delete &amp; continue
 							</Button>
-							<Button className="flex-1" variant="secondary" onClick={() => setPathWarning(null)}>
+							<Button
+								className="flex-1"
+								variant="secondary"
+								onClick={() => {
+									setPathWarning(null);
+									setAcknowledgeDelete(false);
+								}}
+							>
 								Go back
 							</Button>
 						</div>
@@ -361,9 +398,9 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 					)}
 				>
 					Templates
-					{(selectedTemplates.length > 0 || githubTemplates.some((g) => g.url.trim())) && (
+					{(selectedTemplates.length > 0 || githubTemplates.some((githubTemplate) => githubTemplate.url.trim())) && (
 						<span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold rounded-full bg-blue-100 text-blue-700">
-							{selectedTemplates.length + githubTemplates.filter((g) => g.url.trim()).length}
+							{selectedTemplates.length + githubTemplates.filter((githubTemplate) => githubTemplate.url.trim()).length}
 						</span>
 					)}
 				</button>
@@ -371,8 +408,8 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 
 			{step === "basic" && (
 				<form
-					onSubmit={(e) => {
-						e.preventDefault();
+					onSubmit={(event) => {
+						event.preventDefault();
 						handleSubmit();
 					}}
 					className="space-y-4"
@@ -383,7 +420,7 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 							id="np-name"
 							autoFocus
 							value={form.name}
-							onChange={(e) => update("name", e.target.value)}
+							onChange={(event) => update("name", event.target.value)}
 							placeholder="My Project"
 							required
 						/>
@@ -393,7 +430,7 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 						<Input
 							id="np-desc"
 							value={form.description}
-							onChange={(e) => update("description", e.target.value)}
+							onChange={(event) => update("description", event.target.value)}
 							placeholder="Optional description"
 						/>
 					</div>
@@ -402,7 +439,7 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 						<Input
 							id="np-path"
 							value={form.workspacePath}
-							onChange={(e) => update("workspacePath", e.target.value)}
+							onChange={(event) => update("workspacePath", event.target.value)}
 							placeholder="/path/to/repo (leave empty for internal)"
 						/>
 					</div>
@@ -421,7 +458,7 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 						<select
 							id="np-client"
 							value={form.clientId}
-							onChange={(e) => update("clientId", e.target.value)}
+							onChange={(event) => update("clientId", event.target.value)}
 							className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
 						>
 							<option value="" disabled>
@@ -527,12 +564,12 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 														<Input
 															placeholder={`subdir · ${tpl.name}`}
 															value={templateSubdirs[tpl.name] || ""}
-															onChange={(e) => {
-																e.stopPropagation();
-																setTemplateSubdirs((prev) => ({ ...prev, [tpl.name]: e.target.value }));
+															onChange={(event) => {
+																event.stopPropagation();
+																setTemplateSubdirs((prev) => ({ ...prev, [tpl.name]: event.target.value }));
 															}}
 															className="w-36 h-7 text-xs"
-															onClick={(e) => e.stopPropagation()}
+															onClick={(event) => event.stopPropagation()}
 														/>
 													)}
 												</label>
@@ -547,26 +584,26 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 								<Label className="text-sm font-medium">GitHub Repository URLs</Label>
 								{githubTemplates.length === 0 && <p className="text-xs italic text-gray-400">No GitHub templates added yet.</p>}
 								<div className="space-y-2">
-									{githubTemplates.map((g) => (
-										<div key={g.id} className="flex gap-2 items-center">
+									{githubTemplates.map((githubTemplate) => (
+										<div key={githubTemplate.id} className="flex gap-2 items-center">
 											<Input
 												type="url"
-												value={g.url}
-												onChange={(e) => updateGithubTemplate(g.id, "url", e.target.value)}
+												value={githubTemplate.url}
+												onChange={(event) => updateGithubTemplate(githubTemplate.id, "url", event.target.value)}
 												placeholder="https://github.com/user/repo.git"
 												className="flex-1"
 											/>
 											<Input
-												value={g.subdirectory}
-												onChange={(e) => updateGithubTemplate(g.id, "subdirectory", e.target.value)}
-												placeholder={`subdir · ${g.url ? defaultGithubSubdir(g.url) || "auto" : "auto"}`}
+												value={githubTemplate.subdirectory}
+												onChange={(event) => updateGithubTemplate(githubTemplate.id, "subdirectory", event.target.value)}
+												placeholder={`subdir · ${githubTemplate.url ? defaultGithubSubdir(githubTemplate.url) || "auto" : "auto"}`}
 												className="w-44"
 											/>
 											<Button
 												type="button"
 												variant="ghost"
 												size="sm"
-												onClick={() => removeGithubTemplate(g.id)}
+												onClick={() => removeGithubTemplate(githubTemplate.id)}
 												className="text-gray-400 hover:text-destructive px-2"
 											>
 												✕
@@ -588,10 +625,12 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 									<p className="text-sm font-medium mb-2">Suggested from selected tech stacks:</p>
 									<div className="space-y-1">
 										{selectedTechStacks
-											.map((stackId) => techStacks.find((s) => s.id === stackId))
+											.map((stackId) => techStacks.find((techStack) => techStack.id === stackId))
 											.filter((stack): stack is TechStack => Boolean(stack?.templateGithubUrl))
 											.map((stack) => {
-												const alreadyAdded = githubTemplates.some((g) => g.url.trim() === (stack.templateGithubUrl || "").trim());
+												const alreadyAdded = githubTemplates.some(
+													(githubTemplate) => githubTemplate.url.trim() === (stack.templateGithubUrl || "").trim()
+												);
 												return (
 													<div key={stack.id} className="flex items-center gap-2 text-xs">
 														<span className="font-medium">{stack.name}:</span>
@@ -644,20 +683,24 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 									<p className="text-xs italic text-gray-400">No tech stacks in the library yet.</p>
 								) : (
 									<ul className="divide-y rounded-md border max-h-48 overflow-y-auto">
-										{techStacks.map((s) => {
-											const selected = selectedTechStacks.includes(s.id);
+										{techStacks.map((techStack) => {
+											const selected = selectedTechStacks.includes(techStack.id);
 											return (
-												<li key={s.id}>
+												<li key={techStack.id}>
 													<label
-														htmlFor={`stack-${s.id}`}
+														htmlFor={`stack-${techStack.id}`}
 														className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 transition-colors cursor-pointer"
 													>
-														<Checkbox id={`stack-${s.id}`} checked={selected} onCheckedChange={() => toggleStack(s.id)} />
+														<Checkbox
+															id={`stack-${techStack.id}`}
+															checked={selected}
+															onCheckedChange={() => toggleStack(techStack.id)}
+														/>
 														<span className="min-w-0">
-															<span className="block text-sm font-medium">{s.name}</span>
+															<span className="block text-sm font-medium">{techStack.name}</span>
 															<span className="block text-xs text-gray-500">
-																{s.language}
-																{s.description ? ` · ${s.description}` : ""}
+																{techStack.language}
+																{techStack.description ? ` · ${techStack.description}` : ""}
 															</span>
 														</span>
 													</label>
@@ -713,59 +756,52 @@ export function NewProjectForm({ onSuccess, onCancel }: NewProjectFormProps) {
 }
 
 /** Grouped guideline picker used in the new-project form. */
-function GuidelinePickerList({
-	guidelines,
-	categories,
-	selectedIds,
-	onToggle,
-}: {
+type GuidelinePickerListProps = {
 	guidelines: Guideline[];
 	categories: GuidelineCategory[];
 	selectedIds: string[];
 	onToggle: (id: string) => void;
-}) {
+};
+
+function GuidelinePickerList({ guidelines, categories, selectedIds, onToggle }: GuidelinePickerListProps) {
 	// Group by category
-	const grouped = new Map<string | null, Guideline[]>();
-	for (const g of guidelines) {
-		const key = g.categoryId ?? null;
-		const arr = grouped.get(key) ?? [];
-		arr.push(g);
-		grouped.set(key, arr);
-	}
+	const grouped = groupBy(guidelines, (guideline) => guideline.categoryId ?? null);
 
 	const orderedKeys: Array<string | null> = [
-		...categories.map((c) => c.id).filter((id) => grouped.has(id)),
+		...categories.map((category) => category.id).filter((id) => grouped.has(id)),
 		...(grouped.has(null) ? [null] : []),
 	];
 
 	const [activeKey, setActiveKey] = useState<string | null>(orderedKeys[0] ?? null);
+
 	// Keep the active tab valid as the library loads/changes.
-	const activeExists = orderedKeys.some((k) => k === activeKey);
+	const activeExists = orderedKeys.some((key) => key === activeKey);
 	const currentKey = activeExists ? activeKey : (orderedKeys[0] ?? null);
 
-	const items = grouped.get(currentKey) ?? [];
-	const hasLanguage = items.some((g) => g.language);
+	const guidelineChoices = grouped.get(currentKey) ?? [];
+	const hasLanguage = guidelineChoices.some((guideline) => guideline.language);
 
 	return (
 		<div>
 			{/* Category tabs */}
 			<div className="flex flex-wrap gap-1 border-b mb-2">
-				{orderedKeys.map((catId) => {
-					const cat = catId ? categories.find((c) => c.id === catId) : null;
-					const count = grouped.get(catId)?.length ?? 0;
-					const active = catId === currentKey;
+				{orderedKeys.map((categoryId) => {
+					const category = categoryId ? categories.find((category) => category.id === categoryId) : null;
+					const count = grouped.get(categoryId)?.length ?? 0;
+					const active = categoryId === currentKey;
+
 					return (
 						<button
-							key={catId ?? "__uncategorized"}
+							key={categoryId ?? "__uncategorized"}
 							type="button"
-							onClick={() => setActiveKey(catId)}
+							onClick={() => setActiveKey(categoryId)}
 							className={cn(
 								"flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition",
 								active ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
 							)}
 						>
-							{cat ? <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: cat.color }} /> : null}
-							<span>{cat ? cat.name : "Uncategorized"}</span>
+							{category ? <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: category.color }} /> : null}
+							<span>{category ? category.name : "Uncategorized"}</span>
 							<span className="text-gray-400">({count})</span>
 						</button>
 					);
@@ -775,12 +811,12 @@ function GuidelinePickerList({
 			<div className="max-h-64 overflow-y-auto pr-1">
 				<table className="w-full text-left rounded-md border border-separate border-spacing-0 overflow-hidden">
 					<tbody>
-						{items.map((g) => {
-							const selected = selectedIds.includes(g.id);
+						{guidelineChoices.map((guideline) => {
+							const selected = selectedIds.includes(guideline.id);
 							return (
 								<tr
-									key={g.id}
-									onClick={() => onToggle(g.id)}
+									key={guideline.id}
+									onClick={() => onToggle(guideline.id)}
 									className={cn(
 										"cursor-pointer transition-colors hover:bg-gray-50",
 										selected && "bg-blue-50/60 hover:bg-blue-50"
@@ -788,16 +824,16 @@ function GuidelinePickerList({
 								>
 									<td className="w-8 px-3 py-2 align-top border-b">
 										<Checkbox
-											id={`guideline-${g.id}`}
+											id={`guideline-${guideline.id}`}
 											checked={selected}
-											onCheckedChange={() => onToggle(g.id)}
-											onClick={(e) => e.stopPropagation()}
+											onCheckedChange={() => onToggle(guideline.id)}
+											onClick={(event) => event.stopPropagation()}
 										/>
 									</td>
-									<td className="px-3 py-2 align-top border-b text-sm font-medium">{g.name}</td>
-									<td className="px-3 py-2 align-top border-b text-xs text-gray-500">{g.description || "—"}</td>
+									<td className="px-3 py-2 align-top border-b text-sm font-medium">{guideline.name}</td>
+									<td className="px-3 py-2 align-top border-b text-xs text-gray-500">{guideline.description || "—"}</td>
 									{hasLanguage && (
-										<td className="w-24 px-3 py-2 align-top border-b text-xs text-gray-500">{g.language || "—"}</td>
+										<td className="w-24 px-3 py-2 align-top border-b text-xs text-gray-500">{guideline.language || "—"}</td>
 									)}
 								</tr>
 							);
@@ -815,13 +851,32 @@ interface NewProjectDialogProps {
 }
 
 export function NewProjectDialog({ open, onOpenChange }: NewProjectDialogProps) {
+	const [loading, setLoading] = useState(false);
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
+		<Dialog
+			open={open}
+			onOpenChange={(next) => {
+				// Block closing (X, Escape, backdrop) while a project is being created.
+				if (!next && loading) return;
+				onOpenChange(next);
+			}}
+		>
 			<DialogContent className="max-h-[85vh] overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>New Project</DialogTitle>
 				</DialogHeader>
-				<NewProjectForm onSuccess={() => onOpenChange(false)} onCancel={() => onOpenChange(false)} />
+				<NewProjectForm
+					loading={loading}
+					onLoadingChange={setLoading}
+					onSuccess={() => onOpenChange(false)}
+					onCancel={() => onOpenChange(false)}
+				/>
+				{loading && (
+					<div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg bg-background/80 backdrop-blur-sm">
+						<Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+						<p className="text-sm font-medium text-muted-foreground">Creating project...</p>
+					</div>
+				)}
 			</DialogContent>
 		</Dialog>
 	);

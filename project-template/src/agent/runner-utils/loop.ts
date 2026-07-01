@@ -1,7 +1,15 @@
+import { extractTextContent } from "@agent-manager/utils/blocks";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import { nanoid } from "nanoid";
-import { getMessages, getSession, insertCompaction, insertMessage, updateSession } from "../../db";
+import {
+	getRebuildMessages,
+	getSession,
+	insertCompaction,
+	insertMessage,
+	markSessionMessagesCompacted,
+	updateSession,
+} from "../../db";
 import { sessionEmitter } from "../../emitter";
 import { env } from "../../env";
 import { fetchProjectContext } from "../../external/context";
@@ -9,7 +17,6 @@ import { compactMessages, estimateTokens } from "../context";
 import { buildSystemPrompt } from "../system-prompt";
 import { calculateTokenWarningState, MODEL_CONTEXT_WINDOW } from "../token-budget";
 import type { AgentState } from "../types";
-import { extractTextContent } from "../utils/content";
 import { classifyApiError } from "../utils/errors";
 import { bootstrapWorkspace, buildStartupContext } from "../workspace";
 import { callAnthropicApi, recordApiTokens, recordAssistantMessage, requestSummary } from "./api";
@@ -38,16 +45,20 @@ export function pushOrMergeMessage(messages: MessageParam[], role: "user" | "ass
 // ── Context compaction ─────────────────────────────────────────────────────────────
 export async function doCompaction(agent: AgentState): Promise<void> {
 	const before = agent.messages.length;
-	const estBefore = agent.lastApiInputTokens || estimateTokens(agent.messages);
+	// Threshold is input + output (output occupies the same window via max_tokens).
+	const estBefore = agent.lastApiInputTokens + agent.lastApiOutputTokens || estimateTokens(agent.messages);
 
 	// Surface a dedicated "compacting" state while the (potentially slow)
-	// summarization round-trip runs, then restore "running".
+	// summarization round-trip runs, then restore "running". Input is blocked
+	// at the route layer while this status is set, so the summarization call
+	// can't be aborted by an interject.
 	setStatus(agent, "compacting");
 
 	let compacted: import("@anthropic-ai/sdk/resources").MessageParam[];
 	let summary: string;
+	let didCompact: boolean;
 	try {
-		({ messages: compacted, summary } = await compactMessages(agent.messages, agent.client));
+		({ messages: compacted, summary, didCompact } = await compactMessages(agent.messages, agent.client));
 		agent.circuitBreaker.recordSuccess();
 	} catch (err) {
 		agent.circuitBreaker.recordFailure();
@@ -61,6 +72,38 @@ export async function doCompaction(agent: AgentState): Promise<void> {
 	agent.messages = compacted;
 	// Reset — message array is restructured after compaction
 	agent.lastApiInputTokens = 0;
+	agent.lastApiOutputTokens = 0;
+
+	// Reset "since compaction" token counters — a fresh cycle begins
+	updateSession(agent.db, agent.sessionId, {
+		tokensInputSinceCompaction: 0,
+		tokensOutputSinceCompaction: 0,
+		tokensCacheReadSinceCompaction: 0,
+		tokensCacheWriteSinceCompaction: 0,
+	});
+
+	// Persist the compaction boundary so the fresh conversation appears in the
+	// same timeline AND a later resume/restart rebuilds from here instead of
+	// re-feeding the just-summarized transcript:
+	//   1. Mark every existing message as summarized out of the active context
+	//      (kept in the DB/timeline, skipped on API rebuild).
+	//   2. Persist the restart primer as the new first active message so the
+	//      restarted conversation is visible live and after a reload.
+	// Skipped when compactMessages bailed (too few messages / empty transcript)
+	// — in that case `compacted` is the original array and there's no primer.
+	if (didCompact) {
+		markSessionMessagesCompacted(agent.db, agent.sessionId);
+		const restartContent = compacted[0]?.content;
+		const restartRow = insertMessage(agent.db, {
+			sessionId: agent.sessionId,
+			role: "user",
+			content: typeof restartContent === "string" ? restartContent : JSON.stringify(restartContent),
+			createdAt: Date.now(),
+		});
+		agent.lastUserMessageId = restartRow.id;
+		emitMessage(agent, { id: restartRow.id, role: "user", content: restartContent });
+	}
+
 	const estAfter = estimateTokens(agent.messages);
 	console.log(
 		`[Agent ${agent.sessionId}] Compacted context: ${before} → ${compacted.length} messages (${estBefore} → ${estAfter} est. tokens)`
@@ -125,8 +168,9 @@ export async function runLoop(agent: AgentState): Promise<void> {
 				break;
 			}
 
-			// Auto-compact context if too large (using circuit breaker)
-			const estTokens = agent.lastApiInputTokens || estimateTokens(agent.messages);
+			// Auto-compact context if too large (using circuit breaker).
+			// Threshold is input + output: both occupy the context window.
+			const estTokens = agent.lastApiInputTokens + agent.lastApiOutputTokens || estimateTokens(agent.messages);
 
 			// Emit token warning state changes
 			const warningInfo = calculateTokenWarningState(estTokens);
@@ -252,6 +296,7 @@ export async function runLoop(agent: AgentState): Promise<void> {
 						createdAt: Date.now(),
 					});
 					agent.lastUserMessageId = message.id;
+					emitMessage(agent, { id: message.id, role: "user", content: continueMessage });
 					continue;
 				}
 
@@ -298,7 +343,7 @@ export async function runLoop(agent: AgentState): Promise<void> {
 			}
 
 			if (response.stop_reason === "tool_use") {
-				const toolBlocks = response.content.filter((b) => b.type === "tool_use");
+				const toolBlocks = response.content.filter((block) => block.type === "tool_use");
 				agent.messages.push({ role: "assistant", content: response.content });
 
 				const toolResults = await executeTools(agent, toolBlocks, messageId);
@@ -418,7 +463,8 @@ export async function run(agent: AgentState, task: string): Promise<void> {
 	const startupMsgs = await buildStartupContext(task, isNewProject);
 	agent.messages = startupMsgs.map((content) => ({ role: "user", content }));
 	for (const content of startupMsgs) {
-		insertMessage(agent.db, { sessionId: agent.sessionId, role: "user", content, createdAt: Date.now() });
+		const row = insertMessage(agent.db, { sessionId: agent.sessionId, role: "user", content, createdAt: Date.now() });
+		emitMessage(agent, { id: row.id, role: "user", content });
 	}
 
 	await runLoop(agent);
@@ -426,12 +472,15 @@ export async function run(agent: AgentState, task: string): Promise<void> {
 
 // Rebuild the Anthropic message history from the DB transcript, merging
 // consecutive same-role rows (consecutive user rows can occur after an
-// interrupted interject). System-prompt rows are display-only — the prompt is
-// sent as a separate API param. Rows recording a failed attempt (assistant
-// messages with `error` set) are dropped so a retried/restarted turn doesn't
-// replay its own failure back to the model.
+// interrupted interject). Only active (non-compacted) rows are read — messages
+// already summarized out by a compaction are skipped so a resume/restart
+// rebuilds from the compaction's restart primer rather than re-feeding the
+// full transcript. System-prompt rows are display-only — the prompt is sent as
+// a separate API param. Rows recording a failed attempt (assistant messages
+// with `error` set) are dropped so a retried/restarted turn doesn't replay its
+// own failure back to the model.
 function rebuildMessagesFromDb(agent: AgentState): MessageParam[] {
-	const rows = getMessages(agent.db, agent.sessionId);
+	const rows = getRebuildMessages(agent.db, agent.sessionId);
 	const messages: MessageParam[] = [];
 	for (const row of rows) {
 		if (row.role === "system") continue;

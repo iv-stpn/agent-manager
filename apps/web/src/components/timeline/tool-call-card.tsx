@@ -35,7 +35,7 @@ export function ToolCallCard({ tc }: { tc: ToolCall }) {
 		<div className="rounded-md border text-xs font-mono overflow-hidden">
 			<button
 				type="button"
-				onClick={() => setOpen((x) => !x)}
+				onClick={() => setOpen((isOpen) => !isOpen)}
 				className="flex items-center gap-2 w-full px-3 py-2 bg-muted/50 hover:bg-muted text-left"
 			>
 				{open ? (

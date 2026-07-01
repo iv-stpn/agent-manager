@@ -278,10 +278,10 @@ export class ProjectDocker {
 
 			return {
 				running,
-				containers: containers.map((c: ContainerInfo) => ({
-					name: c.Service,
-					status: c.State,
-					ports: c.Publishers?.map((p) => `${p.PublishedPort}:${p.TargetPort}`).join(", ") || "",
+				containers: containers.map((container: ContainerInfo) => ({
+					name: container.Service,
+					status: container.State,
+					ports: container.Publishers?.map((publisher) => `${publisher.PublishedPort}:${publisher.TargetPort}`).join(", ") || "",
 				})),
 			};
 		} catch {
@@ -296,12 +296,9 @@ export class ProjectDocker {
 		const projectDir = this.manager.getProjectDir(projectId);
 		const composePath = join(projectDir, "docker-compose.yml");
 
-		if (!existsSync(composePath)) {
-			throw new Error(`Project "${projectId}" docker-compose.yml not found`);
-		}
+		if (!existsSync(composePath)) throw new Error(`Project "${projectId}" docker-compose.yml not found`);
 
 		const result = await $`docker compose -f ${composePath} exec ${service} ${command}`.cwd(projectDir).text();
-
 		return result;
 	}
 
@@ -354,10 +351,7 @@ export class ProjectDocker {
 		const projectDir = this.manager.getProjectDir(projectId);
 		const composePath = join(projectDir, "docker-compose.yml");
 
-		if (!existsSync(composePath)) {
-			throw new Error(`Project "${projectId}" docker-compose.yml not found`);
-		}
-
+		if (!existsSync(composePath)) throw new Error(`Project "${projectId}" docker-compose.yml not found`);
 		await $`docker compose -f ${composePath} build --no-cache --pull`.cwd(projectDir);
 	}
 

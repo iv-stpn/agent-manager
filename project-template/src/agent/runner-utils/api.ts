@@ -1,3 +1,4 @@
+import { extractTextContent } from "@agent-manager/utils/blocks";
 import type Anthropic from "@anthropic-ai/sdk";
 import { addTokens, getSession, insertMessage, updateMessageTokens } from "../../db";
 import { sessionEmitter } from "../../emitter";
@@ -5,9 +6,7 @@ import { env } from "../../env";
 import { BASE_MAX_TOKENS, ESCALATED_MAX_TOKENS } from "../token-budget";
 import { AGENT_TOOLS } from "../tools/definitions";
 import type { AgentState } from "../types";
-import { extractTextContent } from "../utils/content";
-import type { AgentError } from "../utils/errors";
-import { withRetry } from "../utils/errors";
+import { type AgentError, withRetry } from "../utils/errors";
 import { emitMessage } from "./status";
 
 export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Messages.Message> {
@@ -96,6 +95,10 @@ export function recordApiTokens(
 	// in `cacheReadTokens`. If we only tracked `inputTokens`, compaction would never
 	// fire because the estimate would be 5k when the real context is 630k+.
 	agent.lastApiInputTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
+	// Output tokens occupy the same context window (max_tokens reserves space
+	// for them). The compaction threshold is input + output, so track this
+	// alongside the input estimate above.
+	agent.lastApiOutputTokens = outputTokens;
 
 	// Attribute input/cache-write tokens to the user message; cache-read to the assistant
 	if (agent.lastUserMessageId) {
@@ -117,6 +120,10 @@ export function recordApiTokens(
 			totalOutputTokens: totals?.totalOutputTokens ?? 0,
 			totalCacheReadTokens: totals?.totalCacheReadTokens ?? 0,
 			totalCacheWriteTokens: totals?.totalCacheWriteTokens ?? 0,
+			tokensInputSinceCompaction: totals?.tokensInputSinceCompaction ?? 0,
+			tokensOutputSinceCompaction: totals?.tokensOutputSinceCompaction ?? 0,
+			tokensCacheReadSinceCompaction: totals?.tokensCacheReadSinceCompaction ?? 0,
+			tokensCacheWriteSinceCompaction: totals?.tokensCacheWriteSinceCompaction ?? 0,
 		},
 	});
 }
@@ -126,9 +133,9 @@ export async function requestSummary(agent: AgentState): Promise<string> {
 	try {
 		const transcript = agent.messages
 			.slice(-10)
-			.map((m) => {
-				const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-				return `[${m.role.toUpperCase()}]: ${content.slice(0, 1000)}`;
+			.map((message) => {
+				const content = typeof message.content === "string" ? message.content : JSON.stringify(message.content);
+				return `[${message.role.toUpperCase()}]: ${content.slice(0, 1000)}`;
 			})
 			.join("\n\n");
 

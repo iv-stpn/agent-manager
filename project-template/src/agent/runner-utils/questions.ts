@@ -33,17 +33,17 @@ export function injectAnswers(
 	answers: Array<{ questionId: string; answer: string }>,
 	pending: Question[]
 ): void {
-	for (const a of answers) {
-		answerQuestion(agent.db, a.questionId, a.answer);
-		const q = pending.find((p) => p.id === a.questionId);
-		if (q) q.answer = a.answer;
+	for (const answer of answers) {
+		answerQuestion(agent.db, answer.questionId, answer.answer);
+		const question = pending.find((pendingQuestion) => pendingQuestion.id === answer.questionId);
+		if (question) question.answer = answer.answer;
 		// Append answer to the question's vector memory entry
-		recall(a.questionId, "question", 1)
+		recall(answer.questionId, "question", 1)
 			.then((results) => {
-				const entry = results.find((r) => r.metadata?.questionId === a.questionId);
+				const entry = results.find((result) => result.metadata?.questionId === answer.questionId);
 				if (entry) {
 					updateMemory(entry.id, {
-						content: `${entry.content}\n\n**Answer:** ${a.answer}`,
+						content: `${entry.content}\n\n**Answer:** ${answer.answer}`,
 						metadata: { ...entry.metadata, status: "answered" },
 					}).catch(() => {});
 				}

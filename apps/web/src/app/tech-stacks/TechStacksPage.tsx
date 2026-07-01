@@ -1,3 +1,4 @@
+import { replaceOrPrependById } from "@agent-manager/utils";
 import { Edit2, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import type { StackEntry, TechStack } from "@/lib/agent-api";
@@ -24,15 +25,15 @@ export default function TechStacksPage() {
 		setEditing(null);
 	}
 
-	function openEdit(s: TechStack) {
+	function openEdit(techStack: TechStack) {
 		setForm({
-			language: s.language,
-			name: s.name,
-			description: s.description,
-			stack: s.stack,
-			templateGithubUrl: s.templateGithubUrl || "",
+			language: techStack.language,
+			name: techStack.name,
+			description: techStack.description,
+			stack: techStack.stack,
+			templateGithubUrl: techStack.templateGithubUrl || "",
 		});
-		setEditing(s);
+		setEditing(techStack);
 		setCreating(false);
 	}
 
@@ -44,13 +45,8 @@ export default function TechStacksPage() {
 	async function save() {
 		if (!form.name.trim() || !form.language.trim()) return;
 		try {
-			if (editing) {
-				const updated = await updateTechStack(editing.id, form);
-				mutateCache<TechStack[]>("tech-stacks", (list) => list.map((s) => (s.id === editing.id ? updated : s)));
-			} else {
-				const created = await createTechStack(form);
-				mutateCache<TechStack[]>("tech-stacks", (list) => [created, ...list]);
-			}
+			const saved = editing ? await updateTechStack(editing.id, form) : await createTechStack(form);
+			mutateCache<TechStack[]>("tech-stacks", (list) => replaceOrPrependById(list, saved));
 			closeDialog();
 		} catch (err) {
 			console.error("Failed to save tech stack:", err);
@@ -61,7 +57,7 @@ export default function TechStacksPage() {
 		if (!confirm("Delete this tech stack?")) return;
 		try {
 			await deleteTechStack(id);
-			mutateCache<TechStack[]>("tech-stacks", (list) => list.filter((s) => s.id !== id));
+			mutateCache<TechStack[]>("tech-stacks", (list) => list.filter((techStack) => techStack.id !== id));
 		} catch (err) {
 			console.error("Failed to delete tech stack:", err);
 		}
@@ -71,13 +67,13 @@ export default function TechStacksPage() {
 
 	// ── Stack entry editing helpers ──────────────────────────────────────────
 	function patchEntry(i: number, patch: Partial<StackEntry>) {
-		setForm((f) => ({ ...f, stack: f.stack.map((e, idx) => (idx === i ? { ...e, ...patch } : e)) }));
+		setForm((form) => ({ ...form, stack: form.stack.map((e, idx) => (idx === i ? { ...e, ...patch } : e)) }));
 	}
 	function addEntry() {
-		setForm((f) => ({ ...f, stack: [...f.stack, { ...EMPTY_ENTRY }] }));
+		setForm((form) => ({ ...form, stack: [...form.stack, { ...EMPTY_ENTRY }] }));
 	}
 	function removeEntry(i: number) {
-		setForm((f) => ({ ...f, stack: f.stack.filter((_, idx) => idx !== i) }));
+		setForm((form) => ({ ...form, stack: form.stack.filter((_, idx) => idx !== i) }));
 	}
 
 	return (
@@ -109,23 +105,27 @@ export default function TechStacksPage() {
 					</div>
 				) : (
 					<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-						{stacks.map((s) => (
+						{stacks.map((techStack) => (
 							<div
-								key={s.id}
+								key={techStack.id}
 								className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3 hover:border-gray-300 transition-colors"
 							>
 								<div className="flex items-start justify-between gap-3">
 									<div className="min-w-0">
 										<div className="flex items-center gap-2 mb-1">
-											<span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{s.language}</span>
+											<span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+												{techStack.language}
+											</span>
 										</div>
-										<h3 className="font-semibold text-gray-900 truncate">{s.name}</h3>
-										{s.description && <p className="text-sm text-gray-500 mt-0.5 line-clamp-2">{s.description}</p>}
+										<h3 className="font-semibold text-gray-900 truncate">{techStack.name}</h3>
+										{techStack.description && (
+											<p className="text-sm text-gray-500 mt-0.5 line-clamp-2">{techStack.description}</p>
+										)}
 									</div>
 									<div className="flex gap-1 shrink-0">
 										<button
 											type="button"
-											onClick={() => openEdit(s)}
+											onClick={() => openEdit(techStack)}
 											className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
 											title="Edit"
 										>
@@ -133,7 +133,7 @@ export default function TechStacksPage() {
 										</button>
 										<button
 											type="button"
-											onClick={() => remove(s.id)}
+											onClick={() => remove(techStack.id)}
 											className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
 											title="Delete"
 										>
@@ -142,7 +142,7 @@ export default function TechStacksPage() {
 									</div>
 								</div>
 								<div className="flex flex-col gap-2">
-									{s.stack.map((entry, i) => (
+									{techStack.stack.map((entry, i) => (
 										// biome-ignore lint/suspicious/noArrayIndexKey: render-stable snapshot list
 										<div key={`${entry.label}-${i}`} className="bg-gray-50 rounded-lg p-3 text-xs">
 											<div className="font-semibold text-gray-700 mb-1">{entry.label}</div>
@@ -208,8 +208,8 @@ function StackDialog({ editing, form, setForm, patchEntry, addEntry, removeEntry
 	return (
 		<div
 			className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-			onClick={(e) => e.target === e.currentTarget && close()}
-			onKeyDown={(e) => e.key === "Escape" && close()}
+			onClick={(event) => event.target === event.currentTarget && close()}
+			onKeyDown={(event) => event.key === "Escape" && close()}
 			role="dialog"
 			aria-modal="true"
 		>
@@ -233,7 +233,7 @@ function StackDialog({ editing, form, setForm, patchEntry, addEntry, removeEntry
 								autoFocus
 								type="text"
 								value={form.language}
-								onChange={(e) => setForm((f) => ({ ...f, language: e.target.value }))}
+								onChange={(event) => setForm((form) => ({ ...form, language: event.target.value }))}
 								className={inputCls}
 								placeholder="e.g. TypeScript"
 							/>
@@ -246,7 +246,7 @@ function StackDialog({ editing, form, setForm, patchEntry, addEntry, removeEntry
 								id="ts-name"
 								type="text"
 								value={form.name}
-								onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+								onChange={(event) => setForm((form) => ({ ...form, name: event.target.value }))}
 								className={inputCls}
 								placeholder="Stack name"
 							/>
@@ -261,7 +261,7 @@ function StackDialog({ editing, form, setForm, patchEntry, addEntry, removeEntry
 							id="ts-desc"
 							type="text"
 							value={form.description}
-							onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+							onChange={(event) => setForm((form) => ({ ...form, description: event.target.value }))}
 							className={inputCls}
 							placeholder="Short description"
 						/>
@@ -276,7 +276,7 @@ function StackDialog({ editing, form, setForm, patchEntry, addEntry, removeEntry
 							id="ts-template"
 							type="url"
 							value={form.templateGithubUrl}
-							onChange={(e) => setForm((f) => ({ ...f, templateGithubUrl: e.target.value }))}
+							onChange={(event) => setForm((form) => ({ ...form, templateGithubUrl: event.target.value }))}
 							className={inputCls}
 							placeholder="https://github.com/user/repo.git"
 						/>
@@ -299,13 +299,13 @@ function StackDialog({ editing, form, setForm, patchEntry, addEntry, removeEntry
 						{form.stack.length === 0 && (
 							<p className="text-xs text-gray-400">No groups yet. Add a group like "Backend" or "Frontend".</p>
 						)}
-						{form.stack.map((entry, i) => (
+						{form.stack.map((entry, idx) => (
 							<StackEntryEditor
 								// biome-ignore lint/suspicious/noArrayIndexKey: items edited in place by index
-								key={i}
+								key={idx}
 								entry={entry}
-								onChange={(patch) => patchEntry(i, patch)}
-								onRemove={() => removeEntry(i)}
+								onChange={(patch) => patchEntry(idx, patch)}
+								onRemove={() => removeEntry(idx)}
 							/>
 						))}
 					</div>
@@ -344,10 +344,10 @@ function StackEntryEditor({
 	onChange: (patch: Partial<StackEntry>) => void;
 	onRemove: () => void;
 }) {
-	function patchLib(i: number, patch: Partial<{ name: string; version: string }>) {
+	function patchLibrary(index: number, patch: Partial<{ name: string; version: string }>) {
 		onChange({
 			libraries: entry.libraries.map((lib, idx) =>
-				idx === i
+				idx === index
 					? { name: patch.name ?? lib.name, version: patch.version !== undefined ? patch.version || undefined : lib.version }
 					: lib
 			),
@@ -360,7 +360,7 @@ function StackEntryEditor({
 				<input
 					type="text"
 					value={entry.label}
-					onChange={(e) => onChange({ label: e.target.value })}
+					onChange={(event) => onChange({ label: event.target.value })}
 					className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
 					placeholder="Group label (e.g. Backend)"
 				/>
@@ -391,14 +391,14 @@ function StackEntryEditor({
 						<input
 							type="text"
 							value={lib.name}
-							onChange={(e) => patchLib(i, { name: e.target.value })}
+							onChange={(event) => patchLibrary(i, { name: event.target.value })}
 							className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
 							placeholder="library name"
 						/>
 						<input
 							type="text"
 							value={lib.version ?? ""}
-							onChange={(e) => patchLib(i, { version: e.target.value })}
+							onChange={(event) => patchLibrary(i, { version: event.target.value })}
 							className="w-24 px-2.5 py-1.5 border border-gray-300 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
 							placeholder="version"
 						/>
@@ -418,11 +418,11 @@ function StackEntryEditor({
 				<span className="text-xs font-medium text-gray-600">Usage patterns (one per line)</span>
 				<textarea
 					value={entry.usagePatterns.join("\n")}
-					onChange={(e) =>
+					onChange={(event) =>
 						onChange({
-							usagePatterns: e.target.value
+							usagePatterns: event.target.value
 								.split("\n")
-								.map((p) => p.trim())
+								.map((pattern) => pattern.trim())
 								.filter(Boolean),
 						})
 					}

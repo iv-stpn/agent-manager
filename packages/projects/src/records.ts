@@ -26,6 +26,10 @@ export interface SessionRecord {
 	totalOutputTokens: number;
 	totalCacheReadTokens: number;
 	totalCacheWriteTokens: number;
+	tokensInputSinceCompaction: number;
+	tokensOutputSinceCompaction: number;
+	tokensCacheReadSinceCompaction: number;
+	tokensCacheWriteSinceCompaction: number;
 	discordChannelId: string | null;
 	createdAt: number;
 	updatedAt: number;

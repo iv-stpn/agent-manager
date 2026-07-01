@@ -1,11 +1,11 @@
 import { Hono } from "hono";
-import { z } from "zod";
+import z from "zod";
 import { renderMermaid } from "../render/chromium";
 import type { HonoOrchestratorEnv } from "../types";
 
 const MermaidSchema = z.object({ definition: z.string().min(1) });
 
-const png = (buf: Buffer) => new Response(new Uint8Array(buf), { headers: { "content-type": "image/png" } });
+const png = (buffer: Buffer) => new Response(new Uint8Array(buffer), { headers: { "content-type": "image/png" } });
 
 /**
  * Centralised rendering endpoints. Project agents call these instead of

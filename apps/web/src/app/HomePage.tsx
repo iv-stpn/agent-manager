@@ -4,9 +4,8 @@ import { Link } from "react-router-dom";
 import { StartupProgressModal } from "@/components/dialog/docker-progress-modal";
 import { NewProjectDialog } from "@/components/dialog/new-project-dialog";
 import { API_URL } from "@/constants";
-import { containerClassName } from "@/lib/utils";
 import { useOrchestratorSSE } from "@/lib/stores";
-import { cn } from "@/lib/utils";
+import { cn, containerClassName } from "@/lib/utils";
 import { getProjects } from "../lib/agent-api";
 import { useQuery } from "../lib/query-cache";
 

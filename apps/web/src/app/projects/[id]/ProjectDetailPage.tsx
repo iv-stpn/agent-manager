@@ -1,4 +1,5 @@
 import type { ProgressStreamAction } from "@agent-manager/utils";
+import { groupBy, toggleItem } from "@agent-manager/utils";
 import {
 	Activity,
 	AlertTriangle,
@@ -78,8 +79,9 @@ function ProjectDetailContent() {
 	const projectId = params.id;
 
 	const validTabs: Tab[] = ["overview", "sessions", "logs", "reports", "settings"];
+
 	const rawTab = searchParams.get("tab");
-	const tab: Tab = validTabs.find((t) => t === rawTab) ?? "sessions";
+	const tab: Tab = validTabs.find((tab) => tab === rawTab) ?? "sessions";
 
 	const setTab = (newTab: Tab) => {
 		const urlParams = new URLSearchParams(searchParams.toString());
@@ -426,7 +428,10 @@ function SessionsTab({
 		refetch: fetchSessions,
 	} = useQuery(`sessions:${projectId}`, async () => {
 		const data = await getSessions(projectId);
-		mutateCache<Project>(`project:${projectId}`, (p) => ({ ...p, stats: { ...p.stats, sessions: data.length } }));
+		mutateCache<Project>(`project:${projectId}`, (project) => ({
+			...project,
+			stats: { ...project.stats, sessions: data.length },
+		}));
 		return data;
 	});
 
@@ -450,8 +455,12 @@ function SessionsTab({
 		);
 	}
 
-	const active = sessions.filter((s) => s.status === "running" || s.status === "paused" || s.status === "compacting");
-	const finished = sessions.filter((s) => s.status === "completed" || s.status === "aborted" || s.status === "error");
+	const active = sessions.filter(
+		(session) => session.status === "running" || session.status === "paused" || session.status === "compacting"
+	);
+	const finished = sessions.filter(
+		(session) => session.status === "completed" || session.status === "aborted" || session.status === "error"
+	);
 
 	return (
 		<div className="space-y-6">
@@ -497,8 +506,8 @@ function SessionsTab({
 						<section>
 							<h2 className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wide">Active</h2>
 							<div className="grid gap-3">
-								{active.map((s) => (
-									<SessionCard key={s.id} session={s} projectId={projectId} />
+								{active.map((session) => (
+									<SessionCard key={session.id} session={session} projectId={projectId} />
 								))}
 							</div>
 						</section>
@@ -507,8 +516,8 @@ function SessionsTab({
 						<section>
 							<h2 className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wide">Finished</h2>
 							<div className="grid gap-3">
-								{finished.map((s) => (
-									<SessionCard key={s.id} session={s} projectId={projectId} />
+								{finished.map((session) => (
+									<SessionCard key={session.id} session={session} projectId={projectId} />
 								))}
 							</div>
 						</section>
@@ -532,8 +541,8 @@ function LogsTab({ projectId, running }: { projectId: string; running: boolean }
 	} = useQuery(`logs:${projectId}:${service}`, async () => {
 		try {
 			const text = await getLogs(projectId, service);
-			mutateCache<Project>(`project:${projectId}`, (p) => ({
-				...p,
+			mutateCache<Project>(`project:${projectId}`, (project) => ({
+				...project,
 				logLines: text.trim() ? text.trim().split("\n").length : 0,
 			}));
 			return text;
@@ -660,7 +669,7 @@ function SettingsTab({ projectId }: { projectId: string }) {
 			label: "Project name",
 			value: projectName,
 			placeholder: "My Project",
-			buildPayload: (v) => ({ name: v || undefined }),
+			buildPayload: (value) => ({ name: value || undefined }),
 		},
 		{
 			key: "server-port",
@@ -669,7 +678,7 @@ function SettingsTab({ projectId }: { projectId: string }) {
 			placeholder: "4000",
 			type: "number",
 			description: "The port the agent server listens on inside Docker and on the host.",
-			buildPayload: (v) => ({ ports: v ? { server: Number(v) } : undefined }),
+			buildPayload: (value) => ({ ports: value ? { server: Number(value) } : undefined }),
 		},
 		{
 			key: "workspace-path",
@@ -677,7 +686,7 @@ function SettingsTab({ projectId }: { projectId: string }) {
 			value: workspacePath,
 			placeholder: "/path/to/workspace",
 			description: "Absolute orchestrator path mounted as /workspace in the container.",
-			buildPayload: (v) => ({ workspace: v ? { path: v, type: "external" } : undefined }),
+			buildPayload: (value) => ({ workspace: value ? { path: value, type: "external" } : undefined }),
 		},
 	];
 
@@ -734,8 +743,8 @@ function SettingsTab({ projectId }: { projectId: string }) {
 						<CardTitle>General</CardTitle>
 					</CardHeader>
 					<CardContent className="divide-y">
-						{general.map((f) => (
-							<SettingRow key={f.key} field={f} onEdit={() => openEdit(f)} />
+						{general.map((field) => (
+							<SettingRow key={field.key} field={field} onEdit={() => openEdit(field)} />
 						))}
 					</CardContent>
 				</Card>
@@ -767,7 +776,7 @@ function SettingsTab({ projectId }: { projectId: string }) {
 									<select
 										id="llm-client-select"
 										value={selectedClientId}
-										onChange={(e) => saveLlmClient(e.target.value)}
+										onChange={(event) => saveLlmClient(event.target.value)}
 										disabled={saving}
 										className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
 									>
@@ -822,10 +831,10 @@ function SettingsTab({ projectId }: { projectId: string }) {
 						type={editing?.type}
 						placeholder={editing?.placeholder}
 						value={draft}
-						onChange={(e) => setDraft(e.target.value)}
+						onChange={(event) => setDraft(event.target.value)}
 						autoFocus
-						onKeyDown={(e) => {
-							if (e.key === "Enter") save();
+						onKeyDown={(event) => {
+							if (event.key === "Enter") save();
 						}}
 					/>
 					<DialogFooter>
@@ -901,8 +910,8 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 		load();
 	}, [load]);
 
-	function toggle(list: string[], setList: (v: string[]) => void, id: string) {
-		setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+	function toggle(list: string[], setList: (value: string[]) => void, id: string) {
+		setList(toggleItem(list, id));
 	}
 
 	async function save() {
@@ -952,8 +961,8 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 		);
 	}
 
-	const selectedStacks = techStacks.filter((t) => techStackIds.includes(t.id));
-	const selectedGuidelines = guidelines.filter((g) => guidelineIds.includes(g.id));
+	const selectedStacks = techStacks.filter((techStack) => techStackIds.includes(techStack.id));
+	const selectedGuidelines = guidelines.filter((guideline) => guidelineIds.includes(guideline.id));
 
 	return (
 		<>
@@ -1021,11 +1030,15 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 					<ContextSelectList
 						title="Tech stacks"
 						empty="No tech stacks in the library yet."
-						items={techStacks.map((t) => ({ id: t.id, label: `${t.name} (${t.language})`, sub: t.description }))}
+						items={techStacks.map((techStack) => ({
+							id: techStack.id,
+							label: `${techStack.name} (${techStack.language})`,
+							sub: techStack.description,
+						}))}
 						selectedIds={techStackIds}
 						onToggle={(id) => toggle(techStackIds, setTechStackIds, id)}
 						onEdit={(id) => {
-							const item = techStacks.find((t) => t.id === id);
+							const item = techStacks.find((techStack) => techStack.id === id);
 							if (item) openEntityEdit({ kind: "tech-stack", item });
 						}}
 					/>
@@ -1036,7 +1049,7 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 						selectedIds={guidelineIds}
 						onToggle={(id) => toggle(guidelineIds, setGuidelineIds, id)}
 						onEdit={(id) => {
-							const item = guidelines.find((g) => g.id === id);
+							const item = guidelines.find((guideline) => guideline.id === id);
 							if (item) openEntityEdit({ kind: "guideline", item });
 						}}
 					/>
@@ -1048,7 +1061,7 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 						</p>
 						<Textarea
 							value={instructions}
-							onChange={(e) => setInstructions(e.target.value)}
+							onChange={(event) => setInstructions(event.target.value)}
 							placeholder="e.g. Always run the full test suite before committing. Prefer functional components."
 							rows={5}
 						/>
@@ -1070,7 +1083,7 @@ function ProjectContextCard({ projectId }: { projectId: string }) {
 							This edits the shared library item — changes apply to every project that uses it.
 						</DialogDescription>
 					</DialogHeader>
-					<Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={10} autoFocus />
+					<Textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={10} autoFocus />
 					<DialogFooter>
 						<Button type="button" variant="outline" onClick={() => setEditing(null)} disabled={savingEntity}>
 							Cancel
@@ -1154,17 +1167,11 @@ function GuidelineSelectList({
 	}
 
 	// Group guidelines by category; null → "Uncategorized"
-	const grouped = new Map<string | null, Guideline[]>();
-	for (const g of guidelines) {
-		const key = g.categoryId ?? null;
-		const arr = grouped.get(key) ?? [];
-		arr.push(g);
-		grouped.set(key, arr);
-	}
+	const grouped = groupBy(guidelines, (guideline) => guideline.categoryId ?? null);
 
 	// Order: categories in their natural order, then uncategorized last
 	const orderedKeys: Array<string | null> = [
-		...categories.map((c) => c.id).filter((id) => grouped.has(id)),
+		...categories.map((category) => category.id).filter((id) => grouped.has(id)),
 		...(grouped.has(null) ? [null] : []),
 	];
 
@@ -1190,24 +1197,25 @@ function GuidelineSelectList({
 		<div className="space-y-2">
 			<div className="text-sm font-medium">Guidelines</div>
 			<div className="space-y-3">
-				{orderedKeys.map((catId) => {
-					const cat = catId ? categories.find((c) => c.id === catId) : null;
-					const items = grouped.get(catId) ?? [];
+				{orderedKeys.map((categoryId) => {
+					const category = categoryId ? categories.find((category) => category.id === categoryId) : null;
+					const items = grouped.get(categoryId) ?? [];
+
 					return (
-						<div key={catId ?? "__uncategorized"}>
+						<div key={categoryId ?? "__uncategorized"}>
 							<div className="flex items-center gap-2 mb-1">
-								{cat ? (
+								{category ? (
 									<>
-										<span className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }} />
-										<span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{cat.name}</span>
+										<span className="w-2 h-2 rounded-full" style={{ backgroundColor: category.color }} />
+										<span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{category.name}</span>
 									</>
 								) : (
 									<span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Uncategorized</span>
 								)}
 							</div>
 							<ul className="divide-y rounded-md border">
-								{items.map((g) => (
-									<GuidelineItem key={g.id} g={g} />
+								{items.map((guideline) => (
+									<GuidelineItem key={guideline.id} g={guideline} />
 								))}
 							</ul>
 						</div>
@@ -1241,7 +1249,11 @@ function ReportsTab({ projectId }: { projectId: string }) {
 		refetch: fetchReports,
 	} = useQuery<Report[]>(`reports:${projectId}`, async () => {
 		const data = await getReports(projectId);
-		mutateCache<Project>(`project:${projectId}`, (p) => ({ ...p, stats: { ...p.stats, reports: data.length } }));
+
+		mutateCache<Project>(`project:${projectId}`, (project) => ({
+			...project,
+			stats: { ...project.stats, reports: data.length },
+		}));
 		return data;
 	});
 
@@ -1283,27 +1295,27 @@ function ReportsTab({ projectId }: { projectId: string }) {
 				</Button>
 			</div>
 			<ol className="space-y-3">
-				{reports.map((r) => {
-					const Icon = reportTriggerIcon[r.trigger] ?? Clock;
+				{reports.map((report) => {
+					const Icon = reportTriggerIcon[report.trigger] ?? Clock;
 					return (
-						<li key={r.id}>
-							<Link to={`/projects/${projectId}/sessions/${r.sessionId}`} className="block hover:border-blue-400 transition">
-								<div className={cn("rounded-lg border p-4 text-sm", reportStatusStyle[r.status] ?? "")}>
+						<li key={report.id}>
+							<Link to={`/projects/${projectId}/sessions/${report.sessionId}`} className="block hover:border-blue-400 transition">
+								<div className={cn("rounded-lg border p-4 text-sm", reportStatusStyle[report.status] ?? "")}>
 									<div className="flex items-center justify-between mb-2 gap-3">
 										<div className="flex items-center gap-2 min-w-0">
 											<Icon className="w-4 h-4 text-gray-400 shrink-0" />
-											<span className="font-medium capitalize">{r.trigger} report</span>
+											<span className="font-medium capitalize">{report.trigger} report</span>
 											<span className="text-gray-300">·</span>
-											<span className="text-gray-500 truncate" title={r.sessionTask}>
-												{r.sessionName || r.sessionTask}
+											<span className="text-gray-500 truncate" title={report.sessionTask}>
+												{report.sessionName || report.sessionTask}
 											</span>
 										</div>
 										<div className="flex items-center gap-2 text-xs text-gray-500 shrink-0">
-											<span className="capitalize">{r.status}</span>
-											<span>{formatRelativeTime(r.createdAt)}</span>
+											<span className="capitalize">{report.status}</span>
+											<span>{formatRelativeTime(report.createdAt)}</span>
 										</div>
 									</div>
-									<p className="text-gray-600 text-xs line-clamp-4 whitespace-pre-wrap">{r.summary}</p>
+									<p className="text-gray-600 text-xs line-clamp-4 whitespace-pre-wrap">{report.summary}</p>
 								</div>
 							</Link>
 						</li>

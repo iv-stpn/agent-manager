@@ -43,10 +43,12 @@ export function createTableSql(table: SQLiteTable): string {
 	}
 
 	for (const fk of config.foreignKeys) {
-		const ref = fk.reference();
-		const from = ref.columns.map((c) => `"${c.name}"`).join(", ");
-		const to = ref.foreignColumns.map((c) => `"${c.name}"`).join(", ");
-		const target = getTableConfig(ref.foreignTable as SQLiteTable).name;
+		const reference = fk.reference();
+
+		const from = reference.columns.map((column) => `"${column.name}"`).join(", ");
+		const to = reference.foreignColumns.map((column) => `"${column.name}"`).join(", ");
+
+		const target = getTableConfig(reference.foreignTable as SQLiteTable).name;
 		lines.push(`\tFOREIGN KEY (${from}) REFERENCES "${target}"(${to})`);
 	}
 

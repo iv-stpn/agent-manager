@@ -42,6 +42,7 @@ export function initAgent({ config, sessionId, db, context, isFirstSession }: In
 		planMode: false,
 		//
 		lastApiInputTokens: 0,
+		lastApiOutputTokens: 0,
 		lastUserMessageId: null,
 		lastWarningState: "normal",
 		pendingQuestions: [],

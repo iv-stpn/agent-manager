@@ -16,7 +16,7 @@
 // Screens still use `useQuery` for the initial fetch (loading/error UI); the
 // stores own every live update thereafter, and re-sync on (re)connect.
 
-import { createProjectStream, createSessionStream } from "@agent-manager/utils";
+import { createProjectStream, createSessionStream, replaceOrPrependById, upsertById } from "@agent-manager/utils";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import type { Checkin, Compaction, EnrichedProject, Message, Question, Report, Session, Task, ToolCall } from "@/lib/agent-api";
@@ -97,23 +97,25 @@ function connectionManager<A extends unknown[]>(opener: (key: string, ...args: A
 // home page, sidebar, and statistics page all read.
 
 export const acquireHostStream = connectionManager(() => {
-	const patch = (projectId: string, fn: (p: EnrichedProject) => EnrichedProject) =>
-		mutateCache<EnrichedProject[]>(cacheKeys.projects, (list) => list.map((p) => (p.id === projectId ? fn(p) : p)));
+	const patch = (projectId: string, fn: (project: EnrichedProject) => EnrichedProject) =>
+		mutateCache<EnrichedProject[]>(cacheKeys.projects, (list) =>
+			list.map((project) => (project.id === projectId ? fn(project) : project))
+		);
 
-	const es = createHostStream<EnrichedProject>(
+	const eventSource = createHostStream<EnrichedProject>(
 		(type, { projectId, data }) => {
 			if (type === "project_status") {
 				const running = Boolean((data as { running?: boolean }).running);
-				patch(projectId, (p) => ({ ...p, dockerStatus: { ...p.dockerStatus, running } }));
+				patch(projectId, (project) => ({ ...project, dockerStatus: { ...project.dockerStatus, running } }));
 			} else if (type === "session_created") {
-				patch(projectId, (p) => ({ ...p, stats: { ...p.stats, sessions: p.stats.sessions + 1 } }));
+				patch(projectId, (project) => ({ ...project, stats: { ...project.stats, sessions: project.stats.sessions + 1 } }));
 			} else if (type === "message") {
-				patch(projectId, (p) => ({ ...p, stats: { ...p.stats, messages: p.stats.messages + 1 } }));
+				patch(projectId, (project) => ({ ...project, stats: { ...project.stats, messages: project.stats.messages + 1 } }));
 			}
 		},
 		(snapshot) => setCache(cacheKeys.projects, snapshot)
 	);
-	return () => es.close();
+	return () => eventSource.close();
 });
 
 // ── Project stream ───────────────────────────────────────────────────────────
@@ -121,66 +123,79 @@ export const acquireHostStream = connectionManager(() => {
 // list, the project's live stats, and the running indicator.
 
 export const acquireProjectStream = connectionManager((_key: string, projectId: string, port: number) => {
-	const projKey = cacheKeys.project(projectId);
-	const sessKey = cacheKeys.sessions(projectId);
-	const repKey = cacheKeys.reports(projectId);
+	const projectKey = cacheKeys.project(projectId);
+	const sessionKey = cacheKeys.sessions(projectId);
+	const reportKey = cacheKeys.reports(projectId);
 
 	const setRunning = (running: boolean) =>
-		mutateCache<EnrichedProject>(projKey, (p) => ({ ...p, dockerStatus: { ...p.dockerStatus, running } }));
+		mutateCache<EnrichedProject>(projectKey, (project) => ({ ...project, dockerStatus: { ...project.dockerStatus, running } }));
 
-	const es = createProjectStream((event) => {
+	const eventSource = createProjectStream((event) => {
 		if (event.type === "sessions") {
-			setCache(sessKey, event.data);
-			mutateCache<EnrichedProject>(projKey, (p) => ({ ...p, stats: { ...p.stats, sessions: event.data.length } }));
+			setCache(sessionKey, event.data);
+			mutateCache<EnrichedProject>(projectKey, (project) => ({
+				...project,
+				stats: { ...project.stats, sessions: event.data.length },
+			}));
 		} else if (event.type === "session_created") {
-			mutateCache<Session[]>(sessKey, (prev) => (prev.some((x) => x.id === event.data.id) ? prev : [event.data, ...prev]));
-			mutateCache<EnrichedProject>(projKey, (p) => ({ ...p, stats: { ...p.stats, sessions: p.stats.sessions + 1 } }));
+			mutateCache<Session[]>(sessionKey, (previous) => replaceOrPrependById(previous, event.data));
+			mutateCache<EnrichedProject>(projectKey, (project) => ({
+				...project,
+				stats: { ...project.stats, sessions: project.stats.sessions + 1 },
+			}));
 		} else if (event.type === "session_updated" || event.type === "token_update") {
-			mutateCache<Session[]>(sessKey, (prev) => prev.map((x) => (x.id === event.data.sessionId ? { ...x, ...event.data } : x)));
+			mutateCache<Session[]>(sessionKey, (previous) =>
+				previous.map((session) => (session.id === event.data.sessionId ? { ...session, ...event.data } : session))
+			);
 		} else if (event.type === "message") {
-			mutateCache<EnrichedProject>(projKey, (p) => ({ ...p, stats: { ...p.stats, messages: p.stats.messages + 1 } }));
+			mutateCache<EnrichedProject>(projectKey, (project) => ({
+				...project,
+				stats: { ...project.stats, messages: project.stats.messages + 1 },
+			}));
 		} else if (event.type === "checkin_started" || event.type === "checkin_completed") {
-			const d = event.data;
-			const session = (getCache<Session[]>(sessKey) ?? []).find((s) => s.id === d.sessionId);
+			const data = event.data;
+			const session = (getCache<Session[]>(sessionKey) ?? []).find((session) => session.id === data.sessionId);
+
 			const confirmed = event.type === "checkin_completed";
 			const report: Report = {
-				id: d.id,
-				sessionId: d.sessionId,
-				trigger: d.trigger,
-				summary: d.summary ?? "",
-				discordMessageId: d.discordMessageId ?? null,
+				id: data.id,
+				sessionId: data.sessionId,
+				trigger: data.trigger,
+				summary: data.summary ?? "",
+				discordMessageId: data.discordMessageId ?? null,
 				status: confirmed ? "answered" : "pending",
-				createdAt: d.createdAt,
+				createdAt: data.createdAt,
 				completedAt: confirmed ? Date.now() : null,
 				sessionName: session?.name ?? null,
 				sessionTask: session?.task ?? "",
 			};
-			mutateCache<Report[]>(repKey, (prev) => {
-				const next = prev.filter((r) => r.id !== report.id);
+
+			mutateCache<Report[]>(reportKey, (previous) => {
+				const next = previous.filter((previousReport) => previousReport.id !== report.id);
 				next.push(report);
-				return next.sort((a, b) => b.createdAt - a.createdAt);
+				return next.sort((report1, report2) => report2.createdAt - report1.createdAt);
 			});
 		}
 	}, port);
 
-	es.onopen = () => {
+	eventSource.onopen = () => {
 		setRunning(true);
 		// Re-sync anything that changed while disconnected. `setCache` seeds or
 		// replaces regardless of whether the initial fetch has landed.
 		void getSessions(projectId)
-			.then((data) => setCache(sessKey, data))
+			.then((data) => setCache(sessionKey, data))
 			.catch(() => {});
 		void getReports(projectId)
-			.then((data) => setCache(repKey, data))
+			.then((data) => setCache(reportKey, data))
 			.catch(() => {});
 	};
-	es.onerror = () => {
+	eventSource.onerror = () => {
 		// The browser auto-reconnects on a transient drop (readyState → CONNECTING).
 		// Only treat this as "the project stopped" once it has given up (CLOSED).
-		if (es.readyState === EventSource.CLOSED) setRunning(false);
+		if (eventSource.readyState === EventSource.CLOSED) setRunning(false);
 	};
 
-	return () => es.close();
+	return () => eventSource.close();
 });
 
 // ── Session stream ───────────────────────────────────────────────────────────
@@ -198,7 +213,7 @@ export const acquireSessionStream = connectionManager((_key: string, sessionId: 
 	const tkKey = cacheKeys.tasks(projectId);
 	const rKey = cacheKeys.project(projectId);
 
-	const es = createSessionStream(
+	const eventSource = createSessionStream(
 		sessionId,
 		(event) => {
 			if (event.type === "turn_start") {
@@ -218,52 +233,49 @@ export const acquireSessionStream = connectionManager((_key: string, sessionId: 
 					prev ? { ...prev, inputDelta: prev.inputDelta + event.data.inputDelta } : null
 				);
 			} else if (event.type === "session_updated") {
-				mutateCache<Session>(sKey, (s) => (s ? { ...s, ...event.data } : s));
+				mutateCache<Session>(sKey, (session) => (session ? { ...session, ...event.data } : session));
 			} else if (event.type === "message") {
 				if ((event.data as { role?: string }).role === "assistant") {
 					updateCache(cacheKeys.streamText(sessionId), () => "");
 					updateCache(cacheKeys.streamThinking(sessionId), () => "");
 					updateCache<StreamingToolcall | null>(cacheKeys.streamToolcall(sessionId), () => null);
 				}
-				mutateCache<Message[]>(mKey, (prev = []) => (prev.some((m) => m.id === event.data.id) ? prev : [...prev, event.data]));
+				mutateCache<Message[]>(mKey, (previous = []) =>
+					previous.some((message) => message.id === event.data.id) ? previous : [...previous, event.data]
+				);
 			} else if (event.type === "tool_call") {
-				mutateCache<ToolCall[]>(tKey, (prev = []) => {
-					const idx = prev.findIndex((t) => t.id === event.data.id);
-					if (idx < 0) return [...prev, event.data];
-					const next = [...prev];
-					next[idx] = { ...next[idx], ...event.data };
-					return next;
-				});
+				mutateCache<ToolCall[]>(tKey, (previous = []) => upsertById(previous, event.data));
 			} else if (event.type === "token_update") {
-				mutateCache<Session>(sKey, (s) =>
-					s
+				mutateCache<Session>(sKey, (session) =>
+					session
 						? {
-								...s,
+								...session,
 								totalInputTokens: event.data.totalInputTokens,
 								totalOutputTokens: event.data.totalOutputTokens,
 								totalCacheReadTokens: event.data.totalCacheReadTokens,
 								totalCacheWriteTokens: event.data.totalCacheWriteTokens,
+								tokensInputSinceCompaction: event.data.tokensInputSinceCompaction,
+								tokensOutputSinceCompaction: event.data.tokensOutputSinceCompaction,
+								tokensCacheReadSinceCompaction: event.data.tokensCacheReadSinceCompaction,
+								tokensCacheWriteSinceCompaction: event.data.tokensCacheWriteSinceCompaction,
 							}
-						: s
+						: session
 				);
 			} else if (event.type === "checkin_started" || event.type === "checkin_completed") {
 				const payload = event.data;
-				mutateCache<Checkin[]>(cKey, (prev = []) => {
-					const idx = prev.findIndex((c) => c.id === payload.id);
-					if (idx < 0) return [...prev, payload];
-					const next = [...prev];
-					next[idx] = { ...next[idx], ...payload };
-					return next;
-				});
+
+				mutateCache<Checkin[]>(cKey, (previous = []) => upsertById(previous, payload));
 				if ("questions" in payload && payload.questions?.length) {
-					mutateCache<Question[]>(qKey, (prev = []) => {
-						const byId = new Map(prev.map((q) => [q.id, q]));
+					mutateCache<Question[]>(qKey, (previous = []) => {
+						const byId = new Map(previous.map((question) => [question.id, question]));
 						for (const q of payload.questions) byId.set(q.id, { ...byId.get(q.id), ...q });
 						return [...byId.values()];
 					});
 				}
 			} else if (event.type === "compaction") {
-				mutateCache<Compaction[]>(xKey, (prev = []) => (prev.some((c) => c.id === event.data.id) ? prev : [...prev, event.data]));
+				mutateCache<Compaction[]>(xKey, (previous = []) =>
+					previous.some((compaction) => compaction.id === event.data.id) ? previous : [...previous, event.data]
+				);
 			} else if (event.type === "plan_mode") {
 				updateCache(cacheKeys.planMode(sessionId), () => event.data.active);
 				if (event.data.active) toast.info("Agent entered plan mode (read-only)");
@@ -280,56 +292,55 @@ export const acquireSessionStream = connectionManager((_key: string, sessionId: 
 				);
 			} else if (event.type === "task_created") {
 				const task = event.data as Task;
-				mutateCache<Task[]>(tkKey, (prev = []) => (prev.some((t) => t.id === task.id) ? prev : [...prev, task]));
+				mutateCache<Task[]>(tkKey, (previous = []) =>
+					previous.some((previousTask) => previousTask.id === task.id) ? previous : [...previous, task]
+				);
 			} else if (event.type === "task_updated") {
 				const task = event.data as Task;
-				mutateCache<Task[]>(tkKey, (prev = []) => {
-					const idx = prev.findIndex((t) => t.id === task.id);
-					if (idx < 0) return [...prev, task];
-					const next = [...prev];
-					next[idx] = { ...next[idx], ...task };
-					return next;
-				});
+				mutateCache<Task[]>(tkKey, (previous = []) => upsertById(previous, task));
 			}
 		},
 		port
 	);
 
-	es.onopen = () => {
+	eventSource.onopen = () => {
 		// Re-sync every per-session cache on (re)connect so nothing missed while
 		// disconnected is lost. `setCache` seeds or replaces regardless of the
 		// initial `useQuery` fetch.
 		void getSession(projectId, sessionId)
-			.then((d) => setCache(sKey, d))
+			.then((data) => setCache(sKey, data))
 			.catch(() => {});
 		void getMessages(projectId, sessionId)
-			.then((d) => setCache(mKey, d))
+			.then((data) => setCache(mKey, data))
 			.catch(() => {});
 		void getToolCalls(projectId, sessionId)
-			.then((d) => setCache(tKey, d))
+			.then((data) => setCache(tKey, data))
 			.catch(() => {});
 		void getCheckins(projectId, sessionId)
-			.then((d) => setCache(cKey, d))
+			.then((data) => setCache(cKey, data))
 			.catch(() => {});
 		void getQuestions(projectId, sessionId)
-			.then((d) => setCache(qKey, d))
+			.then((data) => setCache(qKey, data))
 			.catch(() => {});
 		void getCompactions(projectId, sessionId)
-			.then((d) => setCache(xKey, d))
+			.then((data) => setCache(xKey, data))
 			.catch(() => {});
 		void getTasks(projectId)
-			.then((d) => setCache(tkKey, d))
+			.then((data) => setCache(tkKey, data))
 			.catch(() => {});
 	};
-	es.onerror = () => {
+
+	eventSource.onerror = () => {
 		// This cache key is shared with the project page's running-gated stream;
 		// only mark stopped once the browser has fully given up (CLOSED).
-		if (es.readyState === EventSource.CLOSED) {
-			mutateCache<EnrichedProject>(rKey, (p) => (p ? { ...p, dockerStatus: { ...p.dockerStatus, running: false } } : p));
+		if (eventSource.readyState === EventSource.CLOSED) {
+			mutateCache<EnrichedProject>(rKey, (project) =>
+				project ? { ...project, dockerStatus: { ...project.dockerStatus, running: false } } : project
+			);
 		}
 	};
 
-	return () => es.close();
+	return () => eventSource.close();
 });
 
 // ── React hooks ────────────────────────────────────────────────────────────────

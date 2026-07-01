@@ -1,4 +1,4 @@
-import { z } from "zod";
+import z from "zod";
 
 /**
  * Recursively allow optional properties to also be explicitly `undefined`.

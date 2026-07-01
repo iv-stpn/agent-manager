@@ -41,7 +41,7 @@ export async function triggerReport(
 			? trigger
 			: "manual";
 
-	const summary = report.sections.map((s) => `**${s.title}**\n${s.content}`).join("\n\n");
+	const summary = report.sections.map((section) => `**${section.title}**\n${section.content}`).join("\n\n");
 
 	// Record the check-in BEFORE any Discord round-trip so the timeline
 	// reflects the event even when there is no channel (e.g. token budget

@@ -24,7 +24,7 @@ for (const line of source.split("\n")) {
 }
 
 // Bucket tools by group, preserving definition order
-const grouped = new Map<string, typeof AGENT_TOOLS>(groupOrder.map((g) => [g, []]));
+const grouped = new Map<string, typeof AGENT_TOOLS>(groupOrder.map((group) => [group, []]));
 for (const tool of AGENT_TOOLS) {
 	grouped.get(toolGroup.get(tool.name) ?? "General")?.push(tool);
 }
@@ -34,9 +34,9 @@ function renderParams(schema: (typeof AGENT_TOOLS)[number]["input_schema"]): str
 	if (!props || Object.keys(props).length === 0) return "";
 	const required = new Set((schema.required as string[]) ?? []);
 	const rows = Object.entries(props)
-		.map(([name, p]) => {
-			const type = p.enum ? p.enum.map((v) => `\`${v}\``).join(" \\| ") : `\`${p.type ?? "any"}\``;
-			const desc = (p.description ?? "").replace(/\n/g, " ");
+		.map(([name, prop]) => {
+			const type = prop.enum ? prop.enum.map((value) => `\`${value}\``).join(" \\| ") : `\`${prop.type ?? "any"}\``;
+			const desc = (prop.description ?? "").replace(/\n/g, " ");
 			return `| \`${name}\` | ${type} | ${required.has(name) ? "Yes" : ""} | ${desc} |`;
 		})
 		.join("\n");

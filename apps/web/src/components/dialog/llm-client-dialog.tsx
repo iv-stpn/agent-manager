@@ -78,7 +78,7 @@ export function LlmClientDialog({ open, onOpenChange, editing = null, onSaved }:
 							id="client-name"
 							autoFocus
 							value={form.name}
-							onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+							onChange={(event) => setForm((form) => ({ ...form, name: event.target.value }))}
 							placeholder="e.g. Production Anthropic"
 						/>
 					</div>
@@ -88,7 +88,7 @@ export function LlmClientDialog({ open, onOpenChange, editing = null, onSaved }:
 						<select
 							id="client-provider"
 							value={form.provider}
-							onChange={(e) => setForm((f) => ({ ...f, provider: e.target.value as LlmProvider }))}
+							onChange={(event) => setForm((form) => ({ ...form, provider: event.target.value as LlmProvider }))}
 							className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 						>
 							<option value="anthropic">Anthropic</option>
@@ -105,7 +105,7 @@ export function LlmClientDialog({ open, onOpenChange, editing = null, onSaved }:
 							id="client-key"
 							type="password"
 							value={form.apiKey}
-							onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))}
+							onChange={(event) => setForm((form) => ({ ...form, apiKey: event.target.value }))}
 							placeholder={editing ? "••••••••" : "sk-..."}
 						/>
 					</div>
@@ -115,7 +115,7 @@ export function LlmClientDialog({ open, onOpenChange, editing = null, onSaved }:
 						<Input
 							id="client-url"
 							value={form.baseUrl}
-							onChange={(e) => setForm((f) => ({ ...f, baseUrl: e.target.value }))}
+							onChange={(event) => setForm((form) => ({ ...form, baseUrl: event.target.value }))}
 							placeholder={form.provider === "anthropic" ? "https://api.anthropic.com" : "https://api.openai.com/v1"}
 						/>
 					</div>
@@ -126,7 +126,7 @@ export function LlmClientDialog({ open, onOpenChange, editing = null, onSaved }:
 							<Input
 								id="client-model"
 								value={form.model}
-								onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+								onChange={(event) => setForm((form) => ({ ...form, model: event.target.value }))}
 								placeholder="claude-sonnet-4-6"
 							/>
 						</div>
@@ -135,7 +135,7 @@ export function LlmClientDialog({ open, onOpenChange, editing = null, onSaved }:
 							<Input
 								id="client-small-model"
 								value={form.smallModel}
-								onChange={(e) => setForm((f) => ({ ...f, smallModel: e.target.value }))}
+								onChange={(event) => setForm((form) => ({ ...form, smallModel: event.target.value }))}
 								placeholder="claude-haiku-4-5-20251001"
 							/>
 						</div>

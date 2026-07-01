@@ -102,7 +102,7 @@ if (chromiumReady) {
 }
 
 const lanceReady = await fetch(`${env.LANCEDB_URL}/health`, { signal: AbortSignal.timeout(3000) })
-	.then((r) => r.ok)
+	.then((response) => response.ok)
 	.catch(() => false);
 
 if (lanceReady) {

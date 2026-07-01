@@ -30,10 +30,10 @@ function StatCard({
 export default function StatisticsPage() {
 	const { data: projects = [], loading } = useQuery("projects", () => getProjects());
 
-	const running = projects.filter((p) => p.dockerStatus.running).length;
+	const running = projects.filter((project) => project.dockerStatus.running).length;
 	const stopped = projects.length - running;
-	const totalSessions = projects.reduce((sum, p) => sum + p.stats.sessions, 0);
-	const totalMessages = projects.reduce((sum, p) => sum + p.stats.messages, 0);
+	const totalSessions = projects.reduce((sum, project) => sum + project.stats.sessions, 0);
+	const totalMessages = projects.reduce((sum, project) => sum + project.stats.messages, 0);
 
 	return (
 		<div className="min-h-screen bg-gray-50">
@@ -57,14 +57,14 @@ export default function StatisticsPage() {
 						<section>
 							<h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Projects</h2>
 							<div className="space-y-2">
-								{projects.map((p) => (
-									<div key={p.id} className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center gap-3">
+								{projects.map((project) => (
+									<div key={project.id} className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center gap-3">
 										<span
-											className={`w-2 h-2 rounded-full shrink-0 ${p.dockerStatus.running ? "bg-green-400" : "bg-gray-300"}`}
+											className={`w-2 h-2 rounded-full shrink-0 ${project.dockerStatus.running ? "bg-green-400" : "bg-gray-300"}`}
 										/>
-										<span className="font-medium text-gray-900 flex-1 truncate">{p.name}</span>
-										<span className="text-sm text-gray-500">{p.stats.sessions} sessions</span>
-										<span className="text-sm text-gray-400">{p.stats.messages} msgs</span>
+										<span className="font-medium text-gray-900 flex-1 truncate">{project.name}</span>
+										<span className="text-sm text-gray-500">{project.stats.sessions} sessions</span>
+										<span className="text-sm text-gray-400">{project.stats.messages} msgs</span>
 									</div>
 								))}
 								{projects.length === 0 && <p className="text-gray-400 text-sm py-4 text-center">No projects yet.</p>}

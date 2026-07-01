@@ -18,6 +18,10 @@ export type TokenUpdatePayload = {
 	totalOutputTokens: number;
 	totalCacheReadTokens: number;
 	totalCacheWriteTokens: number;
+	tokensInputSinceCompaction: number;
+	tokensOutputSinceCompaction: number;
+	tokensCacheReadSinceCompaction: number;
+	tokensCacheWriteSinceCompaction: number;
 };
 
 export type TokenWarningPayload = {

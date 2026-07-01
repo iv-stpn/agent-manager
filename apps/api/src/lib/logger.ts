@@ -110,7 +110,7 @@ export class Logger {
 			...this.baseContext,
 			...extra,
 		};
-		await Promise.all(this.transports.map((t) => t.log(entry)));
+		await Promise.all(this.transports.map((transport) => transport.log(entry)));
 	}
 
 	debug(message: string, data?: unknown): void {

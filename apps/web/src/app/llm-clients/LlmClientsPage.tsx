@@ -1,3 +1,4 @@
+import { replaceOrPrependById } from "@agent-manager/utils";
 import { Edit2, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { LlmClientDialog } from "@/components/dialog/llm-client-dialog";
@@ -23,9 +24,7 @@ export default function LlmClientsPage() {
 	}
 
 	function onSaved(client: LlmClient) {
-		mutateCache<LlmClient[]>("llm-clients", (list) =>
-			list.some((c) => c.id === client.id) ? list.map((c) => (c.id === client.id ? client : c)) : [client, ...list]
-		);
+		mutateCache<LlmClient[]>("llm-clients", (list) => replaceOrPrependById(list, client));
 		closeDialog();
 	}
 
@@ -33,7 +32,7 @@ export default function LlmClientsPage() {
 		if (!confirm("Delete this LLM client?")) return;
 		try {
 			await deleteLlmClient(id);
-			mutateCache<LlmClient[]>("llm-clients", (list) => list.filter((c) => c.id !== id));
+			mutateCache<LlmClient[]>("llm-clients", (list) => list.filter((client) => client.id !== id));
 		} catch (err) {
 			console.error("Failed to delete LLM client:", err);
 		}

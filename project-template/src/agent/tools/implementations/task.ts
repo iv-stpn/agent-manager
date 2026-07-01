@@ -22,12 +22,12 @@ function serializeMeta(meta: TaskMetadata): string | null {
 }
 
 // Render a single task line, annotating dependencies and whether they block it.
-function formatTask(t: typeof tasks.$inferSelect, doneIds: Set<string>): string {
-	const meta = parseMeta(t.metadata);
+function formatTask(task: typeof tasks.$inferSelect, doneIds: Set<string>): string {
+	const meta = parseMeta(task.metadata);
 	const deps = meta.dependsOn ?? [];
-	let line = `[${t.id}] [${t.status}] ${t.text}`;
+	let line = `[${task.id}] [${task.status}] ${task.text}`;
 	if (deps.length > 0) {
-		const blocking = deps.filter((d) => !doneIds.has(d));
+		const blocking = deps.filter((dependency) => !doneIds.has(dependency));
 		line += ` (depends on: ${deps.join(", ")}`;
 		line += blocking.length > 0 ? `; blocked by ${blocking.join(", ")})` : "; ready)";
 	}
@@ -44,15 +44,15 @@ export async function addTask(
 	const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 	const meta: TaskMetadata = {};
 	if (dependsOn && dependsOn.length > 0) meta.dependsOn = dependsOn;
+
 	const createdAt = Date.now();
-	db.insert(tasks)
-		.values({ id, sessionId, text, status, metadata: serializeMeta(meta), createdAt, updatedAt: createdAt })
-		.run();
+	const metadata = serializeMeta(meta);
+	db.insert(tasks).values({ id, sessionId, text, status, metadata, createdAt, updatedAt: createdAt }).run();
 
 	// Emit task_created event
 	sessionEmitter.emit(sessionId, {
 		type: "task_created",
-		data: { id, sessionId, text, status, metadata: serializeMeta(meta), createdAt, updatedAt: createdAt },
+		data: { id, sessionId, text, status, metadata, createdAt, updatedAt: createdAt },
 	});
 
 	const depNote = dependsOn && dependsOn.length > 0 ? ` (depends on: ${dependsOn.join(", ")})` : "";
@@ -64,15 +64,16 @@ export async function addTask(
 export async function listTasks(db: Db, filter: TaskStatus | "all" = "all"): Promise<string> {
 	const rows = filter === "all" ? db.select().from(tasks).all() : db.select().from(tasks).where(eq(tasks.status, filter)).all();
 	if (rows.length === 0) return "No tasks found.";
+
 	const doneIds = new Set(
 		db
 			.select()
 			.from(tasks)
 			.where(eq(tasks.status, "done"))
 			.all()
-			.map((t) => t.id)
+			.map((task) => task.id)
 	);
-	return rows.map((t) => formatTask(t, doneIds)).join("\n");
+	return rows.map((task) => formatTask(task, doneIds)).join("\n");
 }
 
 // Return the task currently in progress, if any (project-wide).
@@ -98,12 +99,10 @@ export async function setCurrentTask(db: Db, sessionId: string, id: string): Pro
 		.where(eq(tasks.status, "in_progress"))
 		.returning()
 		.all();
+
 	for (const prevTask of previousTasks) {
 		if (!prevTask.sessionId) continue;
-		sessionEmitter.emit(prevTask.sessionId, {
-			type: "task_updated",
-			data: { ...prevTask, status: "pending", updatedAt: now },
-		});
+		sessionEmitter.emit(prevTask.sessionId, { type: "task_updated", data: { ...prevTask, status: "pending", updatedAt: now } });
 	}
 
 	// Set the new current task
@@ -113,18 +112,18 @@ export async function setCurrentTask(db: Db, sessionId: string, id: string): Pro
 		.where(eq(tasks.id, id))
 		.returning()
 		.all();
-	sessionEmitter.emit(sessionId, {
-		type: "task_updated",
-		data: updatedTask,
-	});
 
-	const deps = parseMeta(task.metadata).dependsOn ?? [];
+	sessionEmitter.emit(sessionId, { type: "task_updated", data: updatedTask });
+
+	const dependencies = parseMeta(task.metadata).dependsOn ?? [];
+
 	let warning = "";
-	if (deps.length > 0) {
-		const depRows = db.select().from(tasks).where(inArray(tasks.id, deps)).all();
-		const unfinished = depRows.filter((d) => d.status !== "done").map((d) => d.id);
+	if (dependencies.length > 0) {
+		const dependenciesRows = db.select().from(tasks).where(inArray(tasks.id, dependencies)).all();
+		const unfinished = dependenciesRows.filter((dependency) => dependency.status !== "done").map((dependency) => dependency.id);
 		if (unfinished.length > 0) warning = ` ⚠️ blocked by unfinished dependencies: ${unfinished.join(", ")}`;
 	}
+
 	return `Current task set to [${id}]: ${task.text}${warning}`;
 }
 

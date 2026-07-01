@@ -73,9 +73,9 @@ export class EventHub {
 		try {
 			const projects = await this.manager.listProjects();
 			await Promise.all(
-				projects.map(async (p) => {
-					const status = await this.docker.getProjectStatus(p.id);
-					if (status.running) this.connect(p.id);
+				projects.map(async (project) => {
+					const status = await this.docker.getProjectStatus(project.id);
+					if (status.running) this.connect(project.id);
 				})
 			);
 		} catch {

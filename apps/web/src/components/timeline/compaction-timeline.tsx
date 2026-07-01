@@ -18,31 +18,31 @@ export function CompactionTimeline({ compactions }: Props) {
 
 	return (
 		<ol className="relative border-l border-border ml-3">
-			{compactions.map((c) => {
-				const tokenDrop = c.tokensBefore - c.tokensAfter;
-				const pct = c.tokensBefore > 0 ? Math.round((tokenDrop / c.tokensBefore) * 100) : 0;
+			{compactions.map((compaction) => {
+				const tokenDrop = compaction.tokensBefore - compaction.tokensAfter;
+				const pct = compaction.tokensBefore > 0 ? Math.round((tokenDrop / compaction.tokensBefore) * 100) : 0;
 
 				return (
-					<li key={c.id} className="mb-6 ml-6">
+					<li key={compaction.id} className="mb-6 ml-6">
 						<span className="absolute -left-3 flex h-6 w-6 items-center justify-center rounded-full border bg-background">
 							<Scissors className="h-3 w-3 text-muted-foreground" />
 						</span>
 						<div className="rounded-lg border border-purple-300 bg-purple-50 dark:bg-purple-950/20 p-3 text-sm">
 							<div className="flex items-center justify-between mb-1">
 								<span className="font-medium">Context compacted</span>
-								<span className="text-xs text-muted-foreground">{formatRelativeTime(c.createdAt)}</span>
+								<span className="text-xs text-muted-foreground">{formatRelativeTime(compaction.createdAt)}</span>
 							</div>
 							<div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground mb-2">
 								<div className="flex justify-between">
 									<span>Messages</span>
 									<span className="font-mono">
-										{c.messagesBefore} → {c.messagesAfter}
+										{compaction.messagesBefore} → {compaction.messagesAfter}
 									</span>
 								</div>
 								<div className="flex justify-between">
 									<span>Tokens</span>
 									<span className="font-mono">
-										{formatTokens(c.tokensBefore)} → {formatTokens(c.tokensAfter)}
+										{formatTokens(compaction.tokensBefore)} → {formatTokens(compaction.tokensAfter)}
 									</span>
 								</div>
 								<div className="flex justify-between">
@@ -53,10 +53,12 @@ export function CompactionTimeline({ compactions }: Props) {
 								</div>
 								<div className="flex justify-between">
 									<span>Threshold</span>
-									<span className="font-mono">{formatTokens(c.thresholdTokens)}</span>
+									<span className="font-mono">{formatTokens(compaction.thresholdTokens)}</span>
 								</div>
 							</div>
-							{c.summary && <Markdown className="text-muted-foreground text-xs line-clamp-4 border-t pt-2">{c.summary}</Markdown>}
+							{compaction.summary && (
+								<Markdown className="text-muted-foreground text-xs line-clamp-4 border-t pt-2">{compaction.summary}</Markdown>
+							)}
 						</div>
 					</li>
 				);

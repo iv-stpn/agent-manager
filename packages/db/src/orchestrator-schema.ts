@@ -10,8 +10,8 @@ import { customType, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 function json<T>(name: string) {
 	return customType<{ data: T; driverData: string }>({
 		dataType: () => "text",
-		toDriver: (v) => JSON.stringify(v),
-		fromDriver: (s) => JSON.parse(s) as T,
+		toDriver: (value) => JSON.stringify(value),
+		fromDriver: (string) => JSON.parse(string) as T,
 	})(name);
 }
 

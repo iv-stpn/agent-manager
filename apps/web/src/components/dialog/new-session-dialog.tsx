@@ -69,7 +69,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 							id="task"
 							placeholder="Describe what the agent should do..."
 							value={task}
-							onChange={(e) => setTask(e.target.value)}
+							onChange={(event) => setTask(event.target.value)}
 							rows={5}
 							required
 						/>
@@ -85,7 +85,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 								min="0"
 								max="240"
 								value={reportIntervalMins}
-								onChange={(e) => setReportIntervalMins(e.target.value)}
+								onChange={(event) => setReportIntervalMins(event.target.value)}
 							/>
 						</div>
 						<div className="space-y-2">
@@ -96,7 +96,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 								min="1"
 								max="1440"
 								value={stopThresholdMins}
-								onChange={(e) => setstopThresholdMins(e.target.value)}
+								onChange={(event) => setstopThresholdMins(event.target.value)}
 							/>
 						</div>
 					</div>
@@ -111,7 +111,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 								min="0"
 								step="10000"
 								value={compactThreshold}
-								onChange={(e) => setCompactThreshold(e.target.value)}
+								onChange={(event) => setCompactThreshold(event.target.value)}
 							/>
 							<p className="text-xs text-muted-foreground">0 = disabled</p>
 						</div>
@@ -123,7 +123,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 								min="0"
 								step="10000"
 								value={stopThreshold}
-								onChange={(e) => setStopThreshold(e.target.value)}
+								onChange={(event) => setStopThreshold(event.target.value)}
 							/>
 							<p className="text-xs text-muted-foreground">0 = disabled</p>
 						</div>
@@ -136,7 +136,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 							<select
 								id="await-report"
 								value={awaitReportMode}
-								onChange={(e) => setAwaitReportMode(e.target.value as typeof awaitReportMode)}
+								onChange={(event) => setAwaitReportMode(event.target.value as typeof awaitReportMode)}
 								className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
 							>
 								<option value="never">never — async, continues</option>
@@ -149,7 +149,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 							<select
 								id="await-ask"
 								value={awaitAskMode}
-								onChange={(e) => setAwaitAskMode(e.target.value as typeof awaitAskMode)}
+								onChange={(event) => setAwaitAskMode(event.target.value as typeof awaitAskMode)}
 								className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
 							>
 								<option value="always">always — ask immediately</option>
@@ -167,7 +167,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 								id="custom-rule"
 								placeholder="e.g. await on security or major architecture changes"
 								value={awaitReportCustomRule}
-								onChange={(e) => setAwaitReportCustomRule(e.target.value)}
+								onChange={(event) => setAwaitReportCustomRule(event.target.value)}
 							/>
 						</div>
 					)}
@@ -178,7 +178,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 						<select
 							id="always-improve"
 							value={alwaysImproveMode}
-							onChange={(e) => setAlwaysImproveMode(e.target.value as typeof alwaysImproveMode)}
+							onChange={(event) => setAlwaysImproveMode(event.target.value as typeof alwaysImproveMode)}
 							className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
 						>
 							<option value="no">no — stop after task completes</option>
@@ -194,7 +194,7 @@ export function NewSessionDialog({ open, onOpenChange, projectId }: Props) {
 								id="improve-scope"
 								placeholder="e.g. add tests and improve docs only; no new features"
 								value={alwaysImproveScope}
-								onChange={(e) => setAlwaysImproveScope(e.target.value)}
+								onChange={(event) => setAlwaysImproveScope(event.target.value)}
 							/>
 						</div>
 					)}

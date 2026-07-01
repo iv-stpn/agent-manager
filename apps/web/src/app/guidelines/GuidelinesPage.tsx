@@ -1,3 +1,4 @@
+import { replaceOrPrependById } from "@agent-manager/utils";
 import { Edit2, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import type { Guideline, GuidelineCategory } from "@/lib/agent-api";
@@ -8,7 +9,8 @@ import { cn } from "@/lib/utils";
 type Form = { name: string; description: string; categoryId: string | null; language: string | null; content: string };
 
 const EMPTY_FORM: Form = { name: "", description: "", categoryId: null, language: null, content: "" };
-const inputCls = "w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+const inputClassName =
+	"w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
 
 export default function GuidelinesPage() {
 	const [filter, setFilter] = useState<string | "all">("all");
@@ -19,8 +21,8 @@ export default function GuidelinesPage() {
 	const { data: guidelines = [], loading } = useQuery<Guideline[]>("guidelines", getGuidelines);
 	const { data: categories = [] } = useQuery<GuidelineCategory[]>("guideline-categories", getGuidelineCategories);
 
-	const categoryName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? "Uncategorized";
-	const visible = filter === "all" ? guidelines : guidelines.filter((g) => g.categoryId === filter);
+	const categoryName = (id: string | null) => categories.find((category) => category.id === id)?.name ?? "Uncategorized";
+	const visible = filter === "all" ? guidelines : guidelines.filter((guideline) => guideline.categoryId === filter);
 
 	function openCreate() {
 		setForm(EMPTY_FORM);
@@ -28,15 +30,15 @@ export default function GuidelinesPage() {
 		setEditing(null);
 	}
 
-	function openEdit(g: Guideline) {
+	function openEdit(guideline: Guideline) {
 		setForm({
-			name: g.name,
-			description: g.description,
-			categoryId: g.categoryId,
-			language: g.language ?? null,
-			content: g.content,
+			name: guideline.name,
+			description: guideline.description,
+			categoryId: guideline.categoryId,
+			language: guideline.language ?? null,
+			content: guideline.content,
 		});
-		setEditing(g);
+		setEditing(guideline);
 		setCreating(false);
 	}
 
@@ -48,13 +50,8 @@ export default function GuidelinesPage() {
 	async function save() {
 		if (!form.name.trim()) return;
 		try {
-			if (editing) {
-				const updated = await updateGuideline(editing.id, form);
-				mutateCache<Guideline[]>("guidelines", (list) => list.map((g) => (g.id === editing.id ? updated : g)));
-			} else {
-				const created = await createGuideline(form);
-				mutateCache<Guideline[]>("guidelines", (list) => [created, ...list]);
-			}
+			const saved = editing ? await updateGuideline(editing.id, form) : await createGuideline(form);
+			mutateCache<Guideline[]>("guidelines", (list) => replaceOrPrependById(list, saved));
 			closeDialog();
 		} catch (err) {
 			console.error("Failed to save guideline:", err);
@@ -65,7 +62,7 @@ export default function GuidelinesPage() {
 		if (!confirm("Delete this guideline?")) return;
 		try {
 			await deleteGuideline(id);
-			mutateCache<Guideline[]>("guidelines", (list) => list.filter((g) => g.id !== id));
+			mutateCache<Guideline[]>("guidelines", (list) => list.filter((guideline) => guideline.id !== id));
 		} catch (err) {
 			console.error("Failed to delete guideline:", err);
 		}
@@ -129,9 +126,9 @@ export default function GuidelinesPage() {
 					</div>
 				) : (
 					<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-						{visible.map((g) => (
+						{visible.map((guideline) => (
 							<div
-								key={g.id}
+								key={guideline.id}
 								className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3 hover:border-gray-300 transition-colors"
 							>
 								<div className="flex items-start justify-between gap-3">
@@ -139,23 +136,28 @@ export default function GuidelinesPage() {
 										<div className="flex items-center gap-2 mb-1">
 											<span
 												className="text-xs font-medium px-2 py-0.5 rounded-full text-white"
-												style={{ backgroundColor: categories.find((c) => c.id === g.categoryId)?.color ?? "#6b7280" }}
+												style={{
+													backgroundColor:
+														categories.find((category) => category.id === guideline.categoryId)?.color ?? "#6b7280",
+												}}
 											>
-												{categoryName(g.categoryId)}
+												{categoryName(guideline.categoryId)}
 											</span>
-											{g.language && (
+											{guideline.language && (
 												<span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-													{g.language}
+													{guideline.language}
 												</span>
 											)}
 										</div>
-										<h3 className="font-semibold text-gray-900 truncate">{g.name}</h3>
-										{g.description && <p className="text-sm text-gray-500 mt-0.5 line-clamp-2">{g.description}</p>}
+										<h3 className="font-semibold text-gray-900 truncate">{guideline.name}</h3>
+										{guideline.description && (
+											<p className="text-sm text-gray-500 mt-0.5 line-clamp-2">{guideline.description}</p>
+										)}
 									</div>
 									<div className="flex gap-1 shrink-0">
 										<button
 											type="button"
-											onClick={() => openEdit(g)}
+											onClick={() => openEdit(guideline)}
 											className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
 											title="Edit"
 										>
@@ -163,7 +165,7 @@ export default function GuidelinesPage() {
 										</button>
 										<button
 											type="button"
-											onClick={() => remove(g.id)}
+											onClick={() => remove(guideline.id)}
 											className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
 											title="Delete"
 										>
@@ -171,9 +173,9 @@ export default function GuidelinesPage() {
 										</button>
 									</div>
 								</div>
-								{g.content && (
+								{guideline.content && (
 									<pre className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600 font-mono overflow-hidden line-clamp-4 whitespace-pre-wrap">
-										{g.content}
+										{guideline.content}
 									</pre>
 								)}
 							</div>
@@ -185,8 +187,8 @@ export default function GuidelinesPage() {
 			{dialogOpen && (
 				<div
 					className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-					onClick={(e) => e.target === e.currentTarget && closeDialog()}
-					onKeyDown={(e) => e.key === "Escape" && closeDialog()}
+					onClick={(event) => event.target === event.currentTarget && closeDialog()}
+					onKeyDown={(event) => event.key === "Escape" && closeDialog()}
 					role="dialog"
 					aria-modal="true"
 				>
@@ -208,8 +210,8 @@ export default function GuidelinesPage() {
 									autoFocus
 									type="text"
 									value={form.name}
-									onChange={(e) => setForm({ ...form, name: e.target.value })}
-									className={inputCls}
+									onChange={(event) => setForm({ ...form, name: event.target.value })}
+									className={inputClassName}
 									placeholder="Guideline name"
 								/>
 							</div>
@@ -221,8 +223,8 @@ export default function GuidelinesPage() {
 									id="gl-desc"
 									type="text"
 									value={form.description}
-									onChange={(e) => setForm({ ...form, description: e.target.value })}
-									className={inputCls}
+									onChange={(event) => setForm({ ...form, description: event.target.value })}
+									className={inputClassName}
 									placeholder="Short description"
 								/>
 							</div>
@@ -233,15 +235,15 @@ export default function GuidelinesPage() {
 								<select
 									id="gl-cat"
 									value={form.categoryId ?? ""}
-									onChange={(e) => setForm({ ...form, categoryId: e.target.value || null })}
-									className={inputCls}
+									onChange={(event) => setForm({ ...form, categoryId: event.target.value || null })}
+									className={inputClassName}
 								>
 									<option value="" disabled>
 										Select a category
 									</option>
-									{categories.map((c) => (
-										<option key={c.id} value={c.id}>
-											{c.name}
+									{categories.map((category) => (
+										<option key={category.id} value={category.id}>
+											{category.name}
 										</option>
 									))}
 								</select>
@@ -254,8 +256,8 @@ export default function GuidelinesPage() {
 									id="gl-lang"
 									type="text"
 									value={form.language ?? ""}
-									onChange={(e) => setForm({ ...form, language: e.target.value || null })}
-									className={inputCls}
+									onChange={(event) => setForm({ ...form, language: event.target.value || null })}
+									className={inputClassName}
 									placeholder="e.g. TypeScript, Python, Rust…"
 								/>
 							</div>
@@ -266,7 +268,7 @@ export default function GuidelinesPage() {
 								<textarea
 									id="gl-content"
 									value={form.content}
-									onChange={(e) => setForm({ ...form, content: e.target.value })}
+									onChange={(event) => setForm({ ...form, content: event.target.value })}
 									rows={8}
 									className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
 									placeholder="Guideline content — the instructions injected into a project"

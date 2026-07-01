@@ -1,10 +1,9 @@
 import { RefreshCw } from "lucide-react";
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import { NewSessionDialog } from "@/components/dialog/new-session-dialog";
 import { SessionCard } from "@/components/session-card";
-import { mutateCache, useQuery } from "@/lib/query-cache";
+import { Button } from "@/components/ui/button";
 import { getSessions } from "@/lib/agent-api";
+import { mutateCache, useQuery } from "@/lib/query-cache";
 import type { Project } from "@/lib/types";
 
 interface SessionsTabProps {
@@ -24,7 +23,10 @@ export function SessionsTab({ projectId, running, dialogOpen, setDialogOpen }: S
 		refetch: fetchSessions,
 	} = useQuery(`sessions:${projectId}`, async () => {
 		const data = await getSessions(projectId);
-		mutateCache<Project>(`project:${projectId}`, (p) => ({ ...p, stats: { ...p.stats, sessions: data.length } }));
+		mutateCache<Project>(`project:${projectId}`, (project) => ({
+			...project,
+			stats: { ...project.stats, sessions: data.length },
+		}));
 		return data;
 	});
 
@@ -48,8 +50,12 @@ export function SessionsTab({ projectId, running, dialogOpen, setDialogOpen }: S
 		);
 	}
 
-	const active = sessions.filter((s) => s.status === "running" || s.status === "paused" || s.status === "compacting");
-	const finished = sessions.filter((s) => s.status === "completed" || s.status === "aborted" || s.status === "error");
+	const active = sessions.filter(
+		(session) => session.status === "running" || session.status === "paused" || session.status === "compacting"
+	);
+	const finished = sessions.filter(
+		(session) => session.status === "completed" || session.status === "aborted" || session.status === "error"
+	);
 
 	return (
 		<div className="space-y-6">
@@ -95,8 +101,8 @@ export function SessionsTab({ projectId, running, dialogOpen, setDialogOpen }: S
 						<section>
 							<h2 className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wide">Active</h2>
 							<div className="grid gap-3">
-								{active.map((s) => (
-									<SessionCard key={s.id} session={s} projectId={projectId} />
+								{active.map((session) => (
+									<SessionCard key={session.id} session={session} projectId={projectId} />
 								))}
 							</div>
 						</section>
@@ -105,8 +111,8 @@ export function SessionsTab({ projectId, running, dialogOpen, setDialogOpen }: S
 						<section>
 							<h2 className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wide">Finished</h2>
 							<div className="grid gap-3">
-								{finished.map((s) => (
-									<SessionCard key={s.id} session={s} projectId={projectId} />
+								{finished.map((session) => (
+									<SessionCard key={session.id} session={session} projectId={projectId} />
 								))}
 							</div>
 						</section>

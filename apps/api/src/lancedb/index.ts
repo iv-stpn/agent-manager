@@ -27,7 +27,7 @@ async function embed(text: string): Promise<number[]> {
 	if (!(output.data instanceof Float32Array)) {
 		throw new Error(`Expected Float32Array from embedder, got ${Object.prototype.toString.call(output.data)}`);
 	}
-	return Array.from(output.data).slice(0, VECTOR_DIM);
+	return Array.from(output.data) as number[];
 }
 
 async function getOrCreateTable(name: string): Promise<Table> {
@@ -74,7 +74,7 @@ app.post("/tables/:table/add", async (c) => {
 	);
 
 	// Overwrite existing docs with same id
-	const existingIds = docs.map((d) => (d as Record<string, unknown>).id);
+	const existingIds = docs.map((doc) => (doc as Record<string, unknown>).id);
 	try {
 		await table.delete(`id IN ('${existingIds.join("','")}')`);
 	} catch {
@@ -100,7 +100,7 @@ app.post("/tables/:table/search", async (c) => {
 
 	const results = await search.toArray();
 	return c.json({
-		results: results.filter((r) => r.id !== "__init__").map(({ vector, ...rest }) => rest),
+		results: results.filter((result) => result.id !== "__init__").map(({ vector, ...rest }) => rest),
 	});
 });
 

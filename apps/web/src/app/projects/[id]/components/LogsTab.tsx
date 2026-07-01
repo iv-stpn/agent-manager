@@ -20,8 +20,8 @@ export function LogsTab({ projectId, running }: LogsTabProps) {
 	} = useQuery(`logs:${projectId}:${service}`, async () => {
 		try {
 			const text = await getLogs(projectId, service);
-			mutateCache<Project>(`project:${projectId}`, (p) => ({
-				...p,
+			mutateCache<Project>(`project:${projectId}`, (project) => ({
+				...project,
 				logLines: text.trim() ? text.trim().split("\n").length : 0,
 			}));
 			return text;

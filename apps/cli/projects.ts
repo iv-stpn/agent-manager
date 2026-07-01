@@ -46,7 +46,7 @@ async function collectSettings(rl: readline.Interface, skipAgent: boolean): Prom
 
 const commands = {
 	async create(name: string, description?: string) {
-		const flags = process.argv.slice(2).filter((a) => a.startsWith("--"));
+		const flags = process.argv.slice(2).filter((argument) => argument.startsWith("--"));
 		const skipAgent = flags.includes("--skip-agent");
 
 		console.log(`Creating project "${name}"...`);

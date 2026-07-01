@@ -132,11 +132,11 @@ function collectColumnComments(
 function leadingComment(lines: string[], index: number, marker: string): string | undefined {
 	const collected: string[] = [];
 	for (let i = index - 1; i >= 0; i--) {
-		const t = lines[i].trim();
-		if (t.startsWith(marker)) {
-			const c = stripComment(t, marker);
-			if (c) collected.unshift(c);
-		} else if (t === "") {
+		const line = lines[i].trim();
+		if (line.startsWith(marker)) {
+			const comment = stripComment(line, marker);
+			if (comment) collected.unshift(comment);
+		} else if (line === "") {
 			if (collected.length) break;
 		} else {
 			break;
@@ -171,24 +171,24 @@ async function buildProjectTables(): Promise<TableDoc[]> {
 		const fkByColumn = new Map<string, string>();
 		for (const fk of config.foreignKeys) {
 			const ref = fk.reference();
-			ref.columns.forEach((c, i) => {
-				const target = ref.foreignColumns[i];
-				fkByColumn.set(c.name, `${getTableConfig(ref.foreignTable).name}.${target.name}`);
+			ref.columns.forEach((column, idx) => {
+				const target = ref.foreignColumns[idx];
+				fkByColumn.set(column.name, `${getTableConfig(ref.foreignTable).name}.${target.name}`);
 			});
 		}
-		const pkColumns = new Set(config.primaryKeys.flatMap((pk) => pk.columns.map((c) => c.name)));
+		const pkColumns = new Set(config.primaryKeys.flatMap((pk) => pk.columns.map((column) => column.name)));
 		const tableComments = comments.get(config.name) ?? new Map<string, string>();
 
-		const columns: ColumnDoc[] = config.columns.map((col) =>
+		const columns: ColumnDoc[] = config.columns.map((column) =>
 			makeColumn({
-				name: col.name,
-				type: col.getSQLType(),
-				notNull: col.notNull,
-				primaryKey: col.primary || pkColumns.has(col.name),
-				default: formatDefault(col.default, col.hasDefault),
-				enumValues: (col.enumValues as string[] | undefined)?.length ? (col.enumValues as string[]) : undefined,
-				references: fkByColumn.get(col.name),
-				comment: tableComments.get(col.name),
+				name: column.name,
+				type: column.getSQLType(),
+				notNull: column.notNull,
+				primaryKey: column.primary || pkColumns.has(column.name),
+				default: formatDefault(column.default, column.hasDefault),
+				enumValues: (column.enumValues as string[] | undefined)?.length ? (column.enumValues as string[]) : undefined,
+				references: fkByColumn.get(column.name),
+				comment: tableComments.get(column.name),
 			})
 		);
 
@@ -265,15 +265,15 @@ function buildOrchestratorTables(): TableDoc[] {
 			}[];
 			const fkByColumn = new Map(fks.map((fk) => [fk.from, `${fk.table}.${fk.to}`]));
 
-			const columns: ColumnDoc[] = info.map((c) =>
+			const columns: ColumnDoc[] = info.map((column) =>
 				makeColumn({
-					name: c.name,
-					type: c.type || "TEXT",
-					notNull: c.notnull === 1,
-					primaryKey: c.pk > 0,
-					default: c.dflt_value ?? undefined,
-					references: fkByColumn.get(c.name),
-					comment: tableComments.get(c.name),
+					name: column.name,
+					type: column.type || "TEXT",
+					notNull: column.notnull === 1,
+					primaryKey: column.pk > 0,
+					default: column.dflt_value ?? undefined,
+					references: fkByColumn.get(column.name),
+					comment: tableComments.get(column.name),
 				})
 			);
 
@@ -358,7 +358,7 @@ function renderTable(t: TableDoc): string {
 		if (c.default !== undefined) constraints.push(`default \`${c.default}\``);
 		if (c.references) constraints.push(`→ \`${c.references}\``);
 		let desc = c.comment ?? "";
-		if (c.enumValues) desc = `${desc ? `${desc} ` : ""}One of: ${c.enumValues.map((v) => `\`${v}\``).join(", ")}`;
+		if (c.enumValues) desc = `${desc ? `${desc} ` : ""}One of: ${c.enumValues.map((value) => `\`${value}\``).join(", ")}`;
 		out.push(`| \`${c.name}\` | \`${c.type}\` | ${constraints.join(", ") || "—"} | ${desc || "—"} |`);
 	}
 	out.push("");
@@ -380,7 +380,7 @@ const orchestratorIntro =
 	"Defined in `apps/api/src/db/orchestrator-database.ts`." +
 	(seededTables.length
 		? ` On first open, the constructor runs \`seedDefaults()\`, which populates default rows for ${seededTables
-				.map((t) => `\`${t}\``)
+				.map((table) => `\`${table}\``)
 				.join(" and ")} when those tables are empty.`
 		: "");
 

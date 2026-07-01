@@ -108,7 +108,7 @@ export async function sendReport(
 		const diagrams = report.mermaid_diagrams;
 		for (let i = 0; i < diagrams.length; i += 3) {
 			const batch = diagrams.slice(i, i + 3);
-			const results = await Promise.allSettled(batch.map((d) => renderMermaid(d.definition)));
+			const results = await Promise.allSettled(batch.map((diagram) => renderMermaid(diagram.definition)));
 
 			for (let j = 0; j < batch.length; j++) {
 				const diagram = batch[j];
@@ -199,16 +199,16 @@ export async function sendCheckinForm(
 			channel.client.removeListener("interactionCreate", modalListener);
 		}
 
-		function isSuggestion(v: unknown): v is Suggestion {
-			if (typeof v !== "object" || v === null) return false;
-			if (!("id" in v) || !("title" in v)) return false;
-			return typeof v.id === "string" && typeof v.title === "string";
+		function isSuggestion(value: unknown): value is Suggestion {
+			if (typeof value !== "object" || value === null) return false;
+			if (!("id" in value) || !("title" in value)) return false;
+			return typeof value.id === "string" && typeof value.title === "string";
 		}
 
-		function parseSuggestions(q: Question): Suggestion[] {
-			if (!q.suggestions) return [];
+		function parseSuggestions(question: Question): Suggestion[] {
+			if (!question.suggestions) return [];
 			try {
-				const parsed: unknown = JSON.parse(q.suggestions);
+				const parsed = JSON.parse(question.suggestions);
 				if (!Array.isArray(parsed)) return [];
 				return parsed.filter(isSuggestion);
 			} catch {
@@ -234,10 +234,10 @@ export async function sendCheckinForm(
 
 			if (suggestions.length > 0) {
 				// Suggestion buttons (up to 5 per row)
-				const suggestionButtons = suggestions.map((s) =>
+				const suggestionButtons = suggestions.map((suggestion) =>
 					new ButtonBuilder()
-						.setCustomId(`suggest_${sessionId}_${step}_${s.id}`)
-						.setLabel(s.title.slice(0, 80))
+						.setCustomId(`suggest_${sessionId}_${step}_${suggestion.id}`)
+						.setLabel(suggestion.title.slice(0, 80))
 						.setStyle(ButtonStyle.Primary)
 				);
 				for (let i = 0; i < suggestionButtons.length; i += 5) {
@@ -380,20 +380,21 @@ export async function sendCheckinForm(
 			// Suggestion button
 			if (interaction.customId.startsWith(`suggest_${sessionId}_`)) {
 				const parts = interaction.customId.split("_");
+
 				// Format: suggest_{sessionId}_{step}_{suggestionId}
 				const suggestionId = parts[parts.length - 1];
 				const question = questions[currentStep];
+
 				const suggestions = parseSuggestions(question);
-				const selected = suggestions.find((s) => s.id === suggestionId);
+				const selected = suggestions.find((suggestion) => suggestion.id === suggestionId);
+
 				answers[currentStep] = { questionId: question.id, answer: selected?.title ?? suggestionId };
 				currentStep++;
 
 				await interaction.deferUpdate();
-				if (currentStep >= questions.length) {
-					await showConfirmation();
-				} else {
-					await showQuestionStep(currentStep);
-				}
+				if (currentStep >= questions.length) await showConfirmation();
+				else await showQuestionStep(currentStep);
+
 				return;
 			}
 
@@ -615,12 +616,16 @@ export async function sendQuestions(
 
 			// Option selection
 			if (interaction.customId.startsWith(`q_opt_${sessionId}_`)) {
+				// Format: q_opt_{sessionId}_{step}_{oi} — sessionId may contain "_",
+				// so parse the trailing numeric segments from the end.
 				const parts = interaction.customId.split("_");
-				const step = Number.parseInt(parts[3], 10);
-				const optIdx = Number.parseInt(parts[4], 10);
-				const q = questions[step];
-				const isMulti = q.multiSelect ?? false;
-				const selectedLabel = q.options[optIdx].label;
+				const optionIdx = Number.parseInt(parts[parts.length - 1], 10);
+
+				const step = Number.parseInt(parts[parts.length - 2], 10);
+				const question = questions[step];
+
+				const isMulti = question.multiSelect ?? false;
+				const selectedLabel = question.options[optionIdx].label;
 
 				if (isMulti) {
 					// Toggle selection
@@ -632,7 +637,7 @@ export async function sendQuestions(
 					await showStep(step);
 				} else {
 					// Single select — record and advance
-					results[q.header] = selectedLabel;
+					results[question.header] = selectedLabel;
 					await interaction.deferUpdate();
 					advanceStep();
 				}
@@ -642,8 +647,9 @@ export async function sendQuestions(
 			// MultiSelect done
 			if (interaction.customId.startsWith(`q_multidone_${sessionId}_`)) {
 				const step = Number.parseInt(interaction.customId.split("_").pop() ?? "0", 10);
-				const sel = multiSelections.get(step);
-				results[questions[step].header] = sel && sel.size > 0 ? [...sel].join(", ") : "_no selection_";
+				const selection = multiSelections.get(step);
+
+				results[questions[step].header] = selection && selection.size > 0 ? [...selection].join(", ") : "_no selection_";
 				await interaction.deferUpdate();
 				advanceStep();
 				return;
@@ -651,18 +657,19 @@ export async function sendQuestions(
 
 			// Custom answer → open modal
 			if (interaction.customId.startsWith(`q_custom_${sessionId}_`)) {
-				const q = questions[currentStep];
+				const question = questions[currentStep];
 				const modal = new ModalBuilder()
 					.setCustomId(`q_modal_${sessionId}_${currentStep}`)
-					.setTitle(q.header.length > 45 ? `${q.header.slice(0, 42)}...` : q.header);
+					.setTitle(question.header.length > 45 ? `${question.header.slice(0, 42)}...` : question.header);
+
 				const input = new TextInputBuilder()
 					.setCustomId("answer_input")
-					.setLabel(q.question.length > 45 ? `${q.question.slice(0, 42)}...` : q.question)
+					.setLabel(question.question.length > 45 ? `${question.question.slice(0, 42)}...` : question.question)
 					.setPlaceholder("Type your answer...")
 					.setStyle(TextInputStyle.Paragraph)
 					.setRequired(true);
-				if (results[q.header]) {
-					input.setValue(results[q.header]);
+				if (results[question.header]) {
+					input.setValue(results[question.header]);
 				}
 				modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
 				await interaction.showModal(modal);

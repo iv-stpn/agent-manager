@@ -1,3 +1,4 @@
+import type { Task } from "@agent-manager/db/project-schema";
 import {
 	type CheckinRecord,
 	type CompactionRecord,
@@ -10,7 +11,6 @@ import {
 	type ToolCallRecord,
 	UpdateSettingsSchema,
 } from "@agent-manager/projects";
-
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -50,25 +50,26 @@ async function enrichProject(
 
 async function proxyToAgent(c: Context<HonoOrchestratorEnv>, projectId: string, upstreamPath: string): Promise<Response> {
 	const project = await c.var.manager.getProject(projectId);
-	const qs = c.req.query();
-	const search = new URLSearchParams(qs).toString();
+	const queryString = c.req.query();
+
+	const search = new URLSearchParams(queryString).toString();
 	const url = `http://localhost:${project.ports.server}${upstreamPath}${search ? `?${search}` : ""}`;
 
 	const headers = new Headers();
-	const ct = c.req.header("content-type");
-	if (ct) headers.set("content-type", ct);
+	const contentType = c.req.header("content-type");
+	if (contentType) headers.set("content-type", contentType);
 
 	const method = c.req.method;
 	const body = method === "GET" || method === "HEAD" ? undefined : await c.req.text();
 
 	try {
 		const upstream = await fetch(url, { method, headers, ...(body !== undefined && { body }) });
-		const respHeaders = new Headers();
+		const responseHeaders = new Headers();
 		for (const key of ["content-type", "cache-control", "connection", "x-accel-buffering"]) {
-			const v = upstream.headers.get(key);
-			if (v) respHeaders.set(key, v);
+			const value = upstream.headers.get(key);
+			if (value) responseHeaders.set(key, value);
 		}
-		return new Response(upstream.body, { status: upstream.status, headers: respHeaders });
+		return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
 	} catch (error) {
 		return c.json(
 			{
@@ -139,7 +140,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 			const { manager, hub } = c.var;
 			try {
 				const projects = await manager.listProjects();
-				const enriched = await Promise.all(projects.map((p) => enrichProject(c, p)));
+				const enriched = await Promise.all(projects.map((project) => enrichProject(c, project)));
 				await stream.writeSSE({ event: "projects", data: JSON.stringify(enriched) });
 			} catch {
 				// snapshot is best-effort; live events still flow
@@ -177,7 +178,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 	.get("/", async (c) => {
 		try {
 			const projects = await c.var.manager.listProjects();
-			const enriched = await Promise.all(projects.map((p) => enrichProject(c, p)));
+			const enriched = await Promise.all(projects.map((project) => enrichProject(c, project)));
 			return c.json({ projects: enriched });
 		} catch (error) {
 			return c.json({ error: getErrorMessage(error) }, 500);
@@ -678,18 +679,18 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 
 			const techStacks = techStackIds
 				.map((id) => c.var.orchestratorDb.getTechStack(id))
-				.filter((t): t is NonNullable<typeof t> => !!t);
+				.filter((techStack): techStack is NonNullable<typeof techStack> => !!techStack);
 			const guidelines = guidelineIds
 				.map((id) => c.var.orchestratorDb.getGuideline(id))
-				.filter((g): g is NonNullable<typeof g> => !!g);
+				.filter((guideline): guideline is NonNullable<typeof guideline> => !!guideline);
 
 			// Carry over templates from the existing context — they're set at
 			// creation and not editable from the context panel.
 			const existing = await c.var.manager.getProjectContext(projectId);
 
 			const context = await c.var.manager.setProjectContext(projectId, {
-				techStackIds: techStacks.map((t) => t.id),
-				guidelineIds: guidelines.map((g) => g.id),
+				techStackIds: techStacks.map((techStack) => techStack.id),
+				guidelineIds: guidelines.map((guideline) => guideline.id),
 				instructions,
 				templates: existing.templates,
 			});
@@ -707,13 +708,13 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 
 			const techStacks = techStackIds
 				.map((id) => c.var.orchestratorDb.getTechStack(id))
-				.filter((t): t is NonNullable<typeof t> => !!t);
+				.filter((techStack): techStack is NonNullable<typeof techStack> => !!techStack);
 			const guidelines = guidelineIds
 				.map((id) => c.var.orchestratorDb.getGuideline(id))
-				.filter((g): g is NonNullable<typeof g> => !!g)
-				.map((g) => ({
-					...g,
-					category: g.categoryId ? (c.var.orchestratorDb.getGuidelineCategory(g.categoryId)?.name ?? null) : null,
+				.filter((guideline): guideline is NonNullable<typeof guideline> => !!guideline)
+				.map((guideline) => ({
+					...guideline,
+					category: guideline.categoryId ? (c.var.orchestratorDb.getGuidelineCategory(guideline.categoryId)?.name ?? null) : null,
 				}));
 
 			return c.json({ techStacks, guidelines, instructions, templates });
@@ -789,7 +790,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 		const { projectId } = c.req.param();
 		const sessionId = c.req.query("sessionId");
 		const query = sessionId ? `?sessionId=${sessionId}` : "";
-		const upstream = await fetchAgentJson<unknown[]>(c, projectId, `/api/tasks${query}`);
+		const upstream = await fetchAgentJson<Task[]>(c, projectId, `/api/tasks${query}`);
 		if (upstream) return c.json(upstream);
 		return c.json(await c.var.projectDatabaseManager.getTasks(projectId, sessionId));
 	})
@@ -808,4 +809,8 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 	.post("/:projectId/sessions/:sessionId/message", async (c) => {
 		const { projectId, sessionId } = c.req.param();
 		return proxyToAgent(c, projectId, `/api/sessions/${sessionId}/message`);
+	})
+	.put("/:projectId/sessions/:sessionId/settings", async (c) => {
+		const { projectId, sessionId } = c.req.param();
+		return proxyToAgent(c, projectId, `/api/sessions/${sessionId}/settings`);
 	});

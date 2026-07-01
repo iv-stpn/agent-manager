@@ -11,7 +11,9 @@ export function TokenChart({ messages }: Props) {
 	// reads the cache replays the constant system prompt + tool definitions, so
 	// its cacheReadTokens is a good proxy. Those same tokens reappear as cache
 	// reads on every subsequent turn.
-	const firstCacheRead = messages.find((m) => (m.role === "assistant" || m.role === "system") && (m.cacheReadTokens ?? 0) > 0);
+	const firstCacheRead = messages.find(
+		(message) => (message.role === "assistant" || message.role === "system") && (message.cacheReadTokens ?? 0) > 0
+	);
 	const systemPromptTokens = firstCacheRead?.cacheReadTokens ?? 0;
 
 	let cumulativeInput = 0;
@@ -20,14 +22,21 @@ export function TokenChart({ messages }: Props) {
 	let cumulativeCacheWrite = 0;
 
 	const data = messages
-		.filter((m) => (m.inputTokens ?? 0) + (m.outputTokens ?? 0) + (m.cacheReadTokens ?? 0) + (m.cacheWriteTokens ?? 0) > 0)
-		.map((m, i) => {
-			cumulativeInput += m.inputTokens ?? 0;
-			cumulativeOutput += m.outputTokens ?? 0;
-			cumulativeCacheRead += m.cacheReadTokens ?? 0;
-			cumulativeCacheWrite += m.cacheWriteTokens ?? 0;
+		.filter(
+			(message) =>
+				(message.inputTokens ?? 0) +
+					(message.outputTokens ?? 0) +
+					(message.cacheReadTokens ?? 0) +
+					(message.cacheWriteTokens ?? 0) >
+				0
+		)
+		.map((message, index) => {
+			cumulativeInput += message.inputTokens ?? 0;
+			cumulativeOutput += message.outputTokens ?? 0;
+			cumulativeCacheRead += message.cacheReadTokens ?? 0;
+			cumulativeCacheWrite += message.cacheWriteTokens ?? 0;
 			return {
-				turn: i + 1,
+				turn: index + 1,
 				cumInput: cumulativeInput,
 				cumOutput: cumulativeOutput,
 				cumCacheRead: cumulativeCacheRead,
