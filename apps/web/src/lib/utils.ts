@@ -5,10 +5,11 @@ export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
 }
 
-export function formatTokens(number: number): string {
-	if (number >= 1_000_000) return `${(number / 1_000_000).toFixed(1)}M`;
-	if (number >= 1_000) return `${(number / 1_000).toFixed(1)}k`;
-	return String(number);
+export function formatTokens(number: number | null | undefined): string {
+	const n = number ?? 0;
+	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+	return String(n);
 }
 
 export function formatRelativeTime(ts: number): string {
