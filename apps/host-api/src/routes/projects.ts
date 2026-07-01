@@ -662,7 +662,8 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 	})
 	// Update per-project prompt context. Resolves selected library IDs to their
 	// text here (only the host has the library DB), renders the markdown the
-	// container reads, and persists both via the manager.
+	// container reads, and persists both via the manager. Preserves the
+	// templates field (set at creation) since the context editor doesn't edit it.
 	.put("/:projectId/context", async (c) => {
 		try {
 			const projectId = c.req.param("projectId");
@@ -671,27 +672,35 @@ export const projectsRouter = new Hono<HonoHostEnv>()
 			const techStacks = techStackIds.map((id) => c.var.hostDb.getTechStack(id)).filter((t): t is NonNullable<typeof t> => !!t);
 			const guidelines = guidelineIds.map((id) => c.var.hostDb.getGuideline(id)).filter((g): g is NonNullable<typeof g> => !!g);
 
+			// Carry over templates from the existing context — they're set at
+			// creation and not editable from the context panel.
+			const existing = await c.var.manager.getProjectContext(projectId);
+
 			const context = await c.var.manager.setProjectContext(projectId, {
 				techStackIds: techStacks.map((t) => t.id),
 				guidelineIds: guidelines.map((g) => g.id),
 				instructions,
+				templates: existing.templates,
 			});
 			return c.json({ context });
 		} catch (error) {
 			return c.json({ error: getErrorMessage(error) }, 400);
 		}
 	})
-	// Resolve per-project context to full objects (tech stacks + guidelines + instructions).
-	// Called by the agent container at session start to build its system prompt.
+	// Resolve per-project context to full objects (tech stacks + guidelines + instructions
+	// + templates). Called by the agent container at session start to build its system prompt.
 	.get("/:projectId/context/resolved", async (c) => {
 		try {
 			const projectId = c.req.param("projectId");
-			const { techStackIds, guidelineIds, instructions } = await c.var.manager.getProjectContext(projectId);
+			const { techStackIds, guidelineIds, instructions, templates } = await c.var.manager.getProjectContext(projectId);
 
 			const techStacks = techStackIds.map((id) => c.var.hostDb.getTechStack(id)).filter((t): t is NonNullable<typeof t> => !!t);
-			const guidelines = guidelineIds.map((id) => c.var.hostDb.getGuideline(id)).filter((g): g is NonNullable<typeof g> => !!g);
+			const guidelines = guidelineIds
+				.map((id) => c.var.hostDb.getGuideline(id))
+				.filter((g): g is NonNullable<typeof g> => !!g)
+				.map((g) => ({ ...g, category: g.categoryId ? c.var.hostDb.getGuidelineCategory(g.categoryId)?.name ?? null : null }));
 
-			return c.json({ techStacks, guidelines, instructions });
+			return c.json({ techStacks, guidelines, instructions, templates });
 		} catch (error) {
 			return c.json({ error: getErrorMessage(error) }, 400);
 		}

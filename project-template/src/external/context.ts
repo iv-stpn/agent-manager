@@ -32,17 +32,25 @@ export interface Guideline {
 	name: string;
 	description: string;
 	categoryId: string | null;
+	category: string | null;
 	language: string | null;
 	content: string;
+}
+
+export interface TemplateRef {
+	type: "local" | "github";
+	source: string;
+	subdirectory?: string;
 }
 
 export interface ResolvedProjectContext {
 	techStacks: TechStack[];
 	guidelines: Guideline[];
 	instructions: string;
+	templates: TemplateRef[];
 }
 
-const EMPTY_CONTEXT: ResolvedProjectContext = { techStacks: [], guidelines: [], instructions: "" };
+const EMPTY_CONTEXT: ResolvedProjectContext = { techStacks: [], guidelines: [], instructions: "", templates: [] };
 
 let cached: ResolvedProjectContext | null = null;
 

@@ -330,6 +330,19 @@ export class ProjectManager {
 		// Generate docker-compose.yml (the only config file)
 		await this.generateDockerCompose(projectId, config);
 
+		// Persist the templates the project was seeded from into context.json so
+		// the agent's system prompt can tell it the workspace started from a
+		// template it is free to modify. Other context fields (tech stacks,
+		// guidelines, instructions) are empty until set via the context editor.
+		if (input.templates && input.templates.length > 0) {
+			await this.setProjectContext(projectId, {
+				techStackIds: [],
+				guidelineIds: [],
+				instructions: "",
+				templates: input.templates,
+			});
+		}
+
 		return config;
 	}
 
@@ -364,12 +377,12 @@ export class ProjectManager {
 	async getProjectContext(projectId: string): Promise<ProjectContext> {
 		const path = this.getProjectContextPath(projectId);
 		if (!existsSync(path)) {
-			return { techStackIds: [], guidelineIds: [], instructions: "" };
+			return { techStackIds: [], guidelineIds: [], instructions: "", templates: [] };
 		}
 		try {
 			return ProjectContextSchema.parse(JSON.parse(readFileSync(path, "utf-8")));
 		} catch {
-			return { techStackIds: [], guidelineIds: [], instructions: "" };
+			return { techStackIds: [], guidelineIds: [], instructions: "", templates: [] };
 		}
 	}
 

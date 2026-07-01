@@ -1,4 +1,4 @@
-import type { ResolvedProjectContext } from "../external/context";
+import type { ResolvedProjectContext, TemplateRef } from "../external/context";
 import type { AgentStateConfig } from "./types";
 
 export interface SystemPromptOpts {
@@ -11,8 +11,12 @@ export function buildSystemPrompt(cfg: AgentStateConfig, opts?: SystemPromptOpts
 
 	// ── Core identity ────────────────────────────────────────────────────────────
 	sections.push(
-		`You are an autonomous software engineering agent running unattended in a sandboxed Docker container. Your workspace is /workspace. No human is watching in real time, but they will get notified when you send reports or questions.`
+		`You are an autonomous software engineer agent working in a Docker container. Your workspace is /workspace. The user will get notified when you send reports or questions.`
 	);
+
+	// ── Starting point (templates the workspace was seeded from) ─────────────────
+	const startingBlock = renderStartingPoint(opts?.context?.templates);
+	if (startingBlock) sections.push(startingBlock);
 
 	// ── Project context (tech stack + guidelines + instructions) ─────────────────
 	const contextBlock = renderProjectContext(opts?.context);
@@ -27,8 +31,8 @@ Prefer dedicated tools over shell equivalents. Make independent tool calls in pa
 
 	// ── Reporting & questions ────────────────────────────────────────────────────
 	sections.push(`# Reporting
-Reports (\`send_report\`) are immutable database records — the only audit trail. Never write reports to files. Send a report at each meaningful milestone.
-Front-load clarifying questions at the start; use \`ask_user_question(urgent: true)\` only when truly blocked.
+Reports (\`send_report\`) are immutable database records. Never write reports to files. Send a report at each meaningful milestone.
+Front-load all necessary clarifying questions at the start; use \`ask_user_question(urgent: true)\` only when truly blocked.
 Tone: concise and direct, lead with results. Markdown, minimal emoji.`);
 
 	// ── Memory (condensed) ───────────────────────────────────────────────────────
@@ -41,6 +45,27 @@ Tone: concise and direct, lead with results. Markdown, minimal emoji.`);
 }
 
 // ── Project context rendering ────────────────────────────────────────────────
+
+/**
+ * Render a note about the template(s) the workspace was seeded from. Tells the
+ * agent the template is a starting point it is free to modify — not a fixed
+ * dependency to preserve.
+ */
+function renderStartingPoint(templates?: TemplateRef[]): string | null {
+	if (!templates?.length) return null;
+
+	const lines = templates.map((t) => {
+		const origin = t.type === "github" ? `GitHub repo ${t.source}` : `Local template "${t.source}"`;
+		return `- ${origin}${t.subdirectory ? ` → ./${t.subdirectory}` : ""}`;
+	});
+
+	const plural = templates.length > 1 ? "s" : "";
+
+	return `# Starting Point
+This workspace was seeded from the template${plural} below. Treat them as a starting point, not a fixed foundation — you are free to modify, rename, restructure, or delete any of this code to fit the task. They are not dependencies to preserve.
+
+${lines.join("\n")}`;
+}
 
 function renderProjectContext(ctx?: ResolvedProjectContext): string | null {
 	if (!ctx) return null;
@@ -62,12 +87,9 @@ function renderProjectContext(ctx?: ResolvedProjectContext): string | null {
 		}
 	}
 
-	// Guidelines
-	for (const g of guidelines) {
-		parts.push(`## Guideline: ${g.name}`);
-		if (g.description) parts.push(g.description);
-		if (g.content) parts.push(g.content);
-	}
+	// Guidelines — compiled into one section, grouped by category.
+	const guidelinesBlock = renderGuidelines(guidelines);
+	if (guidelinesBlock) parts.push(guidelinesBlock);
 
 	// Free-form instructions
 	if (instructions) {
@@ -82,6 +104,36 @@ function renderProjectContext(ctx?: ResolvedProjectContext): string | null {
 	return parts.join("\n\n");
 }
 
+/**
+ * Compile all guidelines into a single "Guidelines" section, grouped by
+ * category. Each category becomes a `###` heading with a bullet list of its
+ * guidelines; guidelines with no category fall under "General". The meaning
+ * of each field is detailed in the tool definitions, so we render values
+ * concisely rather than re-explaining them.
+ */
+function renderGuidelines(guidelines: ResolvedProjectContext["guidelines"]): string | null {
+	if (!guidelines.length) return null;
+
+	const groups = new Map<string, typeof guidelines>();
+	for (const g of guidelines) {
+		const key = g.category ?? "General";
+		const group = groups.get(key);
+		if (group) group.push(g);
+		else groups.set(key, [g]);
+	}
+
+	const blocks: string[] = ["## Guidelines"];
+	for (const [category, items] of groups) {
+		blocks.push(`### ${category}`);
+		for (const g of items) {
+			const lead = `**${g.name}**${g.description ? ` — ${g.description}` : ""}`;
+			blocks.push(g.content ? `- ${lead}\n  ${g.content}` : `- ${lead}`);
+		}
+	}
+
+	return blocks.join("\n");
+}
+
 /** Generate language/framework-specific guidance based on the configured stack. */
 function buildStackHint(languages: string[], stacks: ResolvedProjectContext["techStacks"]): string | null {
 	const allLibs = stacks.flatMap((s) => s.stack.flatMap((e) => e.libraries.map((l) => l.name.toLowerCase())));
@@ -89,12 +141,17 @@ function buildStackHint(languages: string[], stacks: ResolvedProjectContext["tec
 
 	// TypeScript / JavaScript
 	if (languages.some((l) => ["typescript", "javascript", "ts", "js"].includes(l))) {
-		hints.push("- Prefer strict TypeScript. Use `const` over `let`, avoid `any`.");
+		hints.push("- Make TypeScript strict. Use `const` over `let`, avoid `any`.");
 		if (allLibs.includes("react") || allLibs.includes("next") || allLibs.includes("next.js")) {
 			hints.push("- React: prefer functional components, hooks, and composition over inheritance.");
 		}
 		if (allLibs.includes("bun") || allLibs.includes("elysia") || allLibs.includes("hono")) {
 			hints.push("- Use Bun-native APIs where available (Bun.file, Bun.serve, etc.).");
+		}
+		if (allLibs.some((l) => ["cloudflare", "cloudflare-workers", "workers", "wrangler", "hono"].includes(l))) {
+			hints.push(
+				"- Cloudflare Workers: use the runtime Web APIs (fetch, Request/Response, Headers, ReadableStream, crypto.subtle). Avoid Node.js built-ins and filesystem APIs — use bindings (KV, D1, Durable Objects, Queues), or infrastructure described by the user, for storage and state. Keep handlers stateless across requests; persist state through bindings."
+			);
 		}
 	}
 
@@ -131,24 +188,7 @@ This is your first session — memory is empty. As you explore and work, \`remem
 // ── Settings rendering ──────────────────────────────────────────────────────
 
 function renderSettings(cfg: AgentStateConfig): string {
-	const improve =
-		cfg.alwaysImproveMode === "no"
-			? "Stop once the original task is complete."
-			: cfg.alwaysImproveMode === "yes"
-				? "Never declare done; after the initial goal, keep finding improvements."
-				: `After the initial task, keep improving only within: ${cfg.alwaysImproveScope ?? ""}.`;
-
-	const askMode: Record<string, string> = {
-		always: "queue anytime, sent grouped ASAP",
-		requiredOnly: "urgent only when blocked; others accumulate for next report",
-		onReportOnly: "all questions accumulate until next report",
-		never: "decide autonomously; questions surface at timeout",
-	};
-
 	return `# Settings
 Report interval: ${cfg.reportIntervalMins}min · Timeout: ${cfg.stopThresholdMins}min · Compact at: ${cfg.compactThresholdTokens} tokens · Stop at: ${cfg.stopThresholdTokens} tokens
-await_report: ${cfg.awaitReportMode}${cfg.awaitReportCustomRule ? ` ("${cfg.awaitReportCustomRule}")` : ""} · await_ask: ${cfg.awaitAskMode} · always_improve: ${cfg.alwaysImproveMode}
-
-always_improve — ${improve}
-await_ask — ${askMode[cfg.awaitAskMode] ?? cfg.awaitAskMode}`;
+await_report: ${cfg.awaitReportMode}${cfg.awaitReportCustomRule ? ` ("${cfg.awaitReportCustomRule}")` : ""} · await_ask: ${cfg.awaitAskMode} · always_improve: ${cfg.alwaysImproveMode}${cfg.alwaysImproveMode === "custom" ? ` (${cfg.alwaysImproveScope ?? ""})` : ""}`;
 }

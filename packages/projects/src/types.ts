@@ -42,15 +42,30 @@ export const ProjectConfigSchema = z.object({
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
 
 /**
+ * A template a project was seeded from at creation time. Mirrors
+ * `CreateProjectInput.templates`; persisted in `context.json` so the agent's
+ * system prompt can tell the agent its workspace started from a template.
+ */
+export const TemplateRefSchema = z.object({
+	type: z.enum(["local", "github"]),
+	source: z.string(), // For local: template name, for github: repo URL
+	subdirectory: z.string().optional(), // Subdirectory under the workspace, if any
+});
+
+export type TemplateRef = z.infer<typeof TemplateRefSchema>;
+
+/**
  * Per-project prompt context: which library tech stacks / guidelines apply,
- * plus a free-form project-local instructions block. Persisted in the
- * project's `context.json`; the rendered markdown is mounted into the
- * container and injected into the agent's system prompt.
+ * plus a free-form project-local instructions block, and the templates the
+ * project was seeded from. Persisted in the project's `context.json`; the
+ * rendered markdown is mounted into the container and injected into the
+ * agent's system prompt.
  */
 export const ProjectContextSchema = z.object({
 	techStackIds: z.array(z.string()).default([]),
 	guidelineIds: z.array(z.string()).default([]),
 	instructions: z.string().default(""),
+	templates: z.array(TemplateRefSchema).default([]),
 });
 
 export type ProjectContext = z.infer<typeof ProjectContextSchema>;
