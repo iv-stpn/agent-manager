@@ -177,6 +177,7 @@ One turn of the conversation transcript for a session: a user or assistant messa
 | `cache_write_tokens` | `integer` | not null, default `0` | Prompt-cache write tokens for this message. |
 | `error` | `text` | — | Short error message if generation failed. |
 | `error_details` | `text` | — | Full error detail / stack, if any. |
+| `compacted_out` | `integer` | not null, default `false` | True once a compaction has summarized this message out of the active context. Kept for the timeline; skipped when rebuilding API history. |
 | `created_at` | `integer` | not null, default `expression` | Creation time (epoch ms). |
 
 ### `questions`
@@ -232,6 +233,10 @@ An autonomous agent run within a project. Holds the task, its runtime configurat
 | `total_output_tokens` | `integer` | not null, default `0` | Cumulative output tokens across the session. |
 | `total_cache_read_tokens` | `integer` | not null, default `0` | Cumulative prompt-cache read tokens. |
 | `total_cache_write_tokens` | `integer` | not null, default `0` | Cumulative prompt-cache write tokens. |
+| `tokens_input_since_compaction` | `integer` | not null, default `0` | Tokens consumed since the last compaction (reset to 0 on each compaction) |
+| `tokens_output_since_compaction` | `integer` | not null, default `0` | — |
+| `tokens_cache_read_since_compaction` | `integer` | not null, default `0` | — |
+| `tokens_cache_write_since_compaction` | `integer` | not null, default `0` | — |
 | `discord_channel_id` | `text` | — | Discord channel mirroring this session, if any. |
 | `created_at` | `integer` | not null, default `expression` | Creation time (epoch ms). |
 | `updated_at` | `integer` | not null, default `expression` | Last update time (epoch ms). |
