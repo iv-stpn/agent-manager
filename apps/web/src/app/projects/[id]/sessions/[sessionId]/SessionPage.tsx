@@ -488,41 +488,28 @@ export default function SessionPage() {
 									</CardContent>
 								</Card>
 								{compactions.length > 0 && (
-									<>
-										<div className="text-xs font-medium text-muted-foreground px-1">Since Last Compaction</div>
-										<div className="grid grid-cols-2 gap-3">
-											<Card>
-												<CardContent className="pt-4 pb-3">
-													<p className="text-xs text-muted-foreground">Input tokens</p>
-													<p className="text-xl font-bold text-blue-500">{formatTokens(session.tokensInputSinceCompaction)}</p>
-												</CardContent>
-											</Card>
-											<Card>
-												<CardContent className="pt-4 pb-3">
-													<p className="text-xs text-muted-foreground">Output tokens</p>
-													<p className="text-xl font-bold text-teal-500">{formatTokens(session.tokensOutputSinceCompaction)}</p>
-												</CardContent>
-											</Card>
-											<Card>
-												<CardContent className="pt-4 pb-3">
-													<p className="text-xs text-muted-foreground">Cache read tokens</p>
-													<p className="text-xl font-bold text-cyan-500">
-														{formatTokens(session.tokensCacheReadSinceCompaction)}
-													</p>
-												</CardContent>
-											</Card>
-											<Card>
-												<CardContent className="pt-4 pb-3">
-													<p className="text-xs text-muted-foreground">Cache write tokens</p>
-													<p className="text-xl font-bold text-emerald-500">
-														{formatTokens(session.tokensCacheWriteSinceCompaction)}
-													</p>
-												</CardContent>
-											</Card>
-										</div>
-									</>
+									<Card>
+										<CardContent className="pt-4 pb-3 space-y-1 text-sm">
+											<p className="text-xs font-medium text-muted-foreground mb-2">Since Last Compaction</p>
+											<div className="flex justify-between">
+												<span className="text-muted-foreground">Input tokens</span>
+												<span className="font-mono">{formatTokens(session.tokensInputSinceCompaction)}</span>
+											</div>
+											<div className="flex justify-between">
+												<span className="text-muted-foreground">Output tokens</span>
+												<span className="font-mono">{formatTokens(session.tokensOutputSinceCompaction)}</span>
+											</div>
+											<div className="flex justify-between">
+												<span className="text-muted-foreground">Cache read tokens</span>
+												<span className="font-mono">{formatTokens(session.tokensCacheReadSinceCompaction)}</span>
+											</div>
+											<div className="flex justify-between">
+												<span className="text-muted-foreground">Cache write tokens</span>
+												<span className="font-mono">{formatTokens(session.tokensCacheWriteSinceCompaction)}</span>
+											</div>
+										</CardContent>
+									</Card>
 								)}
-								<div className="text-xs font-medium text-muted-foreground px-1">Total (Session)</div>
 								<div className="grid grid-cols-2 gap-3">
 									<Card>
 										<CardContent className="pt-4 pb-3">
