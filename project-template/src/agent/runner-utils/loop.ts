@@ -23,6 +23,7 @@ import { callAnthropicApi, recordApiTokens, recordAssistantMessage, requestSumma
 import { buildImproveMessage, flushQuestionsToDiscord, handleStopThreshold, handleTotalTimeout, triggerReport } from "./reports";
 import { emitMessage, setStatus } from "./status";
 import { executeTools } from "./tools";
+import { runVerificationSuite } from "./verification";
 
 /** Push a message onto the list, merging same-role consecutive turns to keep
  * strict user/assistant alternation required by the Anthropic API. */
@@ -324,6 +325,34 @@ export async function runLoop(agent: AgentState): Promise<void> {
 					continue;
 				}
 
+				// ── Verification suite: lint, typecheck, test ────
+				// Run verification commands (if available) before marking task complete.
+				// If any verification fails, send errors back to agent for fixing.
+				sessionEmitter.emit(agent.sessionId, {
+					type: "turn_end",
+					data: { turnNumber: currentTurn, hadTools: false, stopReason: "end_turn" },
+				});
+				agent.messages.push({ role: "assistant", content: response.content });
+
+				console.log(`[Agent ${agent.sessionId}] Running verification suite...`);
+				const verification = await runVerificationSuite();
+
+				if (verification.hasErrors) {
+					console.log(`[Agent ${agent.sessionId}] Verification failed, sending errors back to agent`);
+					// Send verification errors back to agent
+					const verificationMessage = insertMessage(agent.db, {
+						sessionId: agent.sessionId,
+						role: "user",
+						content: verification.errorMessage,
+						createdAt: Date.now(),
+					});
+					agent.lastUserMessageId = verificationMessage.id;
+					emitMessage(agent, { id: verificationMessage.id, role: "user", content: verification.errorMessage });
+					pushOrMergeMessage(agent.messages, "user", verification.errorMessage);
+					continue;
+				}
+
+				// All verifications passed (or no verification commands found)
 				// Completion await follows await_report_mode (NOT a forced await):
 				//   always → await for a final check-in
 				//   never  → post the report and complete without blocking
@@ -334,10 +363,6 @@ export async function runLoop(agent: AgentState): Promise<void> {
 					{ title: "✅ Task Complete", sections: [{ title: "Final Summary", content: finalText }] },
 					"completion"
 				);
-				sessionEmitter.emit(agent.sessionId, {
-					type: "turn_end",
-					data: { turnNumber: currentTurn, hadTools: false, stopReason: "end_turn" },
-				});
 				setStatus(agent, "completed");
 				break;
 			}
