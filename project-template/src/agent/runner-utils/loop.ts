@@ -58,7 +58,7 @@ export async function doCompaction(agent: AgentState): Promise<void> {
 	let summary: string;
 	let didCompact: boolean;
 	try {
-		({ messages: compacted, summary, didCompact } = await compactMessages(agent.messages, agent.client));
+		({ messages: compacted, summary, didCompact } = await compactMessages(agent.messages, agent.client, agent.llm.model));
 		agent.circuitBreaker.recordSuccess();
 	} catch (err) {
 		agent.circuitBreaker.recordFailure();

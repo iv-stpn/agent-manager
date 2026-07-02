@@ -24,12 +24,23 @@ export type AgentStateConfig = {
 	stopThresholdTokens: number;
 };
 
+/** Resolved LLM config for a session — fetched live from the orchestrator at
+ * session start/restart so a client edit takes effect on the next run. */
+export type AgentLlmConfig = {
+	apiKey: string;
+	baseUrl: string;
+	model: string;
+	smallModel: string;
+};
+
 /** All mutable runtime state for a single agent session. */
 export type AgentState = {
 	db: Db;
 	sessionId: string;
 	client: Anthropic;
 	config: AgentStateConfig;
+	/** Live-resolved model/key/baseUrl for this session's API calls. */
+	llm: AgentLlmConfig;
 	//
 	messages: MessageParam[];
 	systemPrompt: string;

@@ -1,5 +1,6 @@
 import Database from "bun:sqlite";
 import { existsSync } from "node:fs";
+import { migrateProjectDb, projectDbNeedsMigration } from "@agent-manager/db/migrate";
 import type {
 	CheckinRecord,
 	CompactionRecord,
@@ -32,9 +33,42 @@ type ProjectDb = ReturnType<typeof drizzle<typeof schema>>;
 export class ProjectDatabase {
 	constructor(private manager: ProjectManager) {}
 
+	// Projects whose DB we've already brought up to schema this process. The
+	// orchestrator reads project DBs directly (the agent may never run), so it
+	// owns the additive column migrations the agent applies on container start —
+	// otherwise a stale DB returns garbage for un-migrated columns. Checked once
+	// per project, then cached so the hot read path stays read-only.
+	private migrated = new Set<string>();
+
+	/**
+	 * Bring a project DB up to the current schema if needed. Opens writable only
+	 * when a migration is actually outstanding — the common case (already
+	 * current) does a single read-only PRAGMA check and no write.
+	 */
+	private ensureMigrated(projectId: string, dbPath: string): void {
+		if (this.migrated.has(projectId)) return;
+		const probe = new Database(dbPath, { readonly: true });
+		let needs: boolean;
+		try {
+			needs = projectDbNeedsMigration(probe);
+		} finally {
+			probe.close();
+		}
+		if (needs) {
+			const writable = new Database(dbPath);
+			try {
+				migrateProjectDb(writable);
+			} finally {
+				writable.close();
+			}
+		}
+		this.migrated.add(projectId);
+	}
+
 	private open(projectId: string): { db: ProjectDb; sqlite: Database } {
 		const dbPath = this.manager.getProjectDatabaseManagerPath(projectId);
 		if (!existsSync(dbPath)) throw new Error(`Project "${projectId}" database not found`);
+		this.ensureMigrated(projectId, dbPath);
 		const sqlite = new Database(dbPath, { readonly: true });
 		return { db: drizzle(sqlite, { schema }), sqlite };
 	}

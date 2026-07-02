@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { env } from "../env";
+import type { AgentLlmConfig } from "../external/agent-config";
 import type { ResolvedProjectContext } from "../external/context";
 import { buildSystemPrompt } from "./system-prompt";
 import { CompactionCircuitBreaker } from "./token-budget";
@@ -10,6 +10,7 @@ export const runners = new Map<string, AgentState>();
 
 type InitAgentParams = {
 	config: AgentStateConfig;
+	llm: AgentLlmConfig;
 	sessionId: string;
 	db: import("../db").Db;
 	context?: ResolvedProjectContext;
@@ -17,8 +18,8 @@ type InitAgentParams = {
 };
 
 /** Create and fully initialize an Agent ready for run() or resume(). */
-export function initAgent({ config, sessionId, db, context, isFirstSession }: InitAgentParams): AgentState {
-	const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, baseURL: env.ANTHROPIC_BASE_URL });
+export function initAgent({ config, llm, sessionId, db, context, isFirstSession }: InitAgentParams): AgentState {
+	const client = new Anthropic({ apiKey: llm.apiKey, baseURL: llm.baseUrl || undefined });
 	const systemPrompt = buildSystemPrompt(config, { context, isFirstSession });
 
 	const agent: AgentState = {
@@ -26,6 +27,7 @@ export function initAgent({ config, sessionId, db, context, isFirstSession }: In
 		sessionId,
 		client,
 		config,
+		llm,
 		//
 		messages: [],
 		systemPrompt,

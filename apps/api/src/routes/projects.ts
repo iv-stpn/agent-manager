@@ -1,16 +1,4 @@
-import type { Task } from "@agent-manager/db/project-schema";
-import {
-	type CheckinRecord,
-	type CompactionRecord,
-	CreateProjectSchema,
-	isProtectedDirectory,
-	type MessageRecord,
-	ProjectContextSchema,
-	type QuestionRecord,
-	type SessionRecord,
-	type ToolCallRecord,
-	UpdateSettingsSchema,
-} from "@agent-manager/projects";
+import { CreateProjectSchema, isProtectedDirectory, ProjectContextSchema, type SessionRecord, UpdateSettingsSchema } from "@agent-manager/projects";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -81,13 +69,6 @@ async function proxyToAgent(c: Context<HonoOrchestratorEnv>, projectId: string, 
 			502
 		);
 	}
-}
-
-/** Fetch JSON from the agent server; returns null if unreachable (502). */
-async function fetchAgentJson<T>(c: Context<HonoOrchestratorEnv>, projectId: string, upstreamPath: string): Promise<T | null> {
-	const resp = await proxyToAgent(c, projectId, upstreamPath);
-	if (resp.status === 502) return null;
-	return resp.json();
 }
 
 /**
@@ -621,12 +602,14 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 			return c.json({ error: getErrorMessage(error) }, 500);
 		}
 	})
-	// List sessions — falls back to DB when the agent server is stopped
+	// List sessions — read straight from the project DB (source of truth, always
+	// reachable on the host). Only mask stale active statuses when the container
+	// isn't actually running.
 	.get("/:projectId/sessions", async (c) => {
 		const projectId = c.req.param("projectId");
-		const upstream = await fetchAgentJson<SessionRecord[]>(c, projectId, "/api/sessions");
-		if (upstream) return c.json(upstream);
-		return c.json(maskActiveSessions(await c.var.projectDatabaseManager.getSessions(projectId)));
+		const { running } = await c.var.docker.getProjectStatus(projectId);
+		const sessions = await c.var.projectDatabaseManager.getSessions(projectId);
+		return c.json(running ? sessions : maskActiveSessions(sessions));
 	})
 	// All check-ins across every session — always DB-backed (reports tab)
 	.get("/:projectId/reports", async (c) => {
@@ -722,6 +705,31 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 			return c.json({ error: getErrorMessage(error) }, 400);
 		}
 	})
+	// Resolve the project's LLM config live from its selected client. The agent
+	// container calls this at every session start/restart so a client edit takes
+	// effect on the next run without rewriting the compose file or recreating the
+	// container. The project's `clientId` is the source of truth; any api key /
+	// base url / model baked into the compose env only acts as a fallback.
+	.get("/:projectId/agent-config", async (c) => {
+		try {
+			const projectId = c.req.param("projectId");
+			const project = await c.var.manager.getProject(projectId);
+			const agent = project.agent;
+
+			// Start from the client record (live), fall back to compose-baked values.
+			const client = agent?.clientId ? c.var.orchestratorDb.getLlmClient(agent.clientId) : undefined;
+			if (agent?.clientId && !client) return c.json({ error: "LLM client not found" }, 404);
+
+			return c.json({
+				apiKey: client?.apiKey || agent?.anthropicApiKey || "",
+				baseUrl: client?.baseUrl || agent?.anthropicBaseUrl || "",
+				model: client?.model || agent?.model || "",
+				smallModel: client?.smallModel || "",
+			});
+		} catch (error) {
+			return c.json({ error: getErrorMessage(error) }, 400);
+		}
+	})
 	// ---- Agent proxy: forward live agent endpoints to the project's server ----
 	.post("/:projectId/sessions", async (c) => {
 		const projectId = c.req.param("projectId");
@@ -750,48 +758,34 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 	})
 	.get("/:projectId/sessions/:sessionId", async (c) => {
 		const { projectId, sessionId } = c.req.param();
-		const upstream = await fetchAgentJson<SessionRecord>(c, projectId, `/api/sessions/${sessionId}`);
-		if (upstream) return c.json(upstream);
-
 		const s = await c.var.projectDatabaseManager.getSession(projectId, sessionId);
-		return s ? c.json(maskActiveSession(s)) : c.json({ error: "Not found" }, 404);
+		if (!s) return c.json({ error: "Not found" }, 404);
+		const { running } = await c.var.docker.getProjectStatus(projectId);
+		return c.json(running ? s : maskActiveSession(s));
 	})
 	.get("/:projectId/sessions/:sessionId/messages", async (c) => {
 		const { projectId, sessionId } = c.req.param();
-		const upstream = await fetchAgentJson<MessageRecord[]>(c, projectId, `/api/sessions/${sessionId}/messages`);
-		if (upstream) return c.json(upstream);
 		return c.json(await c.var.projectDatabaseManager.getMessages(projectId, sessionId));
 	})
 	.get("/:projectId/sessions/:sessionId/tools", async (c) => {
 		const { projectId, sessionId } = c.req.param();
-		const upstream = await fetchAgentJson<ToolCallRecord[]>(c, projectId, `/api/sessions/${sessionId}/tools`);
-		if (upstream) return c.json(upstream);
 		return c.json(await c.var.projectDatabaseManager.getToolCalls(projectId, sessionId));
 	})
 	.get("/:projectId/sessions/:sessionId/checkins", async (c) => {
 		const { projectId, sessionId } = c.req.param();
-		const upstream = await fetchAgentJson<CheckinRecord[]>(c, projectId, `/api/sessions/${sessionId}/checkins`);
-		if (upstream) return c.json(upstream);
 		return c.json(await c.var.projectDatabaseManager.getCheckins(projectId, sessionId));
 	})
 	.get("/:projectId/sessions/:sessionId/questions", async (c) => {
 		const { projectId, sessionId } = c.req.param();
-		const upstream = await fetchAgentJson<QuestionRecord[]>(c, projectId, `/api/sessions/${sessionId}/questions`);
-		if (upstream) return c.json(upstream);
 		return c.json(await c.var.projectDatabaseManager.getQuestions(projectId, sessionId));
 	})
 	.get("/:projectId/sessions/:sessionId/compactions", async (c) => {
 		const { projectId, sessionId } = c.req.param();
-		const upstream = await fetchAgentJson<CompactionRecord[]>(c, projectId, `/api/sessions/${sessionId}/compactions`);
-		if (upstream) return c.json(upstream);
 		return c.json(await c.var.projectDatabaseManager.getCompactions(projectId, sessionId));
 	})
 	.get("/:projectId/tasks", async (c) => {
 		const { projectId } = c.req.param();
 		const sessionId = c.req.query("sessionId");
-		const query = sessionId ? `?sessionId=${sessionId}` : "";
-		const upstream = await fetchAgentJson<Task[]>(c, projectId, `/api/tasks${query}`);
-		if (upstream) return c.json(upstream);
 		return c.json(await c.var.projectDatabaseManager.getTasks(projectId, sessionId));
 	})
 	.post("/:projectId/sessions/:sessionId/stop", async (c) => {

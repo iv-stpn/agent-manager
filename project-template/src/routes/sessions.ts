@@ -5,7 +5,7 @@ import z from "zod";
 
 import { initAgent, interjectAgent, pauseAgent, queueFollowUp, runners, steerAgent, stopAgent } from "../agent/definition";
 import { restart, resume, run } from "../agent/runner-utils/loop";
-import type { AgentStateConfig } from "../agent/types";
+import type { AgentLlmConfig, AgentStateConfig } from "../agent/types";
 import {
 	createSession,
 	type Db,
@@ -19,7 +19,7 @@ import {
 	updateSession,
 } from "../db";
 import { sessionEmitter } from "../emitter";
-import { env } from "../env";
+import { fetchAgentConfig } from "../external/agent-config";
 import { fetchProjectContext } from "../external/context";
 import type { HonoProjectEnv } from "../types";
 
@@ -53,14 +53,14 @@ const UpdateSessionSchema = z.object({
 const MessageSchema = z.object({ message: z.string().min(1) });
 
 /** Fire-and-forget: ask the LLM to name the session based on the task. */
-function autoNameSession(db: Db, sessionId: string, task: string) {
+function autoNameSession(db: Db, sessionId: string, task: string, llm: AgentLlmConfig) {
 	const client = new Anthropic({
-		apiKey: env.ANTHROPIC_API_KEY,
-		baseURL: env.ANTHROPIC_BASE_URL,
+		apiKey: llm.apiKey,
+		baseURL: llm.baseUrl || undefined,
 	});
 	client.messages
 		.create({
-			model: env.ANTHROPIC_MODEL,
+			model: llm.smallModel,
 			max_tokens: 30,
 			messages: [
 				{
@@ -198,15 +198,15 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 		const name = body.name ?? defaultChatName();
 		const session = createSession(db, { id, name, task: body.task, status: "running", createdAt, ...config });
 
-		const context = await fetchProjectContext();
-		const runner = initAgent({ db, sessionId: id, config, context });
+		const [context, llm] = await Promise.all([fetchProjectContext(), fetchAgentConfig()]);
+		const runner = initAgent({ db, sessionId: id, config, llm, context });
 		runners.set(id, runner);
 
 		sessionEmitter.emit(id, { type: "session_created", data: session });
 
 		// Auto-name the session via a parallel LLM call (fire-and-forget)
 		if (!body.name) {
-			autoNameSession(db, id, body.task);
+			autoNameSession(db, id, body.task, llm);
 		}
 
 		run(runner, body.task).finally(() => {
@@ -269,8 +269,8 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 			alwaysImproveScope: session.alwaysImproveScope,
 		};
 
-		const context = await fetchProjectContext();
-		const runner = initAgent({ db, sessionId: id, config, context });
+		const [context, llm] = await Promise.all([fetchProjectContext(), fetchAgentConfig()]);
+		const runner = initAgent({ db, sessionId: id, config, llm, context });
 
 		runners.set(id, runner);
 		restart(runner).finally(() => runners.delete(id));
@@ -352,8 +352,8 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 			alwaysImproveScope: session.alwaysImproveScope,
 		};
 
-		const context = await fetchProjectContext();
-		const runner = initAgent({ db, sessionId: id, config, context });
+		const [context, llm] = await Promise.all([fetchProjectContext(), fetchAgentConfig()]);
+		const runner = initAgent({ db, sessionId: id, config, llm, context });
 
 		runners.set(id, runner);
 		resume(runner, message).finally(() => runners.delete(id));

@@ -1,7 +1,6 @@
 import { extractTextContent } from "@agent-manager/utils/blocks";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
-import { env } from "../env";
 
 // Rough token estimate: 1 token ≈ 4 chars
 export function estimateTokens(messages: MessageParam[]): number {
@@ -58,7 +57,8 @@ function extractConversationText(messages: MessageParam[]): string {
  */
 export async function compactMessages(
 	messages: MessageParam[],
-	client: Anthropic
+	client: Anthropic,
+	model: string
 ): Promise<{ messages: MessageParam[]; summary: string; didCompact: boolean }> {
 	// Not enough messages to compact meaningfully
 	if (messages.length <= 4) return { messages, summary: "", didCompact: false };
@@ -66,8 +66,6 @@ export async function compactMessages(
 	// Extract only conversational text (no tool calls/results)
 	const transcript = extractConversationText(messages);
 	if (!transcript.trim()) return { messages, summary: "", didCompact: false };
-
-	const model = env.ANTHROPIC_MODEL;
 
 	let summary = "";
 	try {

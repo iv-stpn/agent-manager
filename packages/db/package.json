@@ -6,7 +6,8 @@
 	"exports": {
 		"./project-schema": "./src/project-schema.ts",
 		"./orchestrator-schema": "./src/orchestrator-schema.ts",
-		"./ddl": "./src/ddl.ts"
+		"./ddl": "./src/ddl.ts",
+		"./migrate": "./src/migrate.ts"
 	},
 	"dependencies": {
 		"drizzle-orm": "0.45.2"

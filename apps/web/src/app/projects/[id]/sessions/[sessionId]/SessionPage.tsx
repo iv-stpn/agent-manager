@@ -487,67 +487,61 @@ export default function SessionPage() {
 										</div>
 									</CardContent>
 								</Card>
-								{compactions.length > 0 && (
+								<Card>
+									<CardContent className="pt-4 pb-3">
+										<table className="w-full text-sm">
+											<thead>
+												<tr className="border-b">
+													<th className="text-left py-2 font-medium text-muted-foreground">Metric</th>
+													<th className="text-right py-2 font-medium text-muted-foreground">Since Last Compaction</th>
+													<th className="text-right py-2 font-medium text-muted-foreground">Total</th>
+												</tr>
+											</thead>
+											<tbody>
+												<tr className="border-b">
+													<td className="py-2 text-muted-foreground">Input tokens</td>
+													<td className="py-2 text-right font-mono">
+														{formatTokens(compactions.length > 0 ? session.tokensInputSinceCompaction : session.totalInputTokens)}
+													</td>
+													<td className="py-2 text-right font-mono">{formatTokens(session.totalInputTokens)}</td>
+												</tr>
+												<tr className="border-b">
+													<td className="py-2 text-muted-foreground">Output tokens</td>
+													<td className="py-2 text-right font-mono">
+														{formatTokens(compactions.length > 0 ? session.tokensOutputSinceCompaction : session.totalOutputTokens)}
+													</td>
+													<td className="py-2 text-right font-mono">{formatTokens(session.totalOutputTokens)}</td>
+												</tr>
+												<tr className="border-b">
+													<td className="py-2 text-muted-foreground">Cache read tokens</td>
+													<td className="py-2 text-right font-mono">
+														{formatTokens(compactions.length > 0 ? session.tokensCacheReadSinceCompaction : session.totalCacheReadTokens)}
+													</td>
+													<td className="py-2 text-right font-mono">{formatTokens(session.totalCacheReadTokens)}</td>
+												</tr>
+												<tr>
+													<td className="py-2 text-muted-foreground">Cache write tokens</td>
+													<td className="py-2 text-right font-mono">
+														{formatTokens(compactions.length > 0 ? session.tokensCacheWriteSinceCompaction : session.totalCacheWriteTokens)}
+													</td>
+													<td className="py-2 text-right font-mono">{formatTokens(session.totalCacheWriteTokens)}</td>
+												</tr>
+											</tbody>
+										</table>
+									</CardContent>
+								</Card>
+								{systemPromptTokens > 0 && (
 									<Card>
-										<CardContent className="pt-4 pb-3 space-y-1 text-sm">
-											<p className="text-xs font-medium text-muted-foreground mb-2">Since Last Compaction</p>
-											<div className="flex justify-between">
-												<span className="text-muted-foreground">Input tokens</span>
-												<span className="font-mono">{formatTokens(session.tokensInputSinceCompaction)}</span>
-											</div>
-											<div className="flex justify-between">
-												<span className="text-muted-foreground">Output tokens</span>
-												<span className="font-mono">{formatTokens(session.tokensOutputSinceCompaction)}</span>
-											</div>
-											<div className="flex justify-between">
-												<span className="text-muted-foreground">Cache read tokens</span>
-												<span className="font-mono">{formatTokens(session.tokensCacheReadSinceCompaction)}</span>
-											</div>
-											<div className="flex justify-between">
-												<span className="text-muted-foreground">Cache write tokens</span>
-												<span className="font-mono">{formatTokens(session.tokensCacheWriteSinceCompaction)}</span>
-											</div>
+										<CardContent className="pt-4 pb-3">
+											<p className="text-xs text-muted-foreground">System prompt + tools</p>
+											<p className="text-xl font-bold text-orange-500">{formatTokens(systemPromptTokens)}</p>
+											<p className="text-[10px] text-muted-foreground mt-1">
+												Replayed as cache read every turn · {formatTokens(systemPromptTokens)} of each turn's cache read is this
+												constant overhead
+											</p>
 										</CardContent>
 									</Card>
 								)}
-								<div className="grid grid-cols-2 gap-3">
-									<Card>
-										<CardContent className="pt-4 pb-3">
-											<p className="text-xs text-muted-foreground">Input tokens</p>
-											<p className="text-xl font-bold text-indigo-500">{formatTokens(session.totalInputTokens)}</p>
-										</CardContent>
-									</Card>
-									<Card>
-										<CardContent className="pt-4 pb-3">
-											<p className="text-xs text-muted-foreground">Output tokens</p>
-											<p className="text-xl font-bold text-green-500">{formatTokens(session.totalOutputTokens)}</p>
-										</CardContent>
-									</Card>
-									<Card>
-										<CardContent className="pt-4 pb-3">
-											<p className="text-xs text-muted-foreground">Cache read tokens</p>
-											<p className="text-xl font-bold text-amber-500">{formatTokens(session.totalCacheReadTokens)}</p>
-										</CardContent>
-									</Card>
-									<Card>
-										<CardContent className="pt-4 pb-3">
-											<p className="text-xs text-muted-foreground">Cache write tokens</p>
-											<p className="text-xl font-bold text-sky-500">{formatTokens(session.totalCacheWriteTokens)}</p>
-										</CardContent>
-									</Card>
-									{systemPromptTokens > 0 && (
-										<Card className="col-span-2">
-											<CardContent className="pt-4 pb-3">
-												<p className="text-xs text-muted-foreground">System prompt + tools</p>
-												<p className="text-xl font-bold text-orange-500">{formatTokens(systemPromptTokens)}</p>
-												<p className="text-[10px] text-muted-foreground mt-1">
-													Replayed as cache read every turn · {formatTokens(systemPromptTokens)} of each turn's cache read is this
-													constant overhead
-												</p>
-											</CardContent>
-										</Card>
-									)}
-								</div>
 								<Card>
 									<CardHeader className="pb-2 pt-4">
 										<CardTitle className="text-sm">Token usage over time</CardTitle>

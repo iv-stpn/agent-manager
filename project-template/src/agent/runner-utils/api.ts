@@ -2,7 +2,6 @@ import { extractTextContent } from "@agent-manager/utils/blocks";
 import type Anthropic from "@anthropic-ai/sdk";
 import { addTokens, getSession, insertMessage, updateMessageTokens } from "../../db";
 import { sessionEmitter } from "../../emitter";
-import { env } from "../../env";
 import { BASE_MAX_TOKENS, ESCALATED_MAX_TOKENS } from "../token-budget";
 import { AGENT_TOOLS } from "../tools/definitions";
 import type { AgentState } from "../types";
@@ -13,7 +12,7 @@ export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Mes
 	const makeRequest = async (maxTokens: number): Promise<Anthropic.Messages.Message> => {
 		const stream = agent.client.messages.stream(
 			{
-				model: env.ANTHROPIC_MODEL,
+				model: agent.llm.model,
 				max_tokens: maxTokens,
 				system: agent.systemPrompt,
 				tools: AGENT_TOOLS,
@@ -140,7 +139,7 @@ export async function requestSummary(agent: AgentState): Promise<string> {
 			.join("\n\n");
 
 		const resp = await agent.client.messages.create({
-			model: env.ANTHROPIC_SMALL_MODEL,
+			model: agent.llm.smallModel,
 			max_tokens: 512,
 			messages: [
 				{

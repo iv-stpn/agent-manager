@@ -330,7 +330,7 @@ export async function dispatchTool(agent: AgentState, name: ToolName, input: Rec
 		}
 		case ToolName.CompactContext: {
 			const before = agent.messages.length;
-			const { messages: compacted } = await compactMessages(agent.messages, agent.client);
+			const { messages: compacted } = await compactMessages(agent.messages, agent.client, agent.llm.model);
 			agent.messages = compacted;
 			return `Context compacted: ${before} → ${compacted.length} messages.`;
 		}
