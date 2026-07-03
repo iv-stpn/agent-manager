@@ -13,7 +13,14 @@ const CreateLlmClientSchema = z.object({
 	smallModel: z.string().default(""),
 });
 
-const UpdateLlmClientSchema = CreateLlmClientSchema.partial();
+const UpdateLlmClientSchema = z.object({
+	name: z.string().min(1).optional(),
+	provider: z.enum(["anthropic", "openai", "custom"]).optional(),
+	apiKey: z.string().optional(),
+	baseUrl: z.string().optional(),
+	model: z.string().optional(),
+	smallModel: z.string().optional(),
+});
 
 export const llmClientsRouter = new Hono<HonoOrchestratorEnv>()
 	.get("/", (c) => {

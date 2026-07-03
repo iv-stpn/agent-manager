@@ -1,3 +1,4 @@
+import { Eye, EyeOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -34,11 +35,13 @@ export function LlmClientDialog({ open, onOpenChange, editing = null, onSaved }:
 	const [form, setForm] = useState<Form>(() => formFrom(editing));
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [showKey, setShowKey] = useState(false);
 
 	// Reset form whenever the target client changes (e.g. switching from create to edit).
 	useEffect(() => {
 		setForm(formFrom(editing ?? null));
 		setError(null);
+		setShowKey(false);
 	}, [editing]);
 
 	async function save() {
@@ -101,13 +104,25 @@ export function LlmClientDialog({ open, onOpenChange, editing = null, onSaved }:
 						<Label htmlFor="client-key">
 							API Key {editing && <span className="text-muted-foreground font-normal">(leave blank to keep current)</span>}
 						</Label>
-						<Input
-							id="client-key"
-							type="password"
-							value={form.apiKey}
-							onChange={(event) => setForm((form) => ({ ...form, apiKey: event.target.value }))}
-							placeholder={editing ? "••••••••" : "sk-..."}
-						/>
+						<div className="relative">
+							<Input
+								id="client-key"
+								type={showKey ? "text" : "password"}
+								value={form.apiKey}
+								onChange={(event) => setForm((form) => ({ ...form, apiKey: event.target.value }))}
+								placeholder={editing ? "••••••••" : "sk-..."}
+								className="pr-10"
+							/>
+							<button
+								type="button"
+								onClick={() => setShowKey((show) => !show)}
+								className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+								tabIndex={-1}
+								aria-label={showKey ? "Hide API key" : "Show API key"}
+							>
+								{showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+							</button>
+						</div>
 					</div>
 
 					<div className="space-y-1.5">
