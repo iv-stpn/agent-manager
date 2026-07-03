@@ -35,10 +35,34 @@ app
 	.route("/api/sessions", sessionsRouter)
 	.route("/api/sessions", streamRouter);
 
+let server: ReturnType<typeof Bun.serve> | undefined;
 try {
-	Bun.serve({ port: env.PORT, fetch: app.fetch, idleTimeout: 0 });
+	server = Bun.serve({ port: env.PORT, fetch: app.fetch, idleTimeout: 0 });
 	console.log(`[Server] API running on http://localhost:${env.PORT}`);
 } catch (err) {
 	console.error("[Server] Failed to bind:", err);
 	process.exit(1);
 }
+
+// `docker compose down`/`restart` sends SIGTERM. In WAL mode, writes land in
+// agent.db-wal and are only merged into agent.db by a checkpoint — without one,
+// an abrupt SIGKILL (after Docker's stop grace period) can leave recent writes
+// stuck in a WAL that a fresh connection on the next container start may not
+// see as consistently as it should. Checkpointing and closing here makes a
+// clean stop deterministic instead of racing the grace period.
+let shuttingDown = false;
+function shutdown(signal: string) {
+	if (shuttingDown) return;
+	shuttingDown = true;
+	console.log(`[Server] Received ${signal}, shutting down...`);
+	server?.stop();
+	try {
+		db.$client.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+	} catch (err) {
+		console.error("[Server] WAL checkpoint failed:", err);
+	}
+	db.$client.close();
+	process.exit(0);
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

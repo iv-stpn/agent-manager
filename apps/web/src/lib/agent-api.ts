@@ -257,7 +257,14 @@ export interface SessionSettingsInput {
 export async function updateSessionSettings(projectId: string, id: string, data: SessionSettingsInput): Promise<Session> {
 	const req = { param: { projectId, sessionId: id }, json: data };
 	const res = await api.api.projects[":projectId"].sessions[":sessionId"].settings.$put(req);
-	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	if (!res.ok) {
+		// A 404 here means the *agent container's* own DB doesn't have this session —
+		// distinct from the session having failed to load in the first place (that read
+		// goes straight to the project's DB file, not through the container). Surface it
+		// as such so the UI can prompt a refresh instead of a bare status code.
+		if (res.status === 404) throw new Error("Session not found on the running agent — try refreshing the page.");
+		throw new Error(`API responded with ${res.status}`);
+	}
 	return (await res.json()) as Session;
 }
 
