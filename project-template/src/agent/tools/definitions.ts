@@ -12,7 +12,6 @@ export enum ToolName {
 	MoveFile = "move_file",
 	DeleteFile = "delete_file",
 	CreateDirectory = "create_directory",
-	GetFileInfo = "get_file_info",
 	ReadFileRange = "read_file_range",
 	WebSearch = "web_search",
 	WebFetch = "web_fetch",
@@ -26,10 +25,8 @@ export enum ToolName {
 	UpdateTask = "update_task",
 	GetCurrentTask = "get_current_task",
 	SetCurrentTask = "set_current_task",
-	QueueQuestion = "queue_question",
 	AskUserQuestion = "ask_user_question",
 	SendReport = "send_report",
-	SendGraph = "send_graph",
 	CommitChanges = "commit_changes",
 	CompactContext = "compact_context",
 	EnterPlanMode = "enter_plan_mode",
@@ -213,18 +210,6 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 		},
 	},
 	{
-		name: "get_file_info",
-		description:
-			"Get metadata about a file or directory: size, modification time, permissions, type. Useful before reading large files or checking if a path exists.",
-		input_schema: {
-			type: "object",
-			properties: {
-				path: { type: "string", description: "Path to inspect (relative to workspace)" },
-			},
-			required: ["path"],
-		},
-	},
-	{
 		name: "read_file_range",
 		description: "Read a specific range of lines from a file. Efficient for large files when you only need a portion.",
 		input_schema: {
@@ -276,7 +261,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 	{
 		name: "remember",
 		description:
-			"Store a new entry in the project's persistent vector memory. Use to record architecture decisions, conventions, context, plans, or any knowledge that should persist across sessions. Entries are semantically searchable. Do NOT use for tasks (use task tools), reports (use send_report), or questions (use queue_question/urgent_question). When working on a task, include {taskId} in metadata to link the memory to the active task.",
+			"Store a new entry in the project's persistent vector memory. Use to record architecture decisions, conventions, context, plans, or any knowledge that should persist across sessions. Entries are semantically searchable. Do NOT use for tasks (use task tools), reports (use send_report), or questions (use ask_user_question). When working on a task, include {taskId} in metadata to link the memory to the active task.",
 		input_schema: {
 			type: "object",
 			properties: {
@@ -446,36 +431,6 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 
 	// ── Questions ────────────────────────────────────────────────────────────────
 	{
-		name: "queue_question",
-		description:
-			"Add a question to the pending queue. Whether it blocks or is deferred depends on await_ask_mode. Use for non-urgent questions. Provide suggestions when possible to make answering easier.",
-		input_schema: {
-			type: "object",
-			properties: {
-				question: { type: "string" },
-				context: { type: "string", description: "Background info to help the user answer" },
-				suggestions: {
-					type: "array",
-					description:
-						"Premade answer suggestions rendered as clickable buttons in Discord. The user can pick one or type a custom free-form answer.",
-					items: {
-						type: "object",
-						properties: {
-							id: { type: "string", description: "Short unique identifier (snake_case)" },
-							title: { type: "string", description: "Button label (short, ≤80 chars)" },
-							subtitle: {
-								type: "string",
-								description: "Extra context shown below the title in the embed",
-							},
-						},
-						required: ["id", "title"],
-					},
-				},
-			},
-			required: ["question"],
-		},
-	},
-	{
 		name: "ask_user_question",
 		description:
 			"Ask the user one or more questions and wait for answers. Use this at the start of a task to clarify requirements, or mid-task when blocked. Set urgent=true when you are completely blocked and cannot proceed without an answer — this sends with high-priority styling and notifications.",
@@ -585,23 +540,6 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
 				},
 			},
 			required: ["title", "sections"],
-		},
-	},
-
-	{
-		name: "send_graph",
-		description:
-			"Render a Mermaid diagram to PNG and send it to the Discord channel. Use this for standalone diagrams (architecture, flows, ERDs) that don't belong inside a full report.",
-		input_schema: {
-			type: "object",
-			properties: {
-				title: { type: "string", description: "Caption shown above the graph in Discord." },
-				definition: {
-					type: "string",
-					description: "Full Mermaid diagram definition (e.g. 'graph TD; A-->B').",
-				},
-			},
-			required: ["definition"],
 		},
 	},
 

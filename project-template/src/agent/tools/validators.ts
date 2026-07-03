@@ -241,13 +241,6 @@ export function validateCreateDirectory(input: Input): asserts input is CreateDi
 	assertValid(requireString(input, "path", "directory path"));
 }
 
-export interface GetFileInfoInput extends Input {
-	path: string;
-}
-export function validateGetFileInfo(input: Input): asserts input is GetFileInfoInput {
-	assertValid(requireString(input, "path", "file path"));
-}
-
 export interface ReadFileRangeInput extends Input {
 	path: string;
 	start_line: number;
@@ -394,19 +387,6 @@ export function validateSetCurrentTask(input: Input): asserts input is SetCurren
 
 // ── Questions ─────────────────────────────────────────────────────────────────
 
-export interface QuestionInput extends Input {
-	question: string;
-	context?: string;
-	suggestions?: Array<{ id: string; title: string; description?: string }>;
-}
-export function validateQuestion(input: Input): asserts input is QuestionInput {
-	assertValid(
-		requireString(input, "question", "question text"),
-		optionalString(input, "context"),
-		validateArrayItems(input, "suggestions", { id: "unique identifier", title: "button label" })
-	);
-}
-
 export interface AskUserQuestionOption {
 	label: string;
 	description: string;
@@ -478,14 +458,6 @@ export function validateSendReport(input: Input): asserts input is SendReportInp
 		validateArrayItems(input, "mermaid_diagrams", { definition: "mermaid diagram definition" }),
 		optionalEnum(input, "await_override", ["await", "continue"] as const)
 	);
-}
-
-export interface SendGraphInput extends Input {
-	definition: string;
-	title?: string;
-}
-export function validateSendGraph(input: Input): asserts input is SendGraphInput {
-	assertValid(requireString(input, "definition", "mermaid diagram definition"), optionalString(input, "title"));
 }
 
 // ── Git ───────────────────────────────────────────────────────────────────────

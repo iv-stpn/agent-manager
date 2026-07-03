@@ -13,14 +13,6 @@ const ReportSchema = z.object({
 	}),
 	trigger: z.string(),
 	awaiting: z.boolean(),
-	pendingQuestions: z.array(
-		z.object({
-			id: z.string(),
-			text: z.string(),
-			context: z.string().nullable().optional(),
-			suggestions: z.string().nullable().optional(),
-		})
-	),
 });
 
 const QuestionsSchema = z.object({
@@ -78,7 +70,6 @@ export const discordRouter = new Hono<HonoOrchestratorEnv>()
 				body.sessionId,
 				body.trigger,
 				body.awaiting,
-				body.pendingQuestions,
 				controller.signal
 			);
 			return c.json({ answers: result?.answers ?? [], confirmed: result?.confirmed ?? false });

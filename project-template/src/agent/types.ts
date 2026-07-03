@@ -1,4 +1,3 @@
-import type { Question } from "@agent-manager/db/project-schema";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import type { Db } from "../db";
@@ -62,7 +61,6 @@ export type AgentState = {
 	lastApiOutputTokens: number;
 	lastUserMessageId: string | null;
 	lastWarningState: TokenWarningState;
-	pendingQuestions: Question[];
 	//
 	injectedMessage: string | null;
 	/** Messages queued to be injected at the start of the next turn (non-disruptive, no abort). */

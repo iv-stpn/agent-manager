@@ -12,7 +12,6 @@ import {
 	createDirectory,
 	deleteFile,
 	editFile,
-	getFileInfo,
 	listDirectory,
 	moveFile,
 	readFile,
@@ -34,20 +33,17 @@ import {
 	validateDeleteMemory,
 	validateEditFile,
 	validateExitPlanMode,
-	validateGetFileInfo,
 	validateGlob,
 	validateGrep,
 	validateListDirectory,
 	validateListMemories,
 	validateListTasks,
 	validateMoveFile,
-	validateQuestion,
 	validateReadFile,
 	validateReadFileRange,
 	validateRecall,
 	validateRemember,
 	validateSearchFiles,
-	validateSendGraph,
 	validateSendReport,
 	validateSetCurrentTask,
 	validateUpdateMemory,
@@ -64,7 +60,7 @@ import {
 	PLAN_MODE_BLOCKED_MESSAGE,
 	PLAN_MODE_TOOLS,
 } from "../utils/plan-mode";
-import { handleAskUserQuestion, handleQueueQuestion, handleSendGraph, handleSendReport } from "./question-handlers";
+import { handleAskUserQuestion, handleSendReport } from "./questions";
 
 const WORKSPACE = env.WORKSPACE_PATH;
 
@@ -202,10 +198,6 @@ export async function dispatchTool(agent: AgentState, name: ToolName, input: Rec
 			validateCreateDirectory(input);
 			return await createDirectory(input.path);
 		}
-		case ToolName.GetFileInfo: {
-			validateGetFileInfo(input);
-			return await getFileInfo(input.path);
-		}
 		case ToolName.ReadFileRange: {
 			validateReadFileRange(input);
 			return await readFileRange(input.path, input.start_line, input.end_line);
@@ -247,10 +239,6 @@ export async function dispatchTool(agent: AgentState, name: ToolName, input: Rec
 		}
 
 		// ── Questions ──────────────────────────────────────────────────────────
-		case ToolName.QueueQuestion: {
-			validateQuestion(input);
-			return await handleQueueQuestion(agent, input);
-		}
 		case ToolName.AskUserQuestion: {
 			validateAskUserQuestion(input);
 			return await handleAskUserQuestion(agent, input);
@@ -260,10 +248,6 @@ export async function dispatchTool(agent: AgentState, name: ToolName, input: Rec
 		case ToolName.SendReport: {
 			validateSendReport(input);
 			return await handleSendReport(agent, input);
-		}
-		case ToolName.SendGraph: {
-			validateSendGraph(input);
-			return await handleSendGraph(agent, input);
 		}
 
 		// ── Task management ────────────────────────────────────────────────────

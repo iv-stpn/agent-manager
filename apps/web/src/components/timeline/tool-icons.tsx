@@ -10,7 +10,6 @@ import {
 	FolderPlus,
 	GitCommitHorizontal,
 	HelpCircle,
-	Info,
 	ListPlus,
 	type LucideIcon,
 	Minimize2,
@@ -48,7 +47,6 @@ const TOOL_ICONS: Record<string, ToolIconSpec> = {
 	list_directory: { Icon: Folder, box: "bg-cyan-500/10 text-cyan-500" },
 	create_directory: { Icon: FolderPlus, box: "bg-cyan-500/10 text-cyan-500" },
 	search_files: { Icon: Search, box: "bg-cyan-500/10 text-cyan-500" },
-	get_file_info: { Icon: Info, box: "bg-cyan-500/10 text-cyan-500" },
 	move_file: { Icon: FileOutput, box: "bg-slate-500/10 text-slate-500" },
 	delete_file: { Icon: Trash2, box: "bg-red-500/10 text-red-500" },
 
@@ -59,7 +57,6 @@ const TOOL_ICONS: Record<string, ToolIconSpec> = {
 	append_decision: { Icon: ListPlus, box: "bg-amber-500/10 text-amber-500" },
 
 	// Questions / reports
-	queue_question: { Icon: HelpCircle, box: "bg-purple-500/10 text-purple-500" },
 	ask_user_question: { Icon: HelpCircle, box: "bg-amber-500/10 text-amber-500" },
 	send_report: { Icon: Send, box: "bg-indigo-500/10 text-indigo-500" },
 

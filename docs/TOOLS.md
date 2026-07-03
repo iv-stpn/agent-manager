@@ -111,14 +111,6 @@ Create a directory (and any missing parent directories).
 |-----------|------|----------|-------------|
 | `path` | `string` | Yes | Directory path (relative to workspace) |
 
-### `get_file_info`
-
-Get metadata about a file or directory: size, modification time, permissions, type. Useful before reading large files or checking if a path exists.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `path` | `string` | Yes | Path to inspect (relative to workspace) |
-
 ### `read_file_range`
 
 Read a specific range of lines from a file. Efficient for large files when you only need a portion.
@@ -153,7 +145,7 @@ Fetch a URL and return its readable text content (HTML is stripped to plain text
 
 ### `remember`
 
-Store a new entry in the project's persistent vector memory. Use to record architecture decisions, conventions, context, plans, or any knowledge that should persist across sessions. Entries are semantically searchable. Do NOT use for tasks (use task tools), reports (use send_report), or questions (use queue_question/urgent_question). When working on a task, include {taskId} in metadata to link the memory to the active task.
+Store a new entry in the project's persistent vector memory. Use to record architecture decisions, conventions, context, plans, or any knowledge that should persist across sessions. Entries are semantically searchable. Do NOT use for tasks (use task tools), reports (use send_report), or questions (use ask_user_question). When working on a task, include {taskId} in metadata to link the memory to the active task.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -246,16 +238,6 @@ Mark a task as the current task in progress. The given task becomes in_progress 
 
 ## Questions
 
-### `queue_question`
-
-Add a question to the pending queue. Whether it blocks or is deferred depends on await_ask_mode. Use for non-urgent questions. Provide suggestions when possible to make answering easier.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `question` | `string` | Yes |  |
-| `context` | `string` |  | Background info to help the user answer |
-| `suggestions` | `array` |  | Premade answer suggestions rendered as clickable buttons in Discord. The user can pick one or type a custom free-form answer. |
-
 ### `ask_user_question`
 
 Ask the user one or more questions and wait for answers. Use this at the start of a task to clarify requirements, or mid-task when blocked. Set urgent=true when you are completely blocked and cannot proceed without an answer — this sends with high-priority styling and notifications.
@@ -281,15 +263,6 @@ IMPORTANT: This is the ONLY correct way to record reports. Do NOT use write_file
 | `sections` | `array` | Yes | Text sections. Each section is split into ≤1800-char chunks automatically. |
 | `mermaid_diagrams` | `array` |  | Mermaid diagrams to render as PNG images and attach to the report. |
 | `await_override` | `await` \| `continue` |  | Override the current await_report_mode for this specific report. 'await' = pause agent until user confirms; 'continue' = send report and keep working. |
-
-### `send_graph`
-
-Render a Mermaid diagram to PNG and send it to the Discord channel. Use this for standalone diagrams (architecture, flows, ERDs) that don't belong inside a full report.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `title` | `string` |  | Caption shown above the graph in Discord. |
-| `definition` | `string` | Yes | Full Mermaid diagram definition (e.g. 'graph TD; A-->B'). |
 
 ## Git
 

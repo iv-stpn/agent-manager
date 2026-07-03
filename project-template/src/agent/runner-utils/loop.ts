@@ -20,7 +20,7 @@ import type { AgentState } from "../types";
 import { classifyApiError } from "../utils/errors";
 import { bootstrapWorkspace, buildStartupContext } from "../workspace";
 import { callAnthropicApi, recordApiTokens, recordAssistantMessage, requestSummary } from "./api";
-import { buildImproveMessage, flushQuestionsToDiscord, handleStopThreshold, handleTotalTimeout, triggerReport } from "./reports";
+import { buildImproveMessage, handleStopThreshold, handleTotalTimeout, triggerReport } from "./reports";
 import { emitMessage, setStatus } from "./status";
 import { executeTools } from "./tools";
 import { runVerificationSuite } from "./verification";
@@ -387,11 +387,6 @@ export async function runLoop(agent: AgentState): Promise<void> {
 				// refetch. Without this emit, the message is persisted but invisible
 				// until the next full reload — the intermittent "missing tool results".
 				emitMessage(agent, { id: message.id, role: "user", content: toolResults, inputTokens, cacheReadTokens });
-
-				// In 'always' mode: flush pending questions after each tool batch
-				if (agent.config.awaitAskMode === "always" && agent.pendingQuestions.length > 0) {
-					await flushQuestionsToDiscord(agent);
-				}
 
 				sessionEmitter.emit(agent.sessionId, {
 					type: "turn_end",

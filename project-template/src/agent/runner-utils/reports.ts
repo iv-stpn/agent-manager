@@ -1,12 +1,11 @@
 import type { Checkin } from "@agent-manager/db/project-schema";
 import { nanoid } from "nanoid";
-import { getPendingQuestions, getSession, insertCheckin, insertReport, updateCheckin, updateQuestionCheckin } from "../../db";
+import { getSession, insertCheckin, insertReport, updateCheckin } from "../../db";
 import { sessionEmitter } from "../../emitter";
 import type { ReportData } from "../../external/discord";
 import { sendReport } from "../../external/discord";
 import type { AgentState } from "../types";
 import { requestSummary } from "./api";
-import { drainPending, injectAnswers } from "./questions";
 import { setStatus } from "./status";
 
 export function shouldAwait(agent: AgentState, awaitOverride?: "await" | "continue"): boolean {
@@ -28,9 +27,6 @@ export async function triggerReport(
 	console.log("[Report]", trigger, JSON.stringify(report, null, 2));
 
 	const awaiting = forceAwait || shouldAwait(agent, awaitOverride);
-	const pending = drainPending(agent);
-	const questionsToAsk = awaiting ? pending : [];
-
 	const sessionId = agent.sessionId;
 
 	// Normalize the trigger to the checkin timeline's vocabulary so every
@@ -50,15 +46,10 @@ export async function triggerReport(
 	const createdAt = Date.now();
 
 	insertCheckin(agent.db, { id: checkinId, sessionId, trigger: checkinTrigger, summary, status: "pending", createdAt });
-	// Link any questions being asked to this check-in so they render under it.
-	for (const question of questionsToAsk) {
-		updateQuestionCheckin(agent.db, question.id, checkinId);
-		question.checkinId = checkinId;
-	}
 
 	sessionEmitter.emit(sessionId, {
 		type: "checkin_started",
-		data: { id: checkinId, sessionId, trigger: checkinTrigger, summary, status: "pending", createdAt, questions: questionsToAsk },
+		data: { id: checkinId, sessionId, trigger: checkinTrigger, summary, status: "pending", createdAt },
 	});
 
 	setStatus(agent, "paused");
@@ -67,11 +58,10 @@ export async function triggerReport(
 	try {
 		// Persist the immutable report record regardless of Discord delivery.
 		insertReport(agent.db, { id: nanoid(), sessionId, trigger, title: report.title, content: JSON.stringify(report) });
-		const result = await sendReport(sessionId, report, trigger, awaiting, questionsToAsk, agent.abortController.signal);
+		const result = await sendReport(sessionId, report, trigger, awaiting, agent.abortController.signal);
 
 		if (result?.confirmed) {
 			confirmed = true;
-			injectAnswers(agent, result.answers, pending);
 		}
 	} finally {
 		const status = confirmed ? "answered" : "skipped";
@@ -92,12 +82,7 @@ export async function triggerAutoReport(agent: AgentState): Promise<void> {
 
 export async function handleTotalTimeout(agent: AgentState): Promise<void> {
 	const summary = await requestSummary(agent);
-	const questionsMd = buildQuestionsFileSync(agent);
-	const sections: ReportData["sections"] = [{ title: "Progress at timeout", content: summary }];
-	if (questionsMd) {
-		sections.push({ title: "Accumulated Questions", content: questionsMd });
-	}
-	await triggerReport(agent, { title: "⏰ Total Timeout — Agent Awaiting", sections }, "completion", true);
+	await triggerReport(agent, { title: "⏰ Total Timeout — Agent Awaiting", sections: [{ title: "Progress at timeout", content: summary }] }, "completion", true);
 	setStatus(agent, "aborted");
 }
 
@@ -120,15 +105,6 @@ export async function handleStopThreshold(agent: AgentState): Promise<void> {
 	setStatus(agent, "aborted");
 }
 
-export async function flushQuestionsToDiscord(agent: AgentState): Promise<void> {
-	if (agent.pendingQuestions.length === 0) return;
-	const pending = drainPending(agent);
-
-	const reportData = { title: "❓ Questions", sections: [] };
-	const result = await sendReport(agent.sessionId, reportData, "manual", true, pending, agent.abortController.signal);
-	if (result?.confirmed) injectAnswers(agent, result.answers, pending);
-}
-
 export function buildImproveMessage(agent: AgentState): string {
 	if (agent.config.alwaysImproveMode === "yes") {
 		return `You have completed the initial task. Do NOT declare yourself done.
@@ -148,16 +124,4 @@ Use \`add_task\` to track new improvements. Keep committing.`;
 	// "custom" mode: keep improving, but only within the configured scope
 	return `You have completed the initial task. Continue improving within this scope ONLY: ${agent.config.alwaysImproveScope ?? ""}
 Do NOT work outside this scope. Use \`add_task\` to track new improvements. Keep committing.`;
-}
-
-// Internal helper — sync version used by handleTotalTimeout
-function buildQuestionsFileSync(agent: AgentState): string {
-	const questions = getPendingQuestions(agent.db, agent.sessionId);
-	if (questions.length === 0) return "";
-	return questions
-		.map(
-			(question, idx) =>
-				`### ${idx + 1}. ${question.isUrgent ? "🚨 " : ""}${question.text}${question.context ? `\n\nContext: ${question.context}` : ""}`
-		)
-		.join("\n\n");
 }

@@ -15,13 +15,6 @@ export interface ReportData {
 	mermaid_diagrams?: Array<{ title?: string; definition: string }>;
 }
 
-export interface Question {
-	id: string;
-	text: string;
-	context?: string | null;
-	suggestions?: string | null;
-}
-
 export interface CheckinFormResult {
 	answers: Array<{ questionId: string; answer: string }>;
 	confirmed: boolean;
@@ -52,13 +45,12 @@ export async function sendReport(
 	report: ReportData,
 	trigger: string,
 	awaiting: boolean,
-	pendingQuestions: Question[],
 	signal?: AbortSignal
 ): Promise<CheckinFormResult | null> {
 	const res = await fetch(`${ORCHESTRATOR_API_URL}/api/projects/${PROJECT_ID}/discord/report`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ sessionId, report, trigger, awaiting, pendingQuestions }),
+		body: JSON.stringify({ sessionId, report, trigger, awaiting }),
 		signal: signal ?? null,
 	});
 	if (!res.ok) {

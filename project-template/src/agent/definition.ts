@@ -47,7 +47,6 @@ export function initAgent({ config, llm, sessionId, db, context, isFirstSession 
 		lastApiOutputTokens: 0,
 		lastUserMessageId: null,
 		lastWarningState: "normal",
-		pendingQuestions: [],
 		//
 		injectedMessage: null,
 		steeringQueue: [],

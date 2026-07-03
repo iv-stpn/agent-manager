@@ -12,7 +12,8 @@ import {
 } from "discord.js";
 import { getChannel } from "./bot";
 
-export interface Question {
+/** A question that can be answered via the check-in form. */
+interface Question {
 	id: string;
 	text: string;
 	context?: string | null | undefined;
@@ -57,7 +58,6 @@ export async function sendReport(
 	sessionId: string,
 	trigger: string,
 	awaiting: boolean,
-	pendingQuestions: Question[],
 	signal?: AbortSignal
 ): Promise<CheckinFormResult | null> {
 	const channel = await getChannel(channelId);
@@ -83,7 +83,6 @@ export async function sendReport(
 		.setDescription(report.title || null)
 		.addFields(
 			{ name: "Session", value: `\`${sessionId.slice(0, 8)}…\``, inline: true },
-			{ name: "Questions", value: pendingQuestions.length > 0 ? `${pendingQuestions.length} pending` : "None", inline: true },
 			{ name: "Await", value: awaiting ? "Yes" : "No", inline: true }
 		)
 		.setTimestamp();
@@ -127,20 +126,11 @@ export async function sendReport(
 		}
 	}
 
-	// If not awaiting, just show queued questions as info
-	if (!awaiting) {
-		if (pendingQuestions.length > 0) {
-			const qEmbed = new EmbedBuilder()
-				.setColor(0xffaa00)
-				.setTitle(`${pendingQuestions.length} Queued Question(s)`)
-				.setDescription(pendingQuestions.map((q, i) => `**${i + 1}.** ${q.text}`).join("\n"));
-			await channel.send({ embeds: [qEmbed] });
-		}
-		return null;
-	}
+	// If not awaiting, nothing more to send
+	if (!awaiting) return null;
 
-	// Await mode: send checkin form
-	return sendCheckinForm(channel, "", pendingQuestions, sessionId, trigger, signal);
+	// Await mode: send checkin form (acknowledge only, no questions)
+	return sendCheckinForm(channel, "", [], sessionId, trigger, signal);
 }
 
 /**

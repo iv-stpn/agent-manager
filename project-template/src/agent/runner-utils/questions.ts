@@ -1,72 +1,121 @@
-import type { Question } from "@agent-manager/db/project-schema";
 import { nanoid } from "nanoid";
-import { answerQuestion, getPendingQuestions, insertQuestion } from "../../db";
+import type { Db } from "../../db";
+import { answerQuestion, insertQuestion, insertReport } from "../../db";
+import type { ReportData } from "../../external/discord";
+import { sendQuestions, sendReport } from "../../external/discord";
 import { recall, remember, updateMemory } from "../tools/implementations/memory";
-import type { QuestionInput } from "../tools/validators";
+import type { AskUserQuestionInput, SendReportInput } from "../tools/validators";
 import type { AgentState } from "../types";
+import { steerAgent } from "../definition";
+import { shouldAwait } from "./reports";
+import { setStatus } from "./status";
 
-export function makeQuestion(agent: AgentState, input: QuestionInput, isUrgent: boolean): Question {
-	const suggestions = input.suggestions ? JSON.stringify(input.suggestions) : null;
-	return {
-		id: nanoid(),
-		sessionId: agent.sessionId,
-		checkinId: null,
-		text: input.question,
-		context: input.context ?? null,
-		suggestions,
-		answer: null,
-		isUrgent,
-		createdAt: Date.now(),
-		answeredAt: null,
-	};
-}
+/**
+ * Record an answer for a question in the database and update its vector memory entry.
+ * Called after a check-in is confirmed with answers.
+ */
+export async function recordAnswer(db: Db, questionId: string, answer: string): Promise<void> {
+	answerQuestion(db, questionId, answer);
 
-/** Atomically drain and return all accumulated pending questions. */
-export function drainPending(agent: AgentState): Question[] {
-	const pending = agent.pendingQuestions;
-	agent.pendingQuestions = [];
-	return pending;
-}
-
-export function injectAnswers(
-	agent: AgentState,
-	answers: Array<{ questionId: string; answer: string }>,
-	pending: Question[]
-): void {
-	for (const answer of answers) {
-		answerQuestion(agent.db, answer.questionId, answer.answer);
-		const question = pending.find((pendingQuestion) => pendingQuestion.id === answer.questionId);
-		if (question) question.answer = answer.answer;
-		// Append answer to the question's vector memory entry
-		recall(answer.questionId, "question", 1)
-			.then((results) => {
-				const entry = results.find((result) => result.metadata?.questionId === answer.questionId);
-				if (entry) {
-					updateMemory(entry.id, {
-						content: `${entry.content}\n\n**Answer:** ${answer.answer}`,
-						metadata: { ...entry.metadata, status: "answered" },
-					}).catch(() => {});
-				}
-			})
-			.catch(() => {});
-	}
-}
-
-export async function appendToQuestionsFile(q: Question): Promise<void> {
-	const entry = `${q.isUrgent ? "🚨 Urgent" : "❓ Question"} (${new Date(q.createdAt).toISOString()})\n${q.text}${q.context ? `\n\nContext: ${q.context}` : ""}`;
+	// Update the question's vector memory entry with the answer (best-effort)
 	try {
-		await remember("question", q.text.slice(0, 100), entry);
+		const results = await recall(questionId, "question", 1);
+		const entry = results.find((result) => result.metadata?.questionId === questionId);
+		if (entry) {
+			await updateMemory(entry.id, {
+				content: `${entry.content}\n\n**Answer:** ${answer}`,
+				metadata: { ...entry.metadata, status: "answered" },
+			});
+		}
 	} catch {
 		// Non-fatal if memory service is unavailable
 	}
 }
 
-export function buildQuestionsFile(agent: AgentState): string {
-	const qs = getPendingQuestions(agent.db, agent.sessionId);
-	if (qs.length === 0) return "";
-	return qs
-		.map((q, i) => `### ${i + 1}. ${q.isUrgent ? "🚨 " : ""}${q.text}${q.context ? `\n\nContext: ${q.context}` : ""}`)
-		.join("\n\n");
+export async function handleAskUserQuestion(agent: AgentState, input: AskUserQuestionInput): Promise<string> {
+	const title = input.title ?? "Questions";
+	const urgent = input.urgent ?? false;
+
+	// Record each question in DB + memory
+	for (const item of input.questions) {
+		insertQuestion(agent.db, {
+			id: nanoid(),
+			sessionId: agent.sessionId,
+			text: item.question,
+			context: input.context ?? null,
+			suggestions: JSON.stringify(item.options),
+			answer: null,
+			isUrgent: urgent,
+		});
+		remember(
+			"question",
+			`${urgent ? "🚨 " : ""}${item.question.slice(0, 95)}`,
+			`${item.question}${input.context ? `\n\nContext: ${input.context}` : ""}`,
+			{ status: "pending", urgent }
+		).catch(() => {});
+	}
+
+	// In "never" mode: fire the question to Discord in the background and return
+	// immediately. When the user eventually replies, inject the answers as a
+	// steering message so the agent picks them up at the start of its next turn.
+	if (agent.config.awaitAskMode === "never") {
+		sendQuestions(agent.sessionId, title, input.questions, urgent)
+			.then((result) => {
+				if (!result.completed) return;
+				const answersText = Object.entries(result.answers)
+					.map(([header, answer]) => `- ${header}: ${answer}`)
+					.join("\n");
+				steerAgent(agent, `[Deferred answers received for "${title}"]\n${answersText}`);
+			})
+			.catch(() => {
+				// Silently ignore: agent may have stopped or question timed out.
+			});
+		return "The user will reply later. Proceed now on other tasks, or for non-critical questions, make a best choice decision.";
+	}
+
+	// Otherwise: send to Discord and block until answers arrive.
+	const result = await sendQuestions(agent.sessionId, title, input.questions, urgent, agent.abortController.signal);
+
+	if (result.completed) {
+		const answersText = Object.entries(result.answers)
+			.map(([header, answer]) => `- ${header}: ${answer}`)
+			.join("\n");
+		return `Answers received:\n${answersText}`;
+	}
+	return urgent
+		? "Urgent questions sent but no response received — proceeding with best judgment."
+		: "Questions sent but no response received — proceeding with best judgment.";
 }
 
-export { insertQuestion };
+export async function handleSendReport(agent: AgentState, input: SendReportInput): Promise<string> {
+	const report: ReportData = {
+		title: input.title,
+		sections: input.sections,
+		...(input.mermaid_diagrams !== undefined && { mermaid_diagrams: input.mermaid_diagrams }),
+	};
+
+	const awaiting = shouldAwait(agent, input.await_override);
+
+	setStatus(agent, "paused");
+
+	try {
+		const result = await sendReport(agent.sessionId, report, "manual", awaiting, agent.abortController.signal);
+
+		insertReport(agent.db, { id: nanoid(), sessionId: agent.sessionId, trigger: "manual", title: report.title, content: JSON.stringify(report) });
+
+		// Record in vector memory for semantic recall
+		remember(
+			"report",
+			report.title,
+			report.sections.map((section) => `${section.title ?? ""}\n${section.content}`).join("\n\n")
+		).catch(() => {});
+
+		if (result?.confirmed) {
+			// Check-in acknowledged — nothing to inject, no pending questions
+		}
+	} finally {
+		setStatus(agent, "running");
+	}
+
+	return awaiting ? "Report sent and user acknowledged." : "Report sent (continuing).";
+}

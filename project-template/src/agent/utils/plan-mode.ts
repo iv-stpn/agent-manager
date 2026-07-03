@@ -11,7 +11,6 @@ export const PLAN_MODE_TOOLS = new Set<string>([
 	ToolName.ReadFile,
 	ToolName.ListDirectory,
 	ToolName.SearchFiles,
-	ToolName.GetFileInfo,
 	ToolName.ReadFileRange,
 	ToolName.Recall,
 	ToolName.ListMemories,
