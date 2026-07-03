@@ -41,27 +41,27 @@ async function detectVerificationCommands(): Promise<Map<string, string>> {
 
 		// Detect lint commands
 		if (scripts.lint) {
-			commands.set("lint", "bun runlint");
+			commands.set("lint", "bun run lint");
 		} else if (scripts["lint:check"]) {
-			commands.set("lint", "bun runlint:check");
+			commands.set("lint", "bun run lint:check");
 		} else if (scripts.eslint) {
-			commands.set("lint", "bun runeslint");
+			commands.set("lint", "bun run eslint");
 		}
 
 		// Detect typecheck commands
 		if (scripts.typecheck) {
-			commands.set("typecheck", "bun runtypecheck");
+			commands.set("typecheck", "bun run typecheck");
 		} else if (scripts["type-check"]) {
-			commands.set("typecheck", "bun runtype-check");
+			commands.set("typecheck", "bun run type-check");
 		} else if (scripts.tsc) {
-			commands.set("typecheck", "bun runtsc");
+			commands.set("typecheck", "bun run tsc");
 		}
 
 		// Detect test commands
 		if (scripts.test) {
-			commands.set("test", "bun runtest");
+			commands.set("test", "bun run test");
 		} else if (scripts["test:unit"]) {
-			commands.set("test", "bun runtest:unit");
+			commands.set("test", "bun run test:unit");
 		}
 
 		console.log(`[Verification] Detected commands: ${Array.from(commands.keys()).join(", ")}`);

@@ -77,6 +77,31 @@ async function cloneGitHubRepo(repoUrl: string, dest: string): Promise<void> {
 }
 
 /**
+ * Install dependencies for a freshly seeded template directory. Since the
+ * workspace is bind-mounted into the project's container, installing here on
+ * the host makes node_modules available to the agent immediately. Always
+ * uses bun regardless of the template's own lockfile (pnpm, yarn, npm) —
+ * bun reads all of those lockfile formats and is guaranteed to be present on
+ * this host. Non-Node templates (no package.json) are left uninstalled, and
+ * install failures (e.g. no network) are logged but never abort project
+ * creation — the workspace is already usable and the install can be retried
+ * manually.
+ */
+async function installTemplateDependencies(dir: string): Promise<void> {
+	if (!existsSync(join(dir, "package.json"))) return;
+
+	const { exec } = await import("node:child_process");
+	const { promisify } = await import("node:util");
+	const execAsync = promisify(exec);
+
+	try {
+		await execAsync("bun install", { cwd: dir });
+	} catch (error) {
+		console.error(`Failed to install dependencies in "${dir}" with "bun install":`, error);
+	}
+}
+
+/**
  * Resolve the monorepo workspace root, independent of the process cwd.
  *
  * The orchestrator API and CLI can be launched from any subdirectory (e.g. the
@@ -301,6 +326,10 @@ export class ProjectManager {
 					await mkdir(targetPath, { recursive: true });
 					await cloneGitHubRepo(template.source, targetPath);
 				}
+
+				// Install dependencies for this template (root workspace, or its
+				// own subdirectory when multiple templates are seeded).
+				await installTemplateDependencies(targetPath);
 			}
 		}
 
