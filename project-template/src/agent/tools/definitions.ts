@@ -39,571 +39,338 @@ export function isToolName(value: string): value is ToolName {
 	return VALID_TOOL_NAMES.has(value);
 }
 
+// ── Schema helpers ────────────────────────────────────────────────────────────
+const string = (description: string) => ({ type: "string" as const, description: description });
+const number = (description: string) => ({ type: "number" as const, description: description });
+const boolean = (description: string) => ({ type: "boolean" as const, description: description });
+
+const pathProp = string("Workspace-relative path");
+const dirProp = string("Directory to search (default: workspace root)");
+
+type Props = Record<string, object>;
+const obj = (properties: Props, required: string[] = []): Anthropic.Tool["input_schema"] => ({
+	type: "object",
+	properties,
+	required,
+});
+
+const TASK_STATUS = ["pending", "in_progress", "done", "cancelled"] as const;
+const MEM_TYPES_RW = ["decision", "plan", "memory", "context"] as const;
+const MEM_TYPES_ALL = [...MEM_TYPES_RW, "question", "report"] as const;
+
 export const AGENT_TOOLS: Anthropic.Tool[] = [
-	// ── Commands ─────────────────────────────────────────────────────────────────
+	// ── Commands ──────────────────────────────────────────────────────────────
 	{
 		name: "bash",
-		description:
-			"Execute a shell command inside the sandboxed workspace. Working directory is always the workspace root. All file operations are relative to the workspace.",
-		input_schema: {
-			type: "object",
-			properties: {
-				command: { type: "string", description: "Shell command to execute" },
-				timeout_ms: {
-					type: "number",
-					description: "Max execution time in ms (default: 30000)",
-				},
-			},
-			required: ["command"],
-		},
+		description: "Run a shell command in the workspace root.",
+		input_schema: obj({ command: string("Shell command"), timeout_ms: number("Max ms (default: 30000)") }, ["command"]),
 	},
 	{
 		name: "grep",
-		description: "Search for a regex pattern in files. Returns matching lines with file paths and line numbers.",
-		input_schema: {
-			type: "object",
-			properties: {
-				pattern: { type: "string", description: "Regex pattern to search for" },
-				path: { type: "string", description: "Directory to search in (default: workspace root)" },
-				include: { type: "string", description: "File glob filter (e.g. '*.ts')" },
-				flags: { type: "string", description: "Extra grep flags (e.g. '-i' for case-insensitive)" },
+		description: "Regex search across files. Returns file:line matches.",
+		input_schema: obj(
+			{
+				pattern: string("Regex pattern"),
+				path: dirProp,
+				include: string("File glob filter (e.g. '*.ts')"),
+				flags: string("Extra grep flags (e.g. '-i')"),
 			},
-			required: ["pattern"],
-		},
+			["pattern"]
+		),
 	},
 	{
 		name: "glob",
-		description: "Find files and directories matching a glob pattern (e.g. '**/*.ts', 'src/**/*.{ts,js}').",
-		input_schema: {
-			type: "object",
-			properties: {
-				pattern: { type: "string", description: "Glob pattern to match" },
-				path: { type: "string", description: "Base directory (default: workspace root)" },
-			},
-			required: ["pattern"],
-		},
+		description: "Find files matching a glob pattern.",
+		input_schema: obj({ pattern: string("Glob pattern"), path: dirProp }, ["pattern"]),
 	},
 
-	// ── File system ──────────────────────────────────────────────────────────────
+	// ── File system ───────────────────────────────────────────────────────────
 	{
 		name: "read_file",
-		description: "Read a file from the workspace. Path is relative to workspace root.",
-		input_schema: {
-			type: "object",
-			properties: {
-				path: { type: "string", description: "File path (relative to workspace)" },
-			},
-			required: ["path"],
-		},
+		description: "Read a workspace file.",
+		input_schema: obj({ path: pathProp }, ["path"]),
 	},
 	{
 		name: "write_file",
-		description: "Write content to a file in the workspace.",
-		input_schema: {
-			type: "object",
-			properties: {
-				path: { type: "string", description: "File path (relative to workspace)" },
-				content: { type: "string", description: "Content to write" },
-			},
-			required: ["path", "content"],
-		},
+		description: "Write content to a workspace file.",
+		input_schema: obj({ path: pathProp, content: string("File content") }, ["path", "content"]),
 	},
 	{
 		name: "list_directory",
-		description: "List files in a workspace directory.",
-		input_schema: {
-			type: "object",
-			properties: {
-				path: { type: "string", description: "Directory path (default: workspace root)" },
-			},
-			required: [],
-		},
+		description: "List a workspace directory.",
+		input_schema: obj({ path: string("Directory path (default: workspace root)") }),
 	},
 	{
 		name: "search_files",
-		description:
-			"Search for patterns in files using grep. Returns matching lines with file paths and line numbers. Useful for finding function definitions, imports, TODOs, or any text pattern across the codebase.",
-		input_schema: {
-			type: "object",
-			properties: {
-				pattern: { type: "string", description: "Search pattern (supports regex)" },
-				path: {
-					type: "string",
-					description: "Directory to search in (default: workspace root)",
-				},
-				file_pattern: {
-					type: "string",
-					description: "File glob pattern (e.g., '*.ts', '*.py'). Default: all files",
-				},
-				case_sensitive: {
-					type: "boolean",
-					description: "Case-sensitive search. Default: false",
-				},
-				max_results: {
-					type: "number",
-					description: "Maximum results to return. Default: 100",
-				},
+		description: "Search files with grep. Returns file:line matches.",
+		input_schema: obj(
+			{
+				pattern: string("Search pattern (regex)"),
+				path: dirProp,
+				file_pattern: string("File glob (e.g. '*.ts')"),
+				case_sensitive: boolean("Default: false"),
+				max_results: number("Default: 100"),
 			},
-			required: ["pattern"],
-		},
+			["pattern"]
+		),
 	},
 	{
 		name: "edit_file",
-		description:
-			"Edit a file by replacing specific content. Searches for old_string and replaces with new_string. More efficient than reading entire file, modifying, and writing back. The old_string must match exactly (including whitespace).",
-		input_schema: {
-			type: "object",
-			properties: {
-				path: { type: "string", description: "File path (relative to workspace)" },
-				old_string: {
-					type: "string",
-					description: "Exact string to find and replace (must match exactly)",
-				},
-				new_string: { type: "string", description: "Replacement string" },
-				replace_all: {
-					type: "boolean",
-					description: "Replace all occurrences (default: false, only first match)",
-				},
+		description: "Replace old_string with new_string in a file (exact whitespace match required).",
+		input_schema: obj(
+			{
+				path: pathProp,
+				old_string: string("Exact string to replace"),
+				new_string: string("Replacement string"),
+				replace_all: boolean("Replace all occurrences (default: false)"),
 			},
-			required: ["path", "old_string", "new_string"],
-		},
+			["path", "old_string", "new_string"]
+		),
 	},
 	{
 		name: "move_file",
-		description: "Move or rename a file or directory. Creates parent directories if needed.",
-		input_schema: {
-			type: "object",
-			properties: {
-				source: { type: "string", description: "Source path (relative to workspace)" },
-				destination: {
-					type: "string",
-					description: "Destination path (relative to workspace)",
-				},
-			},
-			required: ["source", "destination"],
-		},
+		description: "Move or rename a file or directory.",
+		input_schema: obj({ source: pathProp, destination: pathProp }, ["source", "destination"]),
 	},
 	{
 		name: "delete_file",
-		description: "Delete a file or directory. Use with caution. For directories, deletes recursively.",
-		input_schema: {
-			type: "object",
-			properties: {
-				path: { type: "string", description: "Path to delete (relative to workspace)" },
-				recursive: {
-					type: "boolean",
-					description: "Required true for directories. Default: false",
-				},
-			},
-			required: ["path"],
-		},
+		description: "Delete a file or directory (set recursive=true for directories).",
+		input_schema: obj({ path: pathProp, recursive: boolean("Required true for directories") }, ["path"]),
 	},
 	{
 		name: "create_directory",
-		description: "Create a directory (and any missing parent directories).",
-		input_schema: {
-			type: "object",
-			properties: {
-				path: { type: "string", description: "Directory path (relative to workspace)" },
-			},
-			required: ["path"],
-		},
+		description: "Create a directory (including parents).",
+		input_schema: obj({ path: pathProp }, ["path"]),
 	},
 	{
 		name: "read_file_range",
-		description: "Read a specific range of lines from a file. Efficient for large files when you only need a portion.",
-		input_schema: {
-			type: "object",
-			properties: {
-				path: { type: "string", description: "File path (relative to workspace)" },
-				start_line: {
-					type: "number",
-					description: "Starting line number (1-indexed, inclusive)",
-				},
-				end_line: {
-					type: "number",
-					description: "Ending line number (1-indexed, inclusive)",
-				},
+		description: "Read a line range from a file.",
+		input_schema: obj(
+			{
+				path: pathProp,
+				start_line: number("Start line (1-indexed, inclusive)"),
+				end_line: number("End line (1-indexed, inclusive)"),
 			},
-			required: ["path", "start_line", "end_line"],
-		},
+			["path", "start_line", "end_line"]
+		),
 	},
 
-	// ── Web ────────────────────────────────────────────────────────────────────────
+	// ── Web ───────────────────────────────────────────────────────────────────
 	{
 		name: "web_search",
-		description:
-			"Search the web and return a ranked list of results (title, URL, snippet). Use to find current information, documentation, or sources. Follow up with web_fetch to read a specific result.",
-		input_schema: {
-			type: "object",
-			properties: {
-				query: { type: "string", description: "Search query" },
-				limit: { type: "number", description: "Max number of results to return (default: 8)" },
-			},
-			required: ["query"],
-		},
+		description: "Search the web. Returns title/URL/snippet list. Follow up with web_fetch to read a page.",
+		input_schema: obj({ query: string("Search query"), limit: number("Max results (default: 8)") }, ["query"]),
 	},
 	{
 		name: "web_fetch",
-		description:
-			"Fetch a URL and return its readable text content (HTML is stripped to plain text). Use to read documentation, articles, or any web page. Content is truncated to a character budget.",
-		input_schema: {
-			type: "object",
-			properties: {
-				url: { type: "string", description: "Absolute URL to fetch (must start with http:// or https://)" },
-				max_chars: { type: "number", description: "Max characters of content to return (default: 20000)" },
+		description: "Fetch a URL and return its plain-text content.",
+		input_schema: obj(
+			{
+				url: string("Absolute URL (http:// or https://)"),
+				max_chars: number("Max characters (default: 20000)"),
 			},
-			required: ["url"],
-		},
+			["url"]
+		),
 	},
 
-	// ── Memory Management ─────────────────────────────────────────────────────────
+	// ── Memory ────────────────────────────────────────────────────────────────
 	{
 		name: "remember",
-		description:
-			"Store a new entry in the project's persistent vector memory. Use to record architecture decisions, conventions, context, plans, or any knowledge that should persist across sessions. Entries are semantically searchable. Do NOT use for tasks (use task tools), reports (use send_report), or questions (use ask_user_question). When working on a task, include {taskId} in metadata to link the memory to the active task.",
-		input_schema: {
-			type: "object",
-			properties: {
-				type: {
-					type: "string",
-					enum: ["decision", "plan", "memory", "context"],
-					description: "Category of the memory entry. Do NOT use for tasks (use task tools instead).",
-				},
-				title: { type: "string", description: "Short descriptive title (used for search ranking)" },
-				content: { type: "string", description: "Full content of the memory entry" },
-				metadata: {
-					type: "object",
-					description: "Optional structured metadata (e.g. {priority: 'high', status: 'active'})",
-				},
+		description: "Store a persistent memory entry. Not for tasks, reports, or questions.",
+		input_schema: obj(
+			{
+				type: { type: "string", enum: MEM_TYPES_RW, description: "Memory category" },
+				title: string("Short descriptive title"),
+				content: string("Memory content"),
+				metadata: { type: "object", description: "Optional structured metadata" },
 			},
-			required: ["type", "title", "content"],
-		},
+			["type", "title", "content"]
+		),
 	},
 	{
 		name: "recall",
-		description:
-			"Semantically search project memory. Returns entries ranked by relevance to your query. Use natural language queries for best results (e.g. 'how is authentication implemented' rather than 'auth'). Searches across all entry types including auto-recorded reports and questions.",
-		input_schema: {
-			type: "object",
-			properties: {
-				query: { type: "string", description: "Natural language search query" },
-				type: {
-					type: "string",
-					enum: ["decision", "plan", "question", "memory", "report", "context"],
-					description: "Optional: filter results to a specific type",
-				},
-				limit: { type: "number", description: "Max results to return (default: 10)" },
+		description: "Semantic search over project memory.",
+		input_schema: obj(
+			{
+				query: string("Natural language query"),
+				type: { type: "string", enum: MEM_TYPES_ALL, description: "Filter by type (optional)" },
+				limit: number("Max results (default: 10)"),
 			},
-			required: ["query"],
-		},
+			["query"]
+		),
 	},
 	{
 		name: "update_memory",
-		description:
-			"Update an existing memory entry by its ID. Use to modify content, title, or type of a previously stored entry. Only entries you created directly (decision, plan, memory, context) should be updated this way.",
-		input_schema: {
-			type: "object",
-			properties: {
-				id: { type: "string", description: "Memory entry ID (from recall or list_memories)" },
-				title: { type: "string", description: "New title (optional)" },
-				content: { type: "string", description: "New content (optional)" },
-				type: {
-					type: "string",
-					enum: ["decision", "plan", "memory", "context"],
-					description: "New type (optional)",
-				},
-				metadata: { type: "object", description: "New metadata (optional)" },
+		description: "Update an existing memory entry by ID.",
+		input_schema: obj(
+			{
+				id: string("Memory entry ID"),
+				title: string("New title"),
+				content: string("New content"),
+				type: { type: "string", enum: MEM_TYPES_RW, description: "New type" },
+				metadata: { type: "object", description: "New metadata" },
 			},
-			required: ["id"],
-		},
+			["id"]
+		),
 	},
 	{
 		name: "delete_memory",
-		description: "Delete a memory entry by its ID. Use when information is outdated or incorrect.",
-		input_schema: {
-			type: "object",
-			properties: {
-				id: { type: "string", description: "Memory entry ID (from recall or list_memories)" },
-			},
-			required: ["id"],
-		},
+		description: "Delete a memory entry by ID.",
+		input_schema: obj({ id: string("Memory entry ID") }, ["id"]),
 	},
 	{
 		name: "list_memories",
-		description: "List all memory entries, optionally filtered by type. Use to see everything stored or browse a category.",
-		input_schema: {
-			type: "object",
-			properties: {
-				type: {
-					type: "string",
-					enum: ["decision", "plan", "question", "memory", "report", "context"],
-					description: "Filter by type (optional, lists all if omitted)",
-				},
-				limit: { type: "number", description: "Max results (default: 100)" },
-			},
-			required: [],
-		},
+		description: "List memory entries, optionally filtered by type.",
+		input_schema: obj({
+			type: { type: "string", enum: MEM_TYPES_ALL, description: "Filter by type (optional)" },
+			limit: number("Max results (default: 100)"),
+		}),
 	},
-	// ── Task Management ──────────────────────────────────────────────────────────
+
+	// ── Tasks ─────────────────────────────────────────────────────────────────
 	{
 		name: "add_task",
-		description:
-			"Add a new task to the project-wide task list. Tasks persist in the DB and are shared across sessions. Optionally declare dependencies on other tasks that must be done first.",
-		input_schema: {
-			type: "object",
-			properties: {
-				text: { type: "string", description: "Task description" },
-				status: {
-					type: "string",
-					enum: ["pending", "in_progress", "done", "cancelled"],
-					description: "Initial status (default: pending)",
-				},
-				dependsOn: {
-					type: "array",
-					items: { type: "string" },
-					description: "IDs of tasks that must be done before this one can start",
-				},
+		description: "Add a task to the project task list.",
+		input_schema: obj(
+			{
+				text: string("Task description"),
+				status: { type: "string", enum: TASK_STATUS, description: "Initial status (default: pending)" },
+				dependsOn: { type: "array", items: { type: "string" }, description: "IDs of prerequisite tasks" },
 			},
-			required: ["text"],
-		},
+			["text"]
+		),
 	},
 	{
 		name: "list_tasks",
-		description:
-			"List tasks across the whole project (all sessions). Each line shows status and any dependencies, flagging tasks blocked by unfinished dependencies. Optionally filter by status.",
-		input_schema: {
-			type: "object",
-			properties: {
-				filter: {
-					type: "string",
-					enum: ["all", "pending", "in_progress", "done", "cancelled"],
-					description: "Status filter (default: all)",
-				},
-			},
-			required: [],
-		},
+		description: "List all project tasks with status and blocked-by info.",
+		input_schema: obj({
+			filter: { type: "string", enum: ["all", ...TASK_STATUS], description: "Status filter (default: all)" },
+		}),
 	},
 	{
 		name: "update_task",
-		description: "Update a task's status, text, or dependencies by its ID.",
-		input_schema: {
-			type: "object",
-			properties: {
-				id: { type: "string", description: "Task ID (from list_tasks)" },
-				status: {
-					type: "string",
-					enum: ["pending", "in_progress", "done", "cancelled"],
-					description: "New status",
-				},
-				text: { type: "string", description: "Updated text" },
-				dependsOn: {
-					type: "array",
-					items: { type: "string" },
-					description: "Replacement list of dependency task IDs",
-				},
+		description: "Update a task's status, text, or dependencies.",
+		input_schema: obj(
+			{
+				id: string("Task ID"),
+				status: { type: "string", enum: TASK_STATUS, description: "New status" },
+				text: string("Updated text"),
+				dependsOn: { type: "array", items: { type: "string" }, description: "Replacement dependency IDs" },
 			},
-			required: ["id"],
-		},
+			["id"]
+		),
 	},
-
 	{
 		name: "get_current_task",
-		description: "Get the task that is currently in progress (the active task), if any.",
-		input_schema: {
-			type: "object",
-			properties: {},
-			required: [],
-		},
+		description: "Get the currently active in-progress task.",
+		input_schema: obj({}),
 	},
 	{
 		name: "set_current_task",
-		description:
-			"Mark a task as the current task in progress. The given task becomes in_progress and assigned to this session; any other in_progress task is moved back to pending, so exactly one task is active at a time. Warns if the task is still blocked by unfinished dependencies.",
-		input_schema: {
-			type: "object",
-			properties: {
-				id: { type: "string", description: "Task ID (from list_tasks)" },
-			},
-			required: ["id"],
-		},
+		description: "Set a task as active (demotes any other in-progress task). Warns if blocked by dependencies.",
+		input_schema: obj({ id: string("Task ID") }, ["id"]),
 	},
 
-	// ── Questions ────────────────────────────────────────────────────────────────
+	// ── Questions ─────────────────────────────────────────────────────────────
 	{
 		name: "ask_user_question",
-		description:
-			"Ask the user one or more questions and wait for answers. Use this at the start of a task to clarify requirements, or mid-task when blocked. Set urgent=true when you are completely blocked and cannot proceed without an answer — this sends with high-priority styling and notifications.",
-		input_schema: {
-			type: "object",
-			properties: {
-				title: {
-					type: "string",
-					description: "Optional heading for the question group (e.g. 'Implementation Requirements')",
-				},
+		description: "Ask the user questions and wait for answers. Set urgent=true only when fully blocked.",
+		input_schema: obj(
+			{
+				title: string("Optional heading for the question group"),
 				questions: {
 					type: "array",
-					description: "Questions to ask the user. All are sent together and answered as a group.",
+					description: "Questions sent and answered as a group",
 					items: {
 						type: "object",
 						properties: {
-							question: { type: "string", description: "The complete question to ask the user" },
-							header: {
-								type: "string",
-								description:
-									"Very short label displayed as a chip/tag (max 12 chars). Examples: 'Auth method', 'Library', 'Approach'.",
-							},
+							question: string("The question to ask"),
+							header: string("Short chip label (max 12 chars)"),
 							options: {
 								type: "array",
-								description:
-									"The available choices for this question (2-4 options). The user can always provide a custom free-form answer instead.",
+								description: "2-4 answer choices (user may also type a custom answer)",
 								items: {
 									type: "object",
-									properties: {
-										label: {
-											type: "string",
-											description: "Display text for this option (concise, 1-5 words)",
-										},
-										description: {
-											type: "string",
-											description: "Explanation of what this option means or what will happen if chosen",
-										},
-									},
+									properties: { label: string("1-5 word label"), description: string("What this option means") },
 									required: ["label", "description"],
 								},
 							},
-							multiSelect: {
-								type: "boolean",
-								description: "If true, allows selecting multiple options. Default: false.",
-							},
+							multiSelect: boolean("Allow multiple selections (default: false)"),
 						},
 						required: ["question", "header", "options"],
 					},
 				},
-				context: {
-					type: "string",
-					description: "Background info explaining why you're asking",
-				},
-				urgent: {
-					type: "boolean",
-					description: "If true, sends with high-priority notifications (use only when fully blocked). Default: false.",
-				},
+				context: string("Background info explaining why you're asking"),
+				urgent: boolean("High-priority notification when fully blocked (default: false)"),
 			},
-			required: ["questions"],
-		},
+			["questions"]
+		),
 	},
 
-	// ── Reports ──────────────────────────────────────────────────────────────────
+	// ── Reports ───────────────────────────────────────────────────────────────
 	{
 		name: "send_report",
-		description:
-			"Send a structured progress report via Discord and save it as an immutable record in the database. Supports text sections (auto-split at 1800 chars) and Mermaid diagrams (rendered to PNG). Whether the agent awaits after sending depends on await_report_mode.\n\nIMPORTANT: This is the ONLY correct way to record reports. Do NOT use write_file to save reports — file-based reports are mutable and can be accidentally overwritten. Reports saved via send_report are permanent database records that cannot be modified.",
-		input_schema: {
-			type: "object",
-			properties: {
-				title: { type: "string", description: "Report title" },
+		description: "Send a report via Discord and save it to the database. Use ONLY this for reports — do not use write_file.",
+		input_schema: obj(
+			{
+				title: string("Report title"),
 				sections: {
 					type: "array",
-					description: "Text sections. Each section is split into ≤1800-char chunks automatically.",
+					description: "Text sections (auto-split at 1800 chars)",
 					items: {
 						type: "object",
-						properties: {
-							title: { type: "string" },
-							content: {
-								type: "string",
-								description: "Section body. Plain text or markdown. Will be formatted as a code block.",
-							},
-						},
+						properties: { title: string("Section title"), content: string("Section body (plain text or markdown)") },
 						required: ["content"],
 					},
 				},
 				mermaid_diagrams: {
 					type: "array",
-					description: "Mermaid diagrams to render as PNG images and attach to the report.",
+					description: "Mermaid diagrams rendered as PNG images",
 					items: {
 						type: "object",
-						properties: {
-							title: { type: "string" },
-							definition: {
-								type: "string",
-								description: "Full Mermaid diagram definition (e.g. 'graph TD; A-->B')",
-							},
-						},
+						properties: { title: string("Diagram title"), definition: string("Full Mermaid definition") },
 						required: ["definition"],
 					},
 				},
 				await_override: {
 					type: "string",
 					enum: ["await", "continue"],
-					description:
-						"Override the current await_report_mode for this specific report. 'await' = pause agent until user confirms; 'continue' = send report and keep working.",
+					description: "Override await_report_mode for this report",
 				},
 			},
-			required: ["title", "sections"],
-		},
+			["title", "sections"]
+		),
 	},
 
-	// ── Mode controls (managed via Discord commands, not agent tools) ────────────
-
-	// ── Git ──────────────────────────────────────────────────────────────────────
+	// ── Git ───────────────────────────────────────────────────────────────────
 	{
 		name: "commit_changes",
-		description:
-			"Stage all workspace changes, run quality checks (lint, typecheck, tests), and create a git commit with a conventional commit message. Commit is aborted if any quality check fails. Use this regularly after completing meaningful units of work.",
-		input_schema: {
-			type: "object",
-			properties: {
-				message: {
-					type: "string",
-					description:
-						"Conventional commit message (e.g. 'feat(auth): add JWT middleware', 'fix(login): handle token expiry', 'chore: update dependencies'). Be descriptive and specific.",
-				},
-				skip_checks: {
-					type: "boolean",
-					description:
-						"Skip lint/typecheck/test before committing. Only use when checks are known to be unavailable. Default: false.",
-				},
+		description: "Stage all changes, run lint/typecheck/tests, and commit. Aborts if checks fail.",
+		input_schema: obj(
+			{
+				message: string("Conventional commit message (e.g. 'feat(auth): add JWT middleware')"),
+				skip_checks: boolean("Skip quality checks before committing (default: false)"),
 			},
-			required: ["message"],
-		},
+			["message"]
+		),
 	},
 
-	// ── Context management ────────────────────────────────────────────────────────
+	// ── Context ───────────────────────────────────────────────────────────────
 	{
 		name: "compact_context",
-		description:
-			"Summarise the older portion of the conversation into a concise context block, freeing up context window space. Call this proactively when the conversation grows long or before an intensive multi-step operation.",
-		input_schema: {
-			type: "object",
-			properties: {},
-			required: [],
-		},
+		description: "Summarise older conversation to free context space. Call before intensive multi-step operations.",
+		input_schema: obj({}),
 	},
 
-	// ── Plan Mode ────────────────────────────────────────────────────────────────
+	// ── Plan Mode ─────────────────────────────────────────────────────────────
 	{
 		name: "enter_plan_mode",
-		description:
-			"Enter plan mode — restricts available tools to read-only operations (grep, glob, read_file, list_directory, search_files, bash read-only commands). Use this when you need to explore the codebase and form a plan before making changes. Call exit_plan_mode when ready to implement.",
-		input_schema: {
-			type: "object",
-			properties: {},
-			required: [],
-		},
+		description: "Restrict to read-only tools for codebase exploration. Call exit_plan_mode when ready to implement.",
+		input_schema: obj({}),
 	},
 	{
 		name: "exit_plan_mode",
-		description:
-			"Exit plan mode and resume full tool access. Optionally provide a plan summary documenting what you learned and intend to do.",
-		input_schema: {
-			type: "object",
-			properties: {
-				plan_summary: {
-					type: "string",
-					description: "Summary of what you explored and the implementation plan you've formed",
-				},
-			},
-			required: ["plan_summary"],
-		},
+		description: "Exit plan mode and restore full tool access.",
+		input_schema: obj({ plan_summary: string("What you explored and your implementation plan") }, ["plan_summary"]),
 	},
 ];
