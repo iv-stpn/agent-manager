@@ -431,12 +431,7 @@ export function MessageFeed({
 								paddingBottom: "1rem",
 							}}
 						>
-							<MessageBubble
-								message={msg}
-								toolCallByUseId={toolCallByUseId}
-								isStreaming={false}
-								isNew={newIds.has(msg.id)}
-							/>
+							<MessageBubble message={msg} toolCallByUseId={toolCallByUseId} isStreaming={false} isNew={newIds.has(msg.id)} />
 						</div>
 					);
 				})}

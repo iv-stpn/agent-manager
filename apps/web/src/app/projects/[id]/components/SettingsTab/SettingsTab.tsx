@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import type { LlmClient } from "@/lib/agent-api";
 import { getLlmClients, getProject, updateSettings } from "@/lib/agent-api";
 import { ProjectContextCard } from "./ProjectContextCard";
-import { SettingRow, type SettingField } from "./SettingRow";
+import { type SettingField, SettingRow } from "./SettingRow";
 
 interface SettingsTabProps {
 	projectId: string;

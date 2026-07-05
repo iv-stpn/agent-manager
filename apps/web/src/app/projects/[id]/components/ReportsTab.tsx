@@ -1,4 +1,4 @@
-import { AlertTriangle, Archive, CheckCircle2, Clock, ClipboardList, PlayCircle, RefreshCw } from "lucide-react";
+import { AlertTriangle, Archive, CheckCircle2, Clock, PlayCircle, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import type { Report } from "@/lib/agent-api";
