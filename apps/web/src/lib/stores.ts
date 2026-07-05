@@ -96,7 +96,7 @@ function connectionManager<A extends unknown[]>(opener: (key: string, ...args: A
 // One connection for the whole app, feeding the `"projects"` list that the
 // home page, sidebar, and statistics page all read.
 
-export const acquireHostStream = connectionManager(() => {
+const acquireHostStream = connectionManager(() => {
 	const patch = (projectId: string, fn: (project: EnrichedProject) => EnrichedProject) =>
 		mutateCache<EnrichedProject[]>(cacheKeys.projects, (list) =>
 			list.map((project) => (project.id === projectId ? fn(project) : project))
@@ -122,7 +122,7 @@ export const acquireHostStream = connectionManager(() => {
 // One connection per running project. Feeds the sessions list, the reports
 // list, the project's live stats, and the running indicator.
 
-export const acquireProjectStream = connectionManager((_key: string, projectId: string, port: number) => {
+const acquireProjectStream = connectionManager((_key: string, projectId: string, port: number) => {
 	const projectKey = cacheKeys.project(projectId);
 	const sessionKey = cacheKeys.sessions(projectId);
 	const reportKey = cacheKeys.reports(projectId);
@@ -217,7 +217,7 @@ export const acquireProjectStream = connectionManager((_key: string, projectId: 
 // are project-wide (cross-session), so they're owned by the project stream
 // instead — see acquireProjectStream.
 
-export const acquireSessionStream = connectionManager((_key: string, sessionId: string, projectId: string, port: number) => {
+const acquireSessionStream = connectionManager((_key: string, sessionId: string, projectId: string, port: number) => {
 	const sKey = cacheKeys.session(projectId, sessionId);
 	const mKey = cacheKeys.messages(projectId, sessionId);
 	const tKey = cacheKeys.tools(projectId, sessionId);

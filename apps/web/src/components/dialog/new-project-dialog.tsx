@@ -94,7 +94,7 @@ interface NewProjectFormProps {
 	onCancel?: () => void;
 }
 
-export function NewProjectForm({ loading, onLoadingChange, onSuccess, onCancel }: NewProjectFormProps) {
+function NewProjectForm({ loading, onLoadingChange, onSuccess, onCancel }: NewProjectFormProps) {
 	const [step, setStep] = useState<Step>("basic");
 	const [form, setForm] = useState<NewProjectFormValues>(emptyForm);
 	const [pathWarning, setPathWarning] = useState<PathWarning>(null);

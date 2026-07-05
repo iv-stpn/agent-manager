@@ -83,7 +83,7 @@ const DEFAULT_TOOL_ICON: ToolIconSpec = {
 	box: "bg-slate-500/10 text-slate-500",
 };
 
-export function toolIcon(name: string): ToolIconSpec {
+function toolIcon(name: string): ToolIconSpec {
 	return TOOL_ICONS[name] ?? DEFAULT_TOOL_ICON;
 }
 

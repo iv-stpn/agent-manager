@@ -2,8 +2,9 @@
 // RPC layer — response shapes are inferred from the server's route definitions.
 // SSE streams connect directly to the agent server port to avoid proxy buffering.
 
-import type { AppType, Guideline, GuidelineCategory, LlmClient, TechStack, WorkspaceFolderStatus } from "../../../api/src";
+import type { AppType, Guideline, GuidelineCategory, LlmClient, TechStack, WorkspaceFolderStatus } from "@agent-manager/api";
 
+export type { Guideline, GuidelineCategory, LlmClient, LlmProvider, StackEntry, TechStack } from "@agent-manager/api";
 export type {
 	CheckinRecord as Checkin,
 	CompactionRecord as Compaction,
@@ -14,7 +15,6 @@ export type {
 	ToolCallRecord as ToolCall,
 } from "@agent-manager/projects";
 export type { EnrichedProject } from "@/lib/types";
-export type { Guideline, GuidelineCategory, LlmClient, LlmProvider, StackEntry, TechStack } from "../../../api/src";
 
 import type { CreateProjectInput, ProjectConfig, SessionRecord as Session } from "@agent-manager/projects";
 import { hc } from "hono/client";
@@ -47,19 +47,13 @@ export async function checkWorkspacePath(path: string): Promise<{ status: Worksp
 	return await res.json();
 }
 
-export async function createProject(data: CreateProjectInput) {
-	const res = await api.api.projects.$post({ json: data });
-	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-	return (await res.json()).project;
-}
-
 export interface CreateProjectStreamHandlers {
 	onStep?: (step: string, status: "running" | "done" | "error", log?: string) => void;
 	onLine?: (step: string, line: string) => void;
 }
 
 /**
- * Same as `createProject`, but streams workspace-setup progress (cloning,
+ * Create a project, streaming workspace-setup progress (cloning,
  * installing dependencies, etc.) as it happens. Raw `fetch` + manual SSE
  * parsing rather than the hono client / `EventSource`: the request body can
  * carry an LLM API key, which can't go in a GET query string.
@@ -91,26 +85,6 @@ export async function createProjectStream(
 	const { success, error, project } = result as { success: boolean; error?: string; project?: ProjectConfig };
 	if (!success || !project) throw new Error(error || "Failed to create project");
 	return project;
-}
-
-export async function startProject(projectId: string) {
-	const res = await api.api.projects[":projectId"].start.$post({ param: { projectId } });
-	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-}
-
-export async function stopProject(projectId: string) {
-	const res = await api.api.projects[":projectId"].stop.$post({ param: { projectId } });
-	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-}
-
-export async function restartProject(projectId: string) {
-	const res = await api.api.projects[":projectId"].restart.$post({ param: { projectId } });
-	if (!res.ok) throw new Error(`API responded with ${res.status}`);
-}
-
-export async function deleteProject(projectId: string) {
-	const res = await api.api.projects[":projectId"].$delete({ param: { projectId } });
-	if (!res.ok) throw new Error(`API responded with ${res.status}`);
 }
 
 export async function getLogs(projectId: string, service?: string) {

@@ -24,26 +24,6 @@ export function formatDateTime(ts: number): string {
 	return new Date(ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-export function statusColor(status: string): string {
-	switch (status) {
-		case "running":
-			return "text-green-500";
-		case "compacting":
-			return "text-purple-500";
-		case "paused":
-			return "text-yellow-500";
-		case "completed":
-			return "text-blue-500";
-		case "stopped":
-		case "aborted":
-			return "text-gray-500";
-		case "error":
-			return "text-red-500";
-		default:
-			return "text-gray-400";
-	}
-}
-
 export function statusBg(status: string): string {
 	switch (status) {
 		case "running":
