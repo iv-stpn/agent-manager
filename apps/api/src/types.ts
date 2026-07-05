@@ -3,7 +3,7 @@ import type { OrchestratorDatabase, ProjectDatabase } from "./db";
 import type { EventHub } from "./lib/event-hub";
 import type { Logger } from "./lib/logger";
 
-export type HonoOrchestratorVariables = {
+type HonoOrchestratorVariables = {
 	manager: ProjectManager;
 	docker: ProjectDocker;
 	projectDatabaseManager: ProjectDatabase;

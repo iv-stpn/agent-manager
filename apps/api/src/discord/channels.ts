@@ -1,7 +1,7 @@
 import { ChannelType, type TextChannel } from "discord.js";
 import { getGuild } from "./bot";
 
-export interface DiscordChannel {
+interface DiscordChannel {
 	id: string;
 	projectId: string;
 	sessionId: string | null;

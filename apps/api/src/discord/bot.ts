@@ -3,10 +3,6 @@ import { ChannelType, Client, GatewayIntentBits, type Guild, Partials, type Text
 let client: Client | null = null;
 let guildId: string | null = null;
 
-export function getDiscordBot(): Client | null {
-	return client;
-}
-
 export function getGuild(): Guild | null {
 	if (!client || !guildId) return null;
 	return client.guilds.cache.get(guildId) ?? null;

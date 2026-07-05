@@ -1,6 +1,6 @@
 import { type ChatInputCommandInteraction, REST, Routes, SlashCommandBuilder } from "discord.js";
 
-export const COMMANDS = [
+const COMMANDS = [
 	new SlashCommandBuilder()
 		.setName("timeout")
 		.setDescription("Change the agent run timeout (minutes)")

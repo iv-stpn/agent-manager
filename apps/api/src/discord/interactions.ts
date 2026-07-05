@@ -20,7 +20,7 @@ interface Question {
 	suggestions?: string | null | undefined;
 }
 
-export interface Suggestion {
+interface Suggestion {
 	id: string;
 	title: string;
 	subtitle?: string;
@@ -31,12 +31,12 @@ export interface CheckinFormResult {
 	confirmed: boolean;
 }
 
-export interface ReportSection {
+interface ReportSection {
 	title?: string;
 	content: string;
 }
 
-export interface MermaidDiagram {
+interface MermaidDiagram {
 	title?: string;
 	definition: string;
 }
@@ -137,7 +137,7 @@ export async function sendReport(
  * Send a checkin form with questions asked one by one.
  * Each step shows Back/Skip. At the end, a confirmation summary lets the user redo any answer.
  */
-export async function sendCheckinForm(
+async function sendCheckinForm(
 	channel: TextChannel,
 	_summary: string,
 	questions: Question[],

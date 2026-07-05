@@ -9,7 +9,7 @@ export interface TemplateMetadata {
 	techStackIds?: string[];
 }
 
-export interface LocalTemplate {
+interface LocalTemplate {
 	name: string;
 	path: string;
 	description: string;

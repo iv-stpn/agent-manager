@@ -1,6 +1,6 @@
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
-export type LogEntry = {
+type LogEntry = {
 	level: LogLevel;
 	message: string;
 	timestamp: string;
@@ -13,11 +13,11 @@ export type LogEntry = {
 	statusCode?: number;
 };
 
-export interface LogTransport {
+interface LogTransport {
 	log(entry: LogEntry): void | Promise<void>;
 }
 
-export class ConsoleTransport implements LogTransport {
+class ConsoleTransport implements LogTransport {
 	log(entry: LogEntry): void {
 		const parts: unknown[] = [`[${entry.level.toUpperCase()}]`, entry.message];
 		if (entry.data !== undefined) parts.push(entry.data);
@@ -37,7 +37,7 @@ export class ConsoleTransport implements LogTransport {
 	}
 }
 
-export class DiscordTransport implements LogTransport {
+class DiscordTransport implements LogTransport {
 	constructor(private readonly webhookUrl: string) {}
 
 	log(entry: LogEntry): Promise<void> | void {

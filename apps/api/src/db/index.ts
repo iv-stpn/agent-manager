@@ -1,7 +1,6 @@
 export type {
 	ArchivedProject,
 	ArchivedSession,
-	DiscordChannel,
 	GlobalStats,
 	Guideline,
 	GuidelineCategory,
