@@ -445,6 +445,7 @@ export default function SessionPage() {
 							streamingThinking={streamingThinking}
 							streamingToolcall={streamingToolcall}
 							autoScroll={isAtBottom}
+							scrollElement={viewport}
 						/>
 					</ScrollArea>
 					{/* Chat input — always visible: interrupt while active, resume when idle,

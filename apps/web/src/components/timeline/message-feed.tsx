@@ -1,5 +1,6 @@
 import type { ContentBlock } from "@agent-manager/utils/blocks";
 import { stringifyResult } from "@agent-manager/utils/blocks";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
 	AlertCircle,
 	ArrowDownToLine,
@@ -338,6 +339,9 @@ interface Props {
 	streamingThinking?: string;
 	streamingToolcall?: { name: string; inputDelta: string } | null;
 	autoScroll?: boolean;
+	/** The Radix ScrollArea viewport this feed renders inside — virtualization needs
+	 * direct access to it to measure scroll position and viewport height. */
+	scrollElement: HTMLElement | null;
 }
 
 export function MessageFeed({
@@ -349,8 +353,22 @@ export function MessageFeed({
 	streamingThinking = "",
 	streamingToolcall = null,
 	autoScroll = true,
+	scrollElement,
 }: Props) {
 	const bottomRef = useRef<HTMLDivElement>(null);
+
+	// Only mount DOM for messages near the visible viewport — sessions can run for
+	// hours and accumulate thousands of messages/tool-call blocks, and rendering
+	// all of them at once is what makes the feed lag. Row heights vary wildly
+	// (a one-line reply vs. a huge JSON tool result), so sizes are measured live
+	// via `measureElement` rather than assumed fixed.
+	const virtualizer = useVirtualizer({
+		count: messages.length,
+		getScrollElement: () => scrollElement,
+		estimateSize: () => 120,
+		overscan: 8,
+		getItemKey: (index) => messages[index]?.id ?? index,
+	});
 
 	// Track which message IDs are "new" so we can apply entrance animation
 	const prevIdsRef = useRef(new Set(messages.map((message) => message.id)));
@@ -392,47 +410,69 @@ export function MessageFeed({
 		);
 	}
 
-	return (
-		<div className="flex flex-col gap-4 p-4">
-			{messages.map((msg) => (
-				<MessageBubble
-					key={msg.id}
-					message={msg}
-					toolCallByUseId={toolCallByUseId}
-					isStreaming={false}
-					isNew={newIds.has(msg.id)}
-				/>
-			))}
+	const virtualItems = virtualizer.getVirtualItems();
 
-			{/* Live streaming text from the assistant */}
-			{isRunning && streamingText && (
-				<div className="flex gap-3 group">
-					<div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-violet-500/20 text-violet-600 dark:text-violet-400 mt-1">
-						<Bot className="h-4 w-4" />
+	return (
+		<div className="p-4">
+			<div style={{ position: "relative", height: virtualizer.getTotalSize() }}>
+				{virtualItems.map((virtualRow) => {
+					const msg = messages[virtualRow.index];
+					return (
+						<div
+							key={msg.id}
+							data-index={virtualRow.index}
+							ref={virtualizer.measureElement}
+							style={{
+								position: "absolute",
+								top: 0,
+								left: 0,
+								width: "100%",
+								transform: `translateY(${virtualRow.start}px)`,
+								paddingBottom: "1rem",
+							}}
+						>
+							<MessageBubble
+								message={msg}
+								toolCallByUseId={toolCallByUseId}
+								isStreaming={false}
+								isNew={newIds.has(msg.id)}
+							/>
+						</div>
+					);
+				})}
+			</div>
+
+			<div className={cn("flex flex-col gap-4", messages.length > 0 && "mt-4")}>
+				{/* Live streaming text from the assistant */}
+				{isRunning && streamingText && (
+					<div className="flex gap-3 group">
+						<div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-violet-500/20 text-violet-600 dark:text-violet-400 mt-1">
+							<Bot className="h-4 w-4" />
+						</div>
+						<div className="bg-muted rounded-lg px-3 py-2 text-sm leading-relaxed max-w-[85%] streaming-cursor">
+							<Markdown>{streamingText}</Markdown>
+						</div>
 					</div>
-					<div className="bg-muted rounded-lg px-3 py-2 text-sm leading-relaxed max-w-[85%] streaming-cursor">
-						<Markdown>{streamingText}</Markdown>
-					</div>
-				</div>
-			)}
-			{/* Live streaming tool call being constructed */}
-			{isRunning && !streamingText && streamingToolcall && (
-				<LiveToolCallBubble name={streamingToolcall.name} inputDelta={streamingToolcall.inputDelta} />
-			)}
-			{/* Live extended-thinking text */}
-			{isRunning && !streamingText && !streamingToolcall && streamingThinking && (
-				<LiveThinkingBubble thinking={streamingThinking} />
-			)}
-			{/* Fallback status bubbles when no streaming content */}
-			{isRunning && !streamingText && !streamingToolcall && !streamingThinking && !awaitingAnswer && pendingToolCalls > 0 && (
-				<ThinkingBubble label={`Running ${pendingToolCalls} tool${pendingToolCalls > 1 ? "s" : ""}…`} />
-			)}
-			{isRunning && !streamingText && !streamingToolcall && !streamingThinking && !awaitingAnswer && pendingToolCalls === 0 && (
-				<ThinkingBubble />
-			)}
-			{(isPaused || awaitingAnswer) && <AwaitingAnswerBubble />}
-			{isCompacting && <ThinkingBubble label="Compacting context…" />}
-			{isAborted && <AbortedBubble />}
+				)}
+				{/* Live streaming tool call being constructed */}
+				{isRunning && !streamingText && streamingToolcall && (
+					<LiveToolCallBubble name={streamingToolcall.name} inputDelta={streamingToolcall.inputDelta} />
+				)}
+				{/* Live extended-thinking text */}
+				{isRunning && !streamingText && !streamingToolcall && streamingThinking && (
+					<LiveThinkingBubble thinking={streamingThinking} />
+				)}
+				{/* Fallback status bubbles when no streaming content */}
+				{isRunning && !streamingText && !streamingToolcall && !streamingThinking && !awaitingAnswer && pendingToolCalls > 0 && (
+					<ThinkingBubble label={`Running ${pendingToolCalls} tool${pendingToolCalls > 1 ? "s" : ""}…`} />
+				)}
+				{isRunning && !streamingText && !streamingToolcall && !streamingThinking && !awaitingAnswer && pendingToolCalls === 0 && (
+					<ThinkingBubble />
+				)}
+				{(isPaused || awaitingAnswer) && <AwaitingAnswerBubble />}
+				{isCompacting && <ThinkingBubble label="Compacting context…" />}
+				{isAborted && <AbortedBubble />}
+			</div>
 
 			<div ref={bottomRef} />
 		</div>
