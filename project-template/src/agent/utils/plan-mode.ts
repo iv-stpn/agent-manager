@@ -60,8 +60,7 @@ const BASH_READONLY_PREFIXES = [
 	"ps ",
 	"top ",
 	"uptime",
-	"curl ",
-	"wget ", // allow fetching but not writing
+	"curl ", // writes to stdout by default (unlike wget, which writes a file and is therefore not listed)
 	"jq ",
 	"yq ",
 ];
@@ -98,15 +97,21 @@ export function isBashCommandReadOnly(command: string): boolean {
 		if (pattern.test(trimmed)) return false;
 	}
 
+	// Command substitution can smuggle an arbitrary command into an otherwise
+	// read-only one (`cat $(rm -rf x)`) — reject outright.
+	if (trimmed.includes("$(") || trimmed.includes("`")) return false;
+
+	// Split compound commands (&&, ||, ;) and verify every part. This must run
+	// BEFORE the prefix check: `cat x; unknown-cmd` would otherwise be approved
+	// on the strength of its `cat ` prefix alone.
+	if (/&&|\|\||;/.test(trimmed)) {
+		const parts = trimmed.split(/\s*(?:&&|\|\||;)\s*/).filter(Boolean);
+		return parts.every((part) => isBashCommandReadOnly(part));
+	}
+
 	// Check if starts with a known readonly prefix
 	for (const prefix of BASH_READONLY_PREFIXES) {
 		if (trimmed.startsWith(prefix) || trimmed === prefix.trim()) return true;
-	}
-
-	// Multi-command (&&, ||, ;) — reject unless we can verify each part
-	if (/[;&|]{1,2}/.test(trimmed)) {
-		const parts = trimmed.split(/\s*(?:&&|\|\||;)\s*/);
-		return parts.every((part) => isBashCommandReadOnly(part));
 	}
 
 	// Default: reject unknown commands in plan mode
