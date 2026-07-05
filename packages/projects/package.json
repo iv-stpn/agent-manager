@@ -4,8 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts",
-		"./client-types": "./src/client-types.ts"
+		".": "./src/index.ts"
 	},
 	"dependencies": {
 		"zod": "4.4.3"

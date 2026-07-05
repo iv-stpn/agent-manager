@@ -46,13 +46,11 @@ export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
  * `CreateProjectInput.templates`; persisted in `context.json` so the agent's
  * system prompt can tell the agent its workspace started from a template.
  */
-export const TemplateRefSchema = z.object({
+const TemplateRefSchema = z.object({
 	type: z.enum(["local", "github"]),
 	source: z.string(), // For local: template name, for github: repo URL
 	subdirectory: z.string().optional(), // Subdirectory under the workspace, if any
 });
-
-export type TemplateRef = z.infer<typeof TemplateRefSchema>;
 
 /**
  * Per-project prompt context: which library tech stacks / guidelines apply,

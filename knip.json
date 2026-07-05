@@ -3,34 +3,32 @@
 	"workspaces": {
 		".": {
 			"entry": ["scripts/**/*.ts"],
-			"project": ["scripts/**/*.ts"]
+			"project": ["scripts/**/*.ts"],
+			"ignoreDependencies": ["concurrently"],
+			"ignoreBinaries": ["scripts/dev.sh"]
 		},
 		"apps/api": {
-			"entry": ["src/index.ts"],
-			"project": ["src/**/*.ts"]
+			"project": ["src/**/*.ts"],
+			"ignore": ["src/lancedb/**"]
 		},
 		"apps/web": {
-			"entry": ["src/main.tsx", "vite.config.ts"],
-			"project": ["src/**/*.{ts,tsx}"]
+			"project": ["src/**/*.{ts,tsx}"],
+			"ignore": ["src/components/ui/**"]
 		},
 		"apps/cli": {
-			"entry": ["projects.ts"],
 			"project": ["*.ts"]
 		},
 		"packages/db": {
-			"entry": ["src/project-schema.ts", "src/orchestrator-schema.ts", "src/ddl.ts"],
 			"project": ["src/**/*.ts"]
 		},
 		"packages/projects": {
-			"entry": ["src/index.ts", "src/client-types.ts"],
-			"project": ["src/**/*.ts"]
+			"project": ["src/**/*.ts"],
+			"ignoreBinaries": ["up", "down", "logs", "ps", "build"]
 		},
 		"packages/utils": {
-			"entry": ["src/index.ts"],
 			"project": ["src/**/*.ts"]
 		},
 		"project-template": {
-			"entry": ["src/index.ts"],
 			"project": ["src/**/*.ts"]
 		}
 	}
