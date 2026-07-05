@@ -52,6 +52,7 @@ export function initAgent({ config, llm, sessionId, db, context, isFirstSession 
 		steeringQueue: [],
 		followUpQueue: [],
 		turnNumber: 0,
+		verificationFailures: 0,
 	};
 
 	return agent;

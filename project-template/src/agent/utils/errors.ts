@@ -183,15 +183,15 @@ export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions): Pr
 			// request — otherwise it falls through to the fatal-error path and a
 			// clean Stop gets reported as a crash.
 			await new Promise<void>((resolve, reject) => {
-				const timeout = setTimeout(resolve, delay);
-				signal?.addEventListener(
-					"abort",
-					() => {
-						clearTimeout(timeout);
-						reject(new DOMException("Aborted", "AbortError"));
-					},
-					{ once: true }
-				);
+				const onAbort = () => {
+					clearTimeout(timeout);
+					reject(new DOMException("Aborted", "AbortError"));
+				};
+				const timeout = setTimeout(() => {
+					signal?.removeEventListener("abort", onAbort);
+					resolve();
+				}, delay);
+				signal?.addEventListener("abort", onAbort, { once: true });
 			});
 		}
 	}

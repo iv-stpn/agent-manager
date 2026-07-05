@@ -69,4 +69,6 @@ export type AgentState = {
 	followUpQueue: string[];
 	/** Monotonically increasing turn counter, emitted with turn_start/turn_end. */
 	turnNumber: number;
+	/** Consecutive verification-failure rounds sent back to the agent; reset on pass. */
+	verificationFailures: number;
 };

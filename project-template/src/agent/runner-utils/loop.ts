@@ -30,17 +30,36 @@ import { runVerificationSuite } from "./verification";
 export function pushOrMergeMessage(messages: MessageParam[], role: "user" | "assistant", content: MessageParam["content"]): void {
 	const last = messages[messages.length - 1];
 	if (last?.role === role) {
-		// Merge into the previous turn
+		// Merge into the previous turn. When either side is a block array, the
+		// merged turn must be a block array too — `String(blocks)` would collapse
+		// tool results into "[object Object]" garbage (seen when a rebuild merges
+		// a plain-text row into a tool-result row after an interrupted interject).
 		if (Array.isArray(last.content) && Array.isArray(content)) {
 			last.content.push(...content);
 		} else if (Array.isArray(last.content)) {
 			last.content.push({ type: "text", text: String(content) });
+		} else if (Array.isArray(content)) {
+			last.content = [{ type: "text", text: last.content }, ...content];
 		} else {
-			last.content = `${last.content}\n\n${String(content)}`;
+			last.content = `${last.content}\n\n${content}`;
 		}
 	} else {
 		messages.push({ role, content });
 	}
+}
+
+/** Persist a user turn, emit it over SSE, and append it to the in-memory
+ * context (merging into the previous turn when it is also a user turn). */
+function appendUserTurn(agent: AgentState, text: string): void {
+	const row = insertMessage(agent.db, {
+		sessionId: agent.sessionId,
+		role: "user",
+		content: text,
+		createdAt: Date.now(),
+	});
+	agent.lastUserMessageId = row.id;
+	emitMessage(agent, { id: row.id, role: "user", content: text });
+	pushOrMergeMessage(agent.messages, "user", text);
 }
 
 // ── Context compaction ─────────────────────────────────────────────────────────────
@@ -98,20 +117,16 @@ export async function doCompaction(agent: AgentState): Promise<void> {
 	//      (kept in the DB/timeline, skipped on API rebuild).
 	//   2. Persist the restart primer as the new first active message so the
 	//      restarted conversation is visible live and after a reload.
-	// Skipped when compactMessages bailed (too few messages / empty transcript)
-	// — in that case `compacted` is the original array and there's no primer.
-	if (didCompact) {
-		markSessionMessagesCompacted(agent.db, agent.sessionId);
-		const restartContent = compacted[0]?.content;
-		const restartRow = insertMessage(agent.db, {
-			sessionId: agent.sessionId,
-			role: "user",
-			content: typeof restartContent === "string" ? restartContent : JSON.stringify(restartContent),
-			createdAt: Date.now(),
-		});
-		agent.lastUserMessageId = restartRow.id;
-		emitMessage(agent, { id: restartRow.id, role: "user", content: restartContent });
-	}
+	markSessionMessagesCompacted(agent.db, agent.sessionId);
+	const restartContent = compacted[0]?.content;
+	const restartRow = insertMessage(agent.db, {
+		sessionId: agent.sessionId,
+		role: "user",
+		content: typeof restartContent === "string" ? restartContent : JSON.stringify(restartContent),
+		createdAt: Date.now(),
+	});
+	agent.lastUserMessageId = restartRow.id;
+	emitMessage(agent, { id: restartRow.id, role: "user", content: restartContent });
 
 	const estAfter = estimateTokens(agent.messages);
 	console.log(
@@ -157,6 +172,10 @@ export async function doCompaction(agent: AgentState): Promise<void> {
 }
 
 // ── Main loop ──────────────────────────────────────────────────────────────
+
+/** Max verification-failure round-trips before completing anyway — prevents an
+ * unfixable suite from ping-ponging until the token budget kills the session. */
+const MAX_VERIFICATION_ROUNDS = 3;
 
 export async function runLoop(agent: AgentState): Promise<void> {
 	try {
@@ -228,15 +247,19 @@ export async function runLoop(agent: AgentState): Promise<void> {
 			while (agent.steeringQueue.length > 0) {
 				const text = agent.steeringQueue.shift();
 				if (text === undefined) break;
-				const steered = insertMessage(agent.db, {
-					sessionId: agent.sessionId,
-					role: "user",
-					content: text,
-					createdAt: Date.now(),
-				});
-				agent.lastUserMessageId = steered.id;
-				emitMessage(agent, { id: steered.id, role: "user", content: text });
-				pushOrMergeMessage(agent.messages, "user", text);
+				appendUserTurn(agent, text);
+			}
+
+			// ── Drain an interject that landed outside an API call ─────────
+			// interjectAgent() aborts the in-flight request and the abort catch
+			// below consumes the message — but when the interject arrives while
+			// tools (or a report/compaction) are running, there is no API call to
+			// abort: the controller is refreshed above and the message would
+			// otherwise be silently dropped.
+			if (agent.injectedMessage) {
+				const text = agent.injectedMessage;
+				agent.injectedMessage = null;
+				appendUserTurn(agent, text);
 			}
 
 			// ── Turn start ─────────────────────────────────────────────────
@@ -258,15 +281,7 @@ export async function runLoop(agent: AgentState): Promise<void> {
 					if (agent.injectedMessage) {
 						const text = agent.injectedMessage;
 						agent.injectedMessage = null;
-						const injected = insertMessage(agent.db, {
-							sessionId: agent.sessionId,
-							role: "user",
-							content: text,
-							createdAt: Date.now(),
-						});
-						agent.lastUserMessageId = injected.id;
-						emitMessage(agent, { id: injected.id, role: "user", content: text });
-						pushOrMergeMessage(agent.messages, "user", text);
+						appendUserTurn(agent, text);
 					}
 					continue;
 				}
@@ -291,21 +306,8 @@ export async function runLoop(agent: AgentState): Promise<void> {
 						type: "turn_end",
 						data: { turnNumber: currentTurn, hadTools: false, stopReason: "end_turn" },
 					});
-					const continueMessage = buildImproveMessage(agent);
 					agent.messages.push({ role: "assistant", content: response.content });
-					agent.messages.push({ role: "user", content: continueMessage });
-					const message = insertMessage(agent.db, {
-						sessionId: agent.sessionId,
-						role: "user",
-						content: continueMessage,
-						inputTokens: 0,
-						outputTokens: 0,
-						cacheReadTokens: 0,
-						cacheWriteTokens: 0,
-						createdAt: Date.now(),
-					});
-					agent.lastUserMessageId = message.id;
-					emitMessage(agent, { id: message.id, role: "user", content: continueMessage });
+					appendUserTurn(agent, buildImproveMessage(agent));
 					continue;
 				}
 
@@ -320,15 +322,7 @@ export async function runLoop(agent: AgentState): Promise<void> {
 					while (agent.followUpQueue.length > 0) {
 						const text = agent.followUpQueue.shift();
 						if (text === undefined) break;
-						const followUp = insertMessage(agent.db, {
-							sessionId: agent.sessionId,
-							role: "user",
-							content: text,
-							createdAt: Date.now(),
-						});
-						agent.lastUserMessageId = followUp.id;
-						emitMessage(agent, { id: followUp.id, role: "user", content: text });
-						pushOrMergeMessage(agent.messages, "user", text);
+						appendUserTurn(agent, text);
 					}
 					continue;
 				}
@@ -345,22 +339,27 @@ export async function runLoop(agent: AgentState): Promise<void> {
 				console.log(`[Agent ${agent.sessionId}] Running verification suite...`);
 				const verification = await runVerificationSuite();
 
-				if (verification.hasErrors) {
-					console.log(`[Agent ${agent.sessionId}] Verification failed, sending errors back to agent`);
-					// Send verification errors back to agent
-					const verificationMessage = insertMessage(agent.db, {
-						sessionId: agent.sessionId,
-						role: "user",
-						content: verification.errorMessage,
-						createdAt: Date.now(),
-					});
-					agent.lastUserMessageId = verificationMessage.id;
-					emitMessage(agent, { id: verificationMessage.id, role: "user", content: verification.errorMessage });
-					pushOrMergeMessage(agent.messages, "user", verification.errorMessage);
+				if (verification.hasErrors && agent.verificationFailures < MAX_VERIFICATION_ROUNDS) {
+					// Send verification errors back to the agent — but only a bounded
+					// number of times. A suite the agent cannot fix (broken pre-existing
+					// tests, missing tooling) would otherwise ping-pong until the token
+					// budget or total timeout kills the session.
+					agent.verificationFailures += 1;
+					console.log(
+						`[Agent ${agent.sessionId}] Verification failed (round ${agent.verificationFailures}/${MAX_VERIFICATION_ROUNDS}), sending errors back to agent`
+					);
+					appendUserTurn(agent, verification.errorMessage);
 					continue;
 				}
 
-				// All verifications passed (or no verification commands found)
+				const verificationWarning = verification.hasErrors
+					? `Verification checks still failing after ${MAX_VERIFICATION_ROUNDS} fix attempts — completing anyway. Review manually.`
+					: null;
+				if (verificationWarning) console.warn(`[Agent ${agent.sessionId}] ${verificationWarning}`);
+				agent.verificationFailures = 0;
+
+				// All verifications passed (or no verification commands found, or the
+				// fix-attempt cap was reached).
 				// Completion await follows await_report_mode (NOT a forced await):
 				//   always → await for a final check-in
 				//   never  → post the report and complete without blocking
@@ -368,7 +367,13 @@ export async function runLoop(agent: AgentState): Promise<void> {
 				//            already steered this turn via a continue report
 				await triggerReport(
 					agent,
-					{ title: "✅ Task Complete", sections: [{ title: "Final Summary", content: finalText }] },
+					{
+						title: "✅ Task Complete",
+						sections: [
+							{ title: "Final Summary", content: finalText },
+							...(verificationWarning ? [{ title: "⚠️ Verification", content: verificationWarning }] : []),
+						],
+					},
 					"completion"
 				);
 				setStatus(agent, "completed");
@@ -400,7 +405,37 @@ export async function runLoop(agent: AgentState): Promise<void> {
 					type: "turn_end",
 					data: { turnNumber: currentTurn, hadTools: true },
 				});
+				continue;
 			}
+
+			if (response.stop_reason === "max_tokens") {
+				// Still truncated after the escalated retry in callAnthropicApi. Push
+				// what came back and ask the model to continue — without appending
+				// anything the loop would re-send the identical context forever.
+				console.warn(`[Agent ${agent.sessionId}] Response truncated even at escalated max_tokens — asking model to continue`);
+				sessionEmitter.emit(agent.sessionId, {
+					type: "turn_end",
+					data: { turnNumber: currentTurn, hadTools: false, stopReason: "max_tokens" },
+				});
+				agent.messages.push({ role: "assistant", content: response.content });
+				appendUserTurn(
+					agent,
+					"Your previous response was cut off at the output-token limit. Continue exactly where you left off."
+				);
+				continue;
+			}
+
+			// Any other stop reason (refusal, stop_sequence, …): the model can't or
+			// won't continue this turn. Stop cleanly instead of looping on the same
+			// context.
+			console.error(`[Agent ${agent.sessionId}] Unhandled stop reason "${response.stop_reason}" — stopping session`);
+			sessionEmitter.emit(agent.sessionId, {
+				type: "turn_end",
+				data: { turnNumber: currentTurn, hadTools: false, stopReason: response.stop_reason ?? "unknown" },
+			});
+			agent.messages.push({ role: "assistant", content: response.content });
+			setStatus(agent, "aborted");
+			break;
 		}
 
 		// A pending pause (pauseAgent()) lets the loop fall out of the `while`
@@ -439,21 +474,12 @@ export async function runLoop(agent: AgentState): Promise<void> {
 			createdAt: Date.now(),
 		});
 
-		sessionEmitter.emit(agent.sessionId, {
-			type: "message",
-			data: {
-				id: message.id,
-				sessionId: agent.sessionId,
-				role: "assistant",
-				content: errorData.content,
-				inputTokens: 0,
-				outputTokens: 0,
-				cacheReadTokens: 0,
-				cacheWriteTokens: 0,
-				error: errorData.error,
-				errorDetails: errorData.errorDetails,
-				createdAt: Date.now(),
-			},
+		emitMessage(agent, {
+			id: message.id,
+			role: "assistant",
+			content: errorData.content,
+			error: errorData.error,
+			...(errorData.errorDetails !== undefined && { errorDetails: errorData.errorDetails }),
 		});
 
 		// Any error reaching this fatal catch block is a real failure — retries
@@ -537,10 +563,7 @@ export async function resume(agent: AgentState, message: string): Promise<void> 
 	agent.messages = rebuildMessagesFromDb(agent);
 
 	// Append and persist the new user message
-	const userMsg = insertMessage(agent.db, { sessionId: agent.sessionId, role: "user", content: message, createdAt: Date.now() });
-	agent.lastUserMessageId = userMsg.id;
-	emitMessage(agent, { id: userMsg.id, role: "user", content: message });
-	pushOrMergeMessage(agent.messages, "user", message);
+	appendUserTurn(agent, message);
 
 	setStatus(agent, "running");
 

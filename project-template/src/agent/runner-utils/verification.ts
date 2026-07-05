@@ -57,8 +57,11 @@ async function detectVerificationCommands(): Promise<Map<string, string>> {
 			commands.set("typecheck", "bun run tsc");
 		}
 
-		// Detect test commands
-		if (scripts.test) {
+		// Detect test commands. Skip npm's scaffold placeholder ("Error: no test
+		// specified" + exit 1) — it always fails and would send the agent chasing
+		// a test suite that doesn't exist.
+		const isPlaceholderTest = typeof scripts.test === "string" && scripts.test.includes("no test specified");
+		if (scripts.test && !isPlaceholderTest) {
 			commands.set("test", "bun run test");
 		} else if (scripts["test:unit"]) {
 			commands.set("test", "bun run test:unit");
@@ -75,10 +78,7 @@ async function detectVerificationCommands(): Promise<Map<string, string>> {
 /**
  * Run a verification command and return the result.
  */
-async function runVerificationCommand(
-	type: "lint" | "typecheck" | "test",
-	command: string
-): Promise<VerificationResult> {
+async function runVerificationCommand(type: "lint" | "typecheck" | "test", command: string): Promise<VerificationResult> {
 	console.log(`[Verification] Running ${type}: ${command}`);
 
 	const result = await executeBash(command, 120_000); // 2 minute timeout for tests
