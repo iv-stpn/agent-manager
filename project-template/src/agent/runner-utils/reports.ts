@@ -64,7 +64,10 @@ export async function triggerReport(
 			confirmed = true;
 		}
 	} catch (err) {
-		console.error(`[Agent ${sessionId}] Discord report delivery failed (trigger=${trigger}):`, err instanceof Error ? err.message : err);
+		console.error(
+			`[Agent ${sessionId}] Discord report delivery failed (trigger=${trigger}):`,
+			err instanceof Error ? err.message : err
+		);
 	} finally {
 		const status = confirmed ? "answered" : "skipped";
 		updateCheckin(agent.db, checkinId, { status, completedAt: Date.now() });
@@ -84,7 +87,12 @@ export async function triggerAutoReport(agent: AgentState): Promise<void> {
 
 export async function handleTotalTimeout(agent: AgentState): Promise<void> {
 	const summary = await requestSummary(agent);
-	await triggerReport(agent, { title: "⏰ Total Timeout — Agent Awaiting", sections: [{ title: "Progress at timeout", content: summary }] }, "completion", true);
+	await triggerReport(
+		agent,
+		{ title: "⏰ Total Timeout — Agent Awaiting", sections: [{ title: "Progress at timeout", content: summary }] },
+		"completion",
+		true
+	);
 	setStatus(agent, "aborted");
 }
 

@@ -3,10 +3,10 @@ import type { Db } from "../../db";
 import { answerQuestion, insertQuestion, insertReport } from "../../db";
 import type { ReportData } from "../../external/discord";
 import { sendQuestions, sendReport } from "../../external/discord";
+import { steerAgent } from "../definition";
 import { recall, remember, updateMemory } from "../tools/implementations/memory";
 import type { AskUserQuestionInput, SendReportInput } from "../tools/validators";
 import type { AgentState } from "../types";
-import { steerAgent } from "../definition";
 import { shouldAwait } from "./reports";
 import { setStatus } from "./status";
 
@@ -98,24 +98,34 @@ export async function handleSendReport(agent: AgentState, input: SendReportInput
 
 	setStatus(agent, "paused");
 
+	// Persist the immutable report record and memory entry BEFORE the Discord
+	// round-trip (same ordering as triggerReport) so the report survives even
+	// when delivery fails or there is no channel.
+	insertReport(agent.db, {
+		id: nanoid(),
+		sessionId: agent.sessionId,
+		trigger: "manual",
+		title: report.title,
+		content: JSON.stringify(report),
+	});
+	remember(
+		"report",
+		report.title,
+		report.sections.map((section) => `${section.title ?? ""}\n${section.content}`).join("\n\n")
+	).catch(() => {});
+
+	let delivered = true;
 	try {
-		const result = await sendReport(agent.sessionId, report, "manual", awaiting, agent.abortController.signal);
-
-		insertReport(agent.db, { id: nanoid(), sessionId: agent.sessionId, trigger: "manual", title: report.title, content: JSON.stringify(report) });
-
-		// Record in vector memory for semantic recall
-		remember(
-			"report",
-			report.title,
-			report.sections.map((section) => `${section.title ?? ""}\n${section.content}`).join("\n\n")
-		).catch(() => {});
-
-		if (result?.confirmed) {
-			// Check-in acknowledged — nothing to inject, no pending questions
-		}
+		await sendReport(agent.sessionId, report, "manual", awaiting, agent.abortController.signal);
+	} catch (err) {
+		// Delivery failure (e.g. Discord 404) must not fail the tool call — the
+		// report is already persisted; tell the agent and keep working.
+		delivered = false;
+		console.error(`[Agent ${agent.sessionId}] Report delivery failed:`, err instanceof Error ? err.message : err);
 	} finally {
 		setStatus(agent, "running");
 	}
 
+	if (!delivered) return "Report saved, but delivery to the user failed (messaging unavailable). Continuing.";
 	return awaiting ? "Report sent and user acknowledged." : "Report sent (continuing).";
 }

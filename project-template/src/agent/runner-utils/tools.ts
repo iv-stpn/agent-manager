@@ -320,7 +320,11 @@ export async function dispatchTool(agent: AgentState, name: ToolName, input: Rec
 			// would rebuild from the full pre-compaction transcript instead of the
 			// summary, since nothing marked the old messages as summarized out.
 			await doCompaction(agent);
-			return `Context compacted: ${before} → ${agent.messages.length} messages.`;
+			// doCompaction can bail (too little to summarize) or fail (summarization
+			// error) without touching agent.messages — don't claim success then.
+			return agent.messages.length < before
+				? `Context compacted: ${before} → ${agent.messages.length} messages.`
+				: "Compaction skipped: not enough content to summarize (or summarization failed — it will retry automatically).";
 		}
 
 		default:
