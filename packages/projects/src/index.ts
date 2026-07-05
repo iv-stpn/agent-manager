@@ -1,4 +1,5 @@
 export { ProjectDocker } from "./docker";
+export type { CreateProjectProgress } from "./manager";
 export { isProtectedDirectory, ProjectManager, resolveWorkspaceRoot } from "./manager";
 export type {
 	CheckinRecord,

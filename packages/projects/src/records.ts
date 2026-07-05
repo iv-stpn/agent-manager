@@ -46,6 +46,7 @@ export interface MessageRecord {
 	cacheWriteTokens: number;
 	error: string | null;
 	errorDetails: string | null;
+	compactedOut: boolean;
 	createdAt: number;
 }
 

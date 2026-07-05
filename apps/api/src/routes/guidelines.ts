@@ -12,7 +12,18 @@ const CreateGuidelineSchema = z.object({
 	content: z.string().default(""),
 });
 
-const UpdateGuidelineSchema = CreateGuidelineSchema.partial();
+// Hand-written rather than `CreateGuidelineSchema.partial()`: zod's `.partial()`
+// doesn't protect fields defined with `.default()` (description, categoryId,
+// language, content) — it leaves the ZodDefault wrapper in place, so an update
+// payload that omits one of those keys still gets it defaulted and silently
+// wipes the existing value in the DB. See the identical bug fixed in llm-clients.ts.
+const UpdateGuidelineSchema = z.object({
+	name: z.string().min(1).optional(),
+	description: z.string().optional(),
+	categoryId: z.string().nullable().optional(),
+	language: z.string().nullable().optional(),
+	content: z.string().optional(),
+});
 
 export const guidelinesRouter = new Hono<HonoOrchestratorEnv>()
 	.get("/", (c) => {

@@ -126,6 +126,7 @@ export const acquireProjectStream = connectionManager((_key: string, projectId: 
 	const projectKey = cacheKeys.project(projectId);
 	const sessionKey = cacheKeys.sessions(projectId);
 	const reportKey = cacheKeys.reports(projectId);
+	const tkKey = cacheKeys.tasks(projectId);
 
 	const setRunning = (running: boolean) =>
 		mutateCache<EnrichedProject>(projectKey, (project) => ({ ...project, dockerStatus: { ...project.dockerStatus, running } }));
@@ -175,6 +176,14 @@ export const acquireProjectStream = connectionManager((_key: string, projectId: 
 				next.push(report);
 				return next.sort((report1, report2) => report2.createdAt - report1.createdAt);
 			});
+		} else if (event.type === "task_created") {
+			const task = event.data as Task;
+			mutateCache<Task[]>(tkKey, (previous = []) =>
+				previous.some((previousTask) => previousTask.id === task.id) ? previous : [...previous, task]
+			);
+		} else if (event.type === "task_updated") {
+			const task = event.data as Task;
+			mutateCache<Task[]>(tkKey, (previous = []) => upsertById(previous, task));
 		}
 	}, port);
 
@@ -188,6 +197,9 @@ export const acquireProjectStream = connectionManager((_key: string, projectId: 
 		void getReports(projectId)
 			.then((data) => setCache(reportKey, data))
 			.catch(() => {});
+		void getTasks(projectId)
+			.then((data) => setCache(tkKey, data))
+			.catch(() => {});
 	};
 	eventSource.onerror = () => {
 		// The browser auto-reconnects on a transient drop (readyState → CONNECTING).
@@ -200,8 +212,10 @@ export const acquireProjectStream = connectionManager((_key: string, projectId: 
 
 // ── Session stream ───────────────────────────────────────────────────────────
 // One connection per open session. Owns every per-session cache (messages,
-// tools, check-ins, questions, compactions, tasks, the session record itself)
-// plus the ephemeral live-streaming state, and drives session-scoped toasts.
+// tools, check-ins, questions, compactions, the session record itself) plus
+// the ephemeral live-streaming state, and drives session-scoped toasts. Tasks
+// are project-wide (cross-session), so they're owned by the project stream
+// instead — see acquireProjectStream.
 
 export const acquireSessionStream = connectionManager((_key: string, sessionId: string, projectId: string, port: number) => {
 	const sKey = cacheKeys.session(projectId, sessionId);
@@ -210,7 +224,6 @@ export const acquireSessionStream = connectionManager((_key: string, sessionId: 
 	const cKey = cacheKeys.checkins(projectId, sessionId);
 	const qKey = cacheKeys.questions(projectId, sessionId);
 	const xKey = cacheKeys.compactions(projectId, sessionId);
-	const tkKey = cacheKeys.tasks(projectId);
 	const rKey = cacheKeys.project(projectId);
 
 	const eventSource = createSessionStream(
@@ -290,14 +303,6 @@ export const acquireSessionStream = connectionManager((_key: string, sessionId: 
 				toast.info(
 					`API retry #${event.data.attempt}: ${event.data.error} (retrying in ${Math.round(event.data.nextRetryMs / 1000)}s)`
 				);
-			} else if (event.type === "task_created") {
-				const task = event.data as Task;
-				mutateCache<Task[]>(tkKey, (previous = []) =>
-					previous.some((previousTask) => previousTask.id === task.id) ? previous : [...previous, task]
-				);
-			} else if (event.type === "task_updated") {
-				const task = event.data as Task;
-				mutateCache<Task[]>(tkKey, (previous = []) => upsertById(previous, task));
 			}
 		},
 		port
@@ -324,9 +329,6 @@ export const acquireSessionStream = connectionManager((_key: string, sessionId: 
 			.catch(() => {});
 		void getCompactions(projectId, sessionId)
 			.then((data) => setCache(xKey, data))
-			.catch(() => {});
-		void getTasks(projectId)
-			.then((data) => setCache(tkKey, data))
 			.catch(() => {});
 	};
 

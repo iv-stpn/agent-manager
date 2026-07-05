@@ -1,6 +1,7 @@
 import { extractTextContent } from "@agent-manager/utils/blocks";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
+import { withRetry } from "./utils/errors";
 
 // Rough token estimate: 1 token ≈ 4 chars
 export function estimateTokens(messages: MessageParam[]): number {
@@ -67,15 +68,25 @@ export async function compactMessages(
 	const transcript = extractConversationText(messages);
 	if (!transcript.trim()) return { messages, summary: "", didCompact: false };
 
-	let summary = "";
-	try {
-		const resp = await client.messages.create({
-			model,
-			max_tokens: 2048,
-			messages: [
-				{
-					role: "user",
-					content: `Create a structured memory (≤1000 words) from this conversation for the next session.
+	// Retried like any other model call — without this, a single transient
+	// connection blip (which previously killed sessions outright, see
+	// classifyApiError) would cost a summary instead of just a couple seconds.
+	// Deliberately NOT caught here: if summarization fails even after retries,
+	// let it propagate to doCompaction's catch, which records the circuit-breaker
+	// failure and returns *without* touching agent.messages. Swallowing it here
+	// and returning a "summary unavailable" placeholder would instead destroy
+	// the entire transcript in exchange for an unusable placeholder — losing
+	// real context is worse than skipping this compaction cycle and retrying
+	// on the next one.
+	const resp = await withRetry(
+		() =>
+			client.messages.create({
+				model,
+				max_tokens: 2048,
+				messages: [
+					{
+						role: "user",
+						content: `Create a structured memory (≤1000 words) from this conversation for the next session.
 
 Include: initial goal, key decisions, discoveries, progress, remaining work, and user preferences/corrections.
 
@@ -84,14 +95,13 @@ ${transcript}
 </conversation>
 
 Output only the summary.`,
-				},
-			],
-		});
+					},
+				],
+			}),
+		{ maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 10_000 }
+	);
 
-		summary = extractTextContent(resp.content);
-	} catch {
-		summary = `[${messages.length} messages compacted — summary unavailable]`;
-	}
+	const summary = extractTextContent(resp.content);
 
 	// Restart the conversation with just a context primer from the memory
 	const restartMessage: MessageParam = {

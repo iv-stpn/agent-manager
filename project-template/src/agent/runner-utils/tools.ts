@@ -4,7 +4,6 @@ import { nanoid } from "nanoid";
 import { completeToolCall, insertToolCall } from "../../db";
 import { sessionEmitter } from "../../emitter";
 import { env } from "../../env";
-import { compactMessages } from "../context";
 import { truncateToolResult } from "../token-budget";
 import { isToolName, ToolName } from "../tools/definitions";
 import { executeBash, glob, grep } from "../tools/implementations/commands";
@@ -60,6 +59,7 @@ import {
 	PLAN_MODE_BLOCKED_MESSAGE,
 	PLAN_MODE_TOOLS,
 } from "../utils/plan-mode";
+import { doCompaction } from "./loop";
 import { handleAskUserQuestion, handleSendReport } from "./questions";
 
 const WORKSPACE = env.WORKSPACE_PATH;
@@ -314,9 +314,13 @@ export async function dispatchTool(agent: AgentState, name: ToolName, input: Rec
 		}
 		case ToolName.CompactContext: {
 			const before = agent.messages.length;
-			const { messages: compacted } = await compactMessages(agent.messages, agent.client, agent.llm.model);
-			agent.messages = compacted;
-			return `Context compacted: ${before} → ${compacted.length} messages.`;
+			// Route through the same path as the automatic threshold-triggered
+			// compaction so the DB bookkeeping (compactedOut flags, the compaction
+			// row, token counters) stays in sync — without it, a later resume/restart
+			// would rebuild from the full pre-compaction transcript instead of the
+			// summary, since nothing marked the old messages as summarized out.
+			await doCompaction(agent);
+			return `Context compacted: ${before} → ${agent.messages.length} messages.`;
 		}
 
 		default:

@@ -1,5 +1,5 @@
 import { ArrowDownToLine, ArrowLeft, Pause, RefreshCw, RotateCcw, Send, Square } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { StartupProgressModal } from "@/components/dialog/docker-progress-modal";
@@ -30,9 +30,9 @@ import {
 	stopSession,
 } from "@/lib/agent-api";
 import { mutateCache, useQuery } from "@/lib/query-cache";
-import { cacheKeys, useSessionStream, useSessionStreamingState } from "@/lib/stores";
+import { cacheKeys, useProjectStream, useSessionStream, useSessionStreamingState } from "@/lib/stores";
 import type { Project } from "@/lib/types";
-import { cn, containerClassName, formatTokens, statusBg } from "@/lib/utils";
+import { cn, containerClassName, formatDateTime, formatRelativeTime, formatTokens, statusBg } from "@/lib/utils";
 
 export default function SessionPage() {
 	const params = useParams<{ id: string; sessionId: string }>();
@@ -49,7 +49,7 @@ export default function SessionPage() {
 
 	const [viewport, setViewport] = useState<HTMLElement | null>(null);
 	const [isAtBottom, setIsAtBottom] = useState(true);
-	const [timelineTab, setTimelineTab] = useState<"sinceLastCompaction" | "full">("sinceLastCompaction");
+	const [timelineTab, setTimelineTab] = useState("current");
 
 	const scrollAreaRef = useCallback((node: HTMLDivElement | null) => {
 		setViewport(node?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]") ?? null);
@@ -148,11 +148,38 @@ export default function SessionPage() {
 		refetchCompactions();
 	}, [refetchSession, refetchMessages, refetchTools, refetchCheckins, refetchQuestions, refetchCompactions]);
 
-	// Auto-switch to "Since Last Compaction" tab when a new compaction arrives
+	// Split the message timeline into one "subsession" per compaction boundary:
+	// everything before the first compaction, each stretch between two
+	// compactions, and the still-active stretch since the last one. Boundaries
+	// are time-based (a message belongs to the segment whose compaction
+	// timestamp it precedes) since compactedOut only tells us "before the most
+	// recent compaction," not which one.
+	const messageSegments = useMemo(() => {
+		type Segment = { key: string; label: string; sublabel: string | undefined; messages: typeof messages };
+		if (compactions.length === 0) return [{ key: "current", label: "Current", sublabel: undefined, messages } satisfies Segment];
+		const sorted = [...compactions].sort((a, b) => a.createdAt - b.createdAt);
+		const closed: Segment[] = sorted.map((compaction, i) => ({
+			key: `segment-${i}`,
+			label: formatDateTime(compaction.createdAt),
+			sublabel: formatRelativeTime(compaction.createdAt),
+			messages: messages.filter(
+				(message) => message.createdAt < compaction.createdAt && (i === 0 || message.createdAt >= sorted[i - 1].createdAt)
+			),
+		}));
+		const current: Segment = {
+			key: "current",
+			label: "Current",
+			sublabel: undefined,
+			messages: messages.filter((message) => message.createdAt >= sorted[sorted.length - 1].createdAt),
+		};
+		return [current, ...closed];
+	}, [messages, compactions]);
+
+	// Auto-switch to the "Current" segment when a new compaction arrives
 	const prevCompactionsCountRef = useRef(compactions.length);
 	useEffect(() => {
 		if (compactions.length > prevCompactionsCountRef.current) {
-			setTimelineTab("sinceLastCompaction");
+			setTimelineTab("current");
 		}
 		prevCompactionsCountRef.current = compactions.length;
 	}, [compactions.length]);
@@ -166,10 +193,14 @@ export default function SessionPage() {
 
 	// One shared session stream while running — it owns every fold into the
 	// per-session caches (messages, tools, check-ins, questions, compactions,
-	// tasks, the session record) plus the ephemeral live-streaming state, and
-	// drives session-scoped toasts. See stores.ts. Ref-counted, so this page and
-	// the project page share connections where their keys overlap.
+	// the session record) plus the ephemeral live-streaming state, and drives
+	// session-scoped toasts. See stores.ts. Ref-counted, so this page and the
+	// project page share connections where their keys overlap.
 	useSessionStream(projectId, sessionId, running, serverPort);
+	// Tasks are project-wide (cross-session), so this page also needs the
+	// project stream connected to see updates made from another session or the
+	// project's Tasks tab reflected live in the banner above the timeline.
+	useProjectStream(projectId, running, serverPort);
 	const {
 		text: streamingText,
 		thinking: streamingThinking,
@@ -381,9 +412,32 @@ export default function SessionPage() {
 							<TaskTree tasks={tasks} active={isActive} />
 						</div>
 					)}
+					{messageSegments.length > 1 && (
+						<Tabs
+							value={timelineTab}
+							onValueChange={(value) => setTimelineTab(value)}
+							className="shrink-0 border-b bg-background px-3 py-2 overflow-x-auto"
+						>
+							<TabsList>
+								{messageSegments.map((segment) => (
+									<TabsTrigger
+										key={segment.key}
+										value={segment.key}
+										title={segment.key === "current" ? "Since the last compaction" : `Compacted ${segment.sublabel}`}
+										className="flex-col h-auto gap-0 px-4 py-1.5"
+									>
+										<span className="leading-none">{segment.label}</span>
+										{segment.sublabel && (
+											<span className="text-[10px] font-normal leading-none text-muted-foreground">{segment.sublabel}</span>
+										)}
+									</TabsTrigger>
+								))}
+							</TabsList>
+						</Tabs>
+					)}
 					<ScrollArea className="flex-1" ref={scrollAreaRef}>
 						<MessageFeed
-							messages={messages}
+							messages={messageSegments.find((segment) => segment.key === timelineTab)?.messages ?? messages}
 							toolCalls={toolCalls}
 							sessionStatus={session.status}
 							pendingToolCalls={toolCalls.filter((tc) => tc.status === "pending").length}
@@ -474,16 +528,16 @@ export default function SessionPage() {
 								<Card>
 									<CardContent className="pt-4 pb-3 space-y-3 text-sm">
 										<div>
-											<p className="text-xs text-muted-foreground mb-0.5">Session ID</p>
-											<p className="font-mono text-xs break-all">{sessionId}</p>
+											<p className="text-sm text-muted-foreground mb-0.5">Session ID</p>
+											<p className="font-mono text-sm break-all">{sessionId}</p>
 										</div>
 										<div>
-											<p className="text-xs text-muted-foreground mb-0.5">Task</p>
-											<p>{session.task}</p>
+											<p className="text-sm text-muted-foreground mb-0.5">Task</p>
+											<p className="text-sm">{session.task}</p>
 										</div>
 										<div className="flex justify-between">
-											<span className="text-muted-foreground">Messages</span>
-											<span>{messages.length}</span>
+											<span className="text-sm text-muted-foreground">Messages</span>
+											<span className="text-sm">{messages.length}</span>
 										</div>
 									</CardContent>
 								</Card>
@@ -508,21 +562,27 @@ export default function SessionPage() {
 												<tr className="border-b">
 													<td className="py-2 text-muted-foreground">Output tokens</td>
 													<td className="py-2 text-right font-mono">
-														{formatTokens(compactions.length > 0 ? session.tokensOutputSinceCompaction : session.totalOutputTokens)}
+														{formatTokens(
+															compactions.length > 0 ? session.tokensOutputSinceCompaction : session.totalOutputTokens
+														)}
 													</td>
 													<td className="py-2 text-right font-mono">{formatTokens(session.totalOutputTokens)}</td>
 												</tr>
 												<tr className="border-b">
 													<td className="py-2 text-muted-foreground">Cache read tokens</td>
 													<td className="py-2 text-right font-mono">
-														{formatTokens(compactions.length > 0 ? session.tokensCacheReadSinceCompaction : session.totalCacheReadTokens)}
+														{formatTokens(
+															compactions.length > 0 ? session.tokensCacheReadSinceCompaction : session.totalCacheReadTokens
+														)}
 													</td>
 													<td className="py-2 text-right font-mono">{formatTokens(session.totalCacheReadTokens)}</td>
 												</tr>
 												<tr>
 													<td className="py-2 text-muted-foreground">Cache write tokens</td>
 													<td className="py-2 text-right font-mono">
-														{formatTokens(compactions.length > 0 ? session.tokensCacheWriteSinceCompaction : session.totalCacheWriteTokens)}
+														{formatTokens(
+															compactions.length > 0 ? session.tokensCacheWriteSinceCompaction : session.totalCacheWriteTokens
+														)}
 													</td>
 													<td className="py-2 text-right font-mono">{formatTokens(session.totalCacheWriteTokens)}</td>
 												</tr>
@@ -613,32 +673,8 @@ export default function SessionPage() {
 							</div>
 						</TabsContent>
 
-						<TabsContent value="checkins" className="flex-1 overflow-hidden mt-0">
-							<Tabs
-								value={timelineTab}
-								onValueChange={(value) => setTimelineTab(value as "sinceLastCompaction" | "full")}
-								className="flex flex-col h-full"
-							>
-								<TabsList className="mx-3 mt-3 shrink-0">
-									<TabsTrigger value="sinceLastCompaction" className="flex-1">
-										Since Last Compaction
-									</TabsTrigger>
-									<TabsTrigger value="full" className="flex-1">
-										Full Timeline
-									</TabsTrigger>
-								</TabsList>
-								<TabsContent value="sinceLastCompaction" className="flex-1 overflow-auto px-3 pb-3 mt-3">
-									<CheckinTimeline
-										checkins={checkins}
-										questions={questions}
-										compactions={compactions}
-										mode="sinceLastCompaction"
-									/>
-								</TabsContent>
-								<TabsContent value="full" className="flex-1 overflow-auto px-3 pb-3 mt-3">
-									<CheckinTimeline checkins={checkins} questions={questions} compactions={compactions} mode="full" />
-								</TabsContent>
-							</Tabs>
+						<TabsContent value="checkins" className="flex-1 overflow-auto px-3 pb-3 mt-0">
+							<CheckinTimeline checkins={checkins} questions={questions} compactions={compactions} />
 						</TabsContent>
 
 						<TabsContent value="settings" className="flex-1 overflow-auto mt-0">

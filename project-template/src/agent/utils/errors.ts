@@ -2,6 +2,8 @@
  * Categorized error types and retry utility for the agent runner.
  */
 
+import Anthropic from "@anthropic-ai/sdk";
+
 // ── Error Classes ────────────────────────────────────────────────────────────
 
 export class AgentError extends Error {
@@ -75,6 +77,17 @@ export class NetworkError extends AgentError {
 
 export function classifyApiError(err: unknown): AgentError {
 	if (err instanceof AgentError) return err;
+
+	// The SDK's APIConnectionError/APIConnectionTimeoutError (thrown on DNS/TLS/reset/timeout
+	// failures at the fetch layer) always carries the literal message "Connection error." or
+	// "Request timed out." — neither contains "network" or any of the ECONN*/ETIMEDOUT substrings
+	// below, and none of the SDK's APIError subclasses override `.name` (it stays "Error" for all
+	// of them), so this needs an explicit instanceof check rather than string matching. Without it,
+	// a transient blip falls through to the non-retryable "unknown" category and kills the session
+	// instead of getting the exponential-backoff retry it's supposed to get.
+	if (err instanceof Anthropic.APIConnectionError) {
+		return new NetworkError(err.message);
+	}
 
 	if (err instanceof Error) {
 		const msg = err.message ?? "";

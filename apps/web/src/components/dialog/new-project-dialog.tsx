@@ -1,5 +1,5 @@
 import { groupBy, toggleItem } from "@agent-manager/utils";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Check, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { LlmClientDialog } from "@/components/dialog/llm-client-dialog";
@@ -10,8 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Guideline, GuidelineCategory, LlmClient, LocalTemplate, TechStack } from "@/lib/agent-api";
 import {
-	createProject as apiCreateProject,
 	checkWorkspacePath,
+	createProjectStream,
 	getGuidelineCategories,
 	getGuidelines,
 	getLlmClients,
@@ -48,6 +48,31 @@ interface TemplateSelection {
 	subdirectory?: string;
 }
 
+interface ProgressStep {
+	key: string;
+	label: string;
+	status: "running" | "done" | "error";
+	detail?: string;
+}
+
+/** Turn a `createProject` progress step key (see manager.ts's `createProject`) into a readable label. */
+function stepLabel(key: string): string {
+	const [kind, ...rest] = key.split(":");
+	const suffix = rest.join(":");
+	switch (kind) {
+		case "workspace":
+			return "Setting up workspace";
+		case "seed":
+			return suffix ? `Fetching template (${suffix})` : "Fetching template";
+		case "install":
+			return suffix ? `Installing dependencies (${suffix})` : "Installing dependencies";
+		case "finalize":
+			return "Finalizing project";
+		default:
+			return key;
+	}
+}
+
 /** Derive a readable subdirectory name from a GitHub URL (e.g. repo name). */
 function defaultGithubSubdir(url: string): string {
 	const trimmed = url.trim();
@@ -76,6 +101,8 @@ export function NewProjectForm({ loading, onLoadingChange, onSuccess, onCancel }
 	const [acknowledgeDelete, setAcknowledgeDelete] = useState(false);
 	const [llmClients, setLlmClients] = useState<LlmClient[]>([]);
 	const [addingClient, setAddingClient] = useState(false);
+	const [progressSteps, setProgressSteps] = useState<ProgressStep[]>([]);
+	const [progressLines, setProgressLines] = useState<Record<string, string[]>>({});
 
 	// Load LLM clients on mount
 	useEffect(() => {
@@ -177,6 +204,8 @@ export function NewProjectForm({ loading, onLoadingChange, onSuccess, onCancel }
 		}
 
 		onLoadingChange(true);
+		setProgressSteps([]);
+		setProgressLines({});
 		try {
 			// Build templates array — local + github templates.
 			// The backend places each template in its own subdirectory when more
@@ -205,16 +234,34 @@ export function NewProjectForm({ loading, onLoadingChange, onSuccess, onCancel }
 					})
 				: rawTemplates;
 
-			const created = await apiCreateProject({
-				name: form.name.trim(),
-				description: form.description || undefined,
-				workspacePath: form.workspacePath || undefined,
-				agent: {
-					clientId: form.clientId,
+			const created = await createProjectStream(
+				{
+					name: form.name.trim(),
+					description: form.description || undefined,
+					workspacePath: form.workspacePath || undefined,
+					agent: {
+						clientId: form.clientId,
+					},
+					...(templatesList.length > 0 && { templates: templatesList }),
+					...(form.binaries.length > 0 && { binaries: form.binaries }),
 				},
-				...(templatesList.length > 0 && { templates: templatesList }),
-				...(form.binaries.length > 0 && { binaries: form.binaries }),
-			});
+				{
+					onStep: (stepKey, status, detail) => {
+						setProgressSteps((prev) => {
+							const label = stepLabel(stepKey);
+							const idx = prev.findIndex((s) => s.key === stepKey);
+							const entry: ProgressStep = { key: stepKey, label, status, detail };
+							if (idx === -1) return [...prev, entry];
+							const next = [...prev];
+							next[idx] = entry;
+							return next;
+						});
+					},
+					onLine: (stepKey, lineText) => {
+						setProgressLines((prev) => ({ ...prev, [stepKey]: [...(prev[stepKey] ?? []), lineText].slice(-8) }));
+					},
+				}
+			);
 
 			// Set context if any selections were made
 			if (selectedTechStacks.length > 0 || selectedGuidelines.length > 0) {
@@ -245,6 +292,8 @@ export function NewProjectForm({ loading, onLoadingChange, onSuccess, onCancel }
 			setSelectedTemplates([]);
 			setGithubTemplates([]);
 			setTemplateSubdirs({});
+			setProgressSteps([]);
+			setProgressLines({});
 			setStep("basic");
 			toast.success("Project created");
 			onSuccess?.();
@@ -361,397 +410,428 @@ export function NewProjectForm({ loading, onLoadingChange, onSuccess, onCancel }
 	}
 
 	return (
-		<div className="space-y-4">
-			{/* Step tabs */}
-			<div className="flex gap-1 border-b -mx-1 px-1">
-				<button
-					type="button"
-					onClick={() => setStep("basic")}
-					className={cn(
-						"px-3 py-2 text-sm font-medium border-b-2 -mb-px transition",
-						step === "basic" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
-					)}
-				>
-					Basic
-				</button>
-				<button
-					type="button"
-					onClick={() => setStep("context")}
-					className={cn(
-						"px-3 py-2 text-sm font-medium border-b-2 -mb-px transition",
-						step === "context" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
-					)}
-				>
-					Context
-					{(selectedTechStacks.length > 0 || selectedGuidelines.length > 0) && (
-						<span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold rounded-full bg-blue-100 text-blue-700">
-							{selectedTechStacks.length + selectedGuidelines.length}
-						</span>
-					)}
-				</button>
-				<button
-					type="button"
-					onClick={() => setStep("templates")}
-					className={cn(
-						"px-3 py-2 text-sm font-medium border-b-2 -mb-px transition",
-						step === "templates" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
-					)}
-				>
-					Templates
-					{(selectedTemplates.length > 0 || githubTemplates.some((githubTemplate) => githubTemplate.url.trim())) && (
-						<span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold rounded-full bg-blue-100 text-blue-700">
-							{selectedTemplates.length + githubTemplates.filter((githubTemplate) => githubTemplate.url.trim()).length}
-						</span>
-					)}
-				</button>
-			</div>
-
-			{step === "basic" && (
-				<form
-					onSubmit={(event) => {
-						event.preventDefault();
-						handleSubmit();
-					}}
-					className="space-y-4"
-				>
-					<div className="space-y-2">
-						<Label htmlFor="np-name">Project Name</Label>
-						<Input
-							id="np-name"
-							autoFocus
-							value={form.name}
-							onChange={(event) => update("name", event.target.value)}
-							placeholder="My Project"
-							required
-						/>
-					</div>
-					<div className="space-y-2">
-						<Label htmlFor="np-desc">Description</Label>
-						<Input
-							id="np-desc"
-							value={form.description}
-							onChange={(event) => update("description", event.target.value)}
-							placeholder="Optional description"
-						/>
-					</div>
-					<div className="space-y-2">
-						<Label htmlFor="np-path">Workspace Path</Label>
-						<Input
-							id="np-path"
-							value={form.workspacePath}
-							onChange={(event) => update("workspacePath", event.target.value)}
-							placeholder="/path/to/repo (leave empty for internal)"
-						/>
-					</div>
-
-					<div className="border-t pt-4 space-y-3">
-						<div className="flex items-center justify-between">
-							<Label htmlFor="np-client">LLM Client</Label>
-							<button
-								type="button"
-								onClick={() => setAddingClient(true)}
-								className="text-xs text-blue-600 hover:text-blue-700 font-medium"
-							>
-								+ Add new client
-							</button>
-						</div>
-						<select
-							id="np-client"
-							value={form.clientId}
-							onChange={(event) => update("clientId", event.target.value)}
-							className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-						>
-							<option value="" disabled>
-								Select a client...
-							</option>
-							{llmClients.map((client) => (
-								<option key={client.id} value={client.id}>
-									{client.name} ({client.provider})
-								</option>
-							))}
-						</select>
-						{llmClients.length === 0 && <p className="text-xs text-gray-400">No clients yet. Add one to create a project.</p>}
-					</div>
-
-					<div className="border-t pt-4 space-y-3">
-						<Label>Additional Binaries</Label>
-						<p className="text-xs text-muted-foreground mb-2">Select binaries to install in the Docker container</p>
-						<div className="space-y-2">
-							<label htmlFor="binary-python3" className="flex items-center gap-2 cursor-pointer">
-								<Checkbox
-									id="binary-python3"
-									checked={form.binaries.includes("python3")}
-									onCheckedChange={() => toggleBinary("python3")}
-								/>
-								<span className="text-sm font-medium">python3</span>
-								<span className="text-xs text-muted-foreground">Python 3 interpreter and pip</span>
-							</label>
-							<label htmlFor="binary-workerd" className="flex items-center gap-2 cursor-pointer">
-								<Checkbox
-									id="binary-workerd"
-									checked={form.binaries.includes("workerd")}
-									onCheckedChange={() => toggleBinary("workerd")}
-								/>
-								<span className="text-sm font-medium">workerd</span>
-								<span className="text-xs text-muted-foreground">Cloudflare Workers runtime</span>
-							</label>
-							<label htmlFor="binary-cargo" className="flex items-center gap-2 cursor-pointer">
-								<Checkbox
-									id="binary-cargo"
-									checked={form.binaries.includes("cargo")}
-									onCheckedChange={() => toggleBinary("cargo")}
-								/>
-								<span className="text-sm font-medium">cargo</span>
-								<span className="text-xs text-muted-foreground">Rust package manager and compiler</span>
-							</label>
-						</div>
-					</div>
-
-					<DialogFooter>
-						{onCancel && (
-							<Button type="button" variant="outline" onClick={onCancel}>
-								Cancel
-							</Button>
+		<>
+			<div className="space-y-4">
+				{/* Step tabs */}
+				<div className="flex gap-1 border-b -mx-1 px-1">
+					<button
+						type="button"
+						onClick={() => setStep("basic")}
+						className={cn(
+							"px-3 py-2 text-sm font-medium border-b-2 -mb-px transition",
+							step === "basic" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
 						)}
-						<Button type="button" variant="outline" onClick={() => setStep("context")}>
-							Next
-						</Button>
-					</DialogFooter>
-				</form>
-			)}
+					>
+						Basic
+					</button>
+					<button
+						type="button"
+						onClick={() => setStep("context")}
+						className={cn(
+							"px-3 py-2 text-sm font-medium border-b-2 -mb-px transition",
+							step === "context" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+						)}
+					>
+						Context
+						{(selectedTechStacks.length > 0 || selectedGuidelines.length > 0) && (
+							<span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold rounded-full bg-blue-100 text-blue-700">
+								{selectedTechStacks.length + selectedGuidelines.length}
+							</span>
+						)}
+					</button>
+					<button
+						type="button"
+						onClick={() => setStep("templates")}
+						className={cn(
+							"px-3 py-2 text-sm font-medium border-b-2 -mb-px transition",
+							step === "templates" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+						)}
+					>
+						Templates
+						{(selectedTemplates.length > 0 || githubTemplates.some((githubTemplate) => githubTemplate.url.trim())) && (
+							<span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold rounded-full bg-blue-100 text-blue-700">
+								{selectedTemplates.length + githubTemplates.filter((githubTemplate) => githubTemplate.url.trim()).length}
+							</span>
+						)}
+					</button>
+				</div>
 
-			{step === "templates" && (
-				<div className="space-y-4">
-					{templatesLoading ? (
-						<p className="text-sm text-gray-500">Loading templates...</p>
-					) : (
-						<>
-							{/* Local templates */}
-							<div className="space-y-2">
-								<p className="text-sm font-medium">Local Templates</p>
-								{templates.length === 0 ? (
-									<p className="text-xs italic text-gray-400">
-										No local templates. Add templates to the <code>templates/</code> directory.
-									</p>
-								) : (
-									<div className="border rounded-lg divide-y max-h-48 overflow-y-auto">
-										{templates.map((tpl) => {
-											const selected = selectedTemplates.includes(tpl.name);
-											return (
-												// biome-ignore lint/a11y/noLabelWithoutControl: there is an input bound to the label
-												<label
-													key={tpl.name}
-													className={cn(
-														"flex items-start gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 transition-colors",
-														selected && "bg-blue-50/60"
-													)}
-												>
-													<Checkbox checked={selected} onCheckedChange={() => toggleTemplate(tpl.name)} />
-													<div className="flex-1 min-w-0">
-														<div className="text-sm font-medium">{tpl.name}</div>
-														{tpl.description && <div className="text-xs text-gray-500">{tpl.description}</div>}
-														{tpl.techStackNames.length > 0 && (
-															<div className="flex flex-wrap gap-1 mt-1">
-																{tpl.techStackNames.map((name) => (
-																	<span key={name} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
-																		{name}
-																	</span>
-																))}
-															</div>
-														)}
-													</div>
-													{selected && (
-														<Input
-															placeholder={`subdir · ${tpl.name}`}
-															value={templateSubdirs[tpl.name] || ""}
-															onChange={(event) => {
-																event.stopPropagation();
-																setTemplateSubdirs((prev) => ({ ...prev, [tpl.name]: event.target.value }));
-															}}
-															className="w-36 h-7 text-xs"
-															onClick={(event) => event.stopPropagation()}
-														/>
-													)}
-												</label>
-											);
-										})}
-									</div>
-								)}
+				{step === "basic" && (
+					<form
+						onSubmit={(event) => {
+							event.preventDefault();
+							handleSubmit();
+						}}
+						className="space-y-4"
+					>
+						<div className="space-y-2">
+							<Label htmlFor="np-name">Project Name</Label>
+							<Input
+								id="np-name"
+								autoFocus
+								value={form.name}
+								onChange={(event) => update("name", event.target.value)}
+								placeholder="My Project"
+								required
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="np-desc">Description</Label>
+							<Input
+								id="np-desc"
+								value={form.description}
+								onChange={(event) => update("description", event.target.value)}
+								placeholder="Optional description"
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="np-path">Workspace Path</Label>
+							<Input
+								id="np-path"
+								value={form.workspacePath}
+								onChange={(event) => update("workspacePath", event.target.value)}
+								placeholder="/path/to/repo (leave empty for internal)"
+							/>
+						</div>
+
+						<div className="border-t pt-4 space-y-3">
+							<div className="flex items-center justify-between">
+								<Label htmlFor="np-client">LLM Client</Label>
+								<button
+									type="button"
+									onClick={() => setAddingClient(true)}
+									className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+								>
+									+ Add new client
+								</button>
 							</div>
+							<select
+								id="np-client"
+								value={form.clientId}
+								onChange={(event) => update("clientId", event.target.value)}
+								className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+							>
+								<option value="" disabled>
+									Select a client...
+								</option>
+								{llmClients.map((client) => (
+									<option key={client.id} value={client.id}>
+										{client.name} ({client.provider})
+									</option>
+								))}
+							</select>
+							{llmClients.length === 0 && <p className="text-xs text-gray-400">No clients yet. Add one to create a project.</p>}
+						</div>
 
-							{/* GitHub templates */}
+						<div className="border-t pt-4 space-y-3">
+							<Label>Additional Binaries</Label>
+							<p className="text-xs text-muted-foreground mb-2">Select binaries to install in the Docker container</p>
 							<div className="space-y-2">
-								<Label className="text-sm font-medium">GitHub Repository URLs</Label>
-								{githubTemplates.length === 0 && <p className="text-xs italic text-gray-400">No GitHub templates added yet.</p>}
-								<div className="space-y-2">
-									{githubTemplates.map((githubTemplate) => (
-										<div key={githubTemplate.id} className="flex gap-2 items-center">
-											<Input
-												type="url"
-												value={githubTemplate.url}
-												onChange={(event) => updateGithubTemplate(githubTemplate.id, "url", event.target.value)}
-												placeholder="https://github.com/user/repo.git"
-												className="flex-1"
-											/>
-											<Input
-												value={githubTemplate.subdirectory}
-												onChange={(event) => updateGithubTemplate(githubTemplate.id, "subdirectory", event.target.value)}
-												placeholder={`subdir · ${githubTemplate.url ? defaultGithubSubdir(githubTemplate.url) || "auto" : "auto"}`}
-												className="w-44"
-											/>
-											<Button
-												type="button"
-												variant="ghost"
-												size="sm"
-												onClick={() => removeGithubTemplate(githubTemplate.id)}
-												className="text-gray-400 hover:text-destructive px-2"
-											>
-												✕
-											</Button>
-										</div>
-									))}
-								</div>
-								<Button type="button" variant="outline" size="sm" onClick={() => addGithubTemplate("")}>
-									+ Add GitHub template
+								<label htmlFor="binary-python3" className="flex items-center gap-2 cursor-pointer">
+									<Checkbox
+										id="binary-python3"
+										checked={form.binaries.includes("python3")}
+										onCheckedChange={() => toggleBinary("python3")}
+									/>
+									<span className="text-sm font-medium">python3</span>
+									<span className="text-xs text-muted-foreground">Python 3 interpreter and pip</span>
+								</label>
+								<label htmlFor="binary-workerd" className="flex items-center gap-2 cursor-pointer">
+									<Checkbox
+										id="binary-workerd"
+										checked={form.binaries.includes("workerd")}
+										onCheckedChange={() => toggleBinary("workerd")}
+									/>
+									<span className="text-sm font-medium">workerd</span>
+									<span className="text-xs text-muted-foreground">Cloudflare Workers runtime</span>
+								</label>
+								<label htmlFor="binary-cargo" className="flex items-center gap-2 cursor-pointer">
+									<Checkbox
+										id="binary-cargo"
+										checked={form.binaries.includes("cargo")}
+										onCheckedChange={() => toggleBinary("cargo")}
+									/>
+									<span className="text-sm font-medium">cargo</span>
+									<span className="text-xs text-muted-foreground">Rust package manager and compiler</span>
+								</label>
+							</div>
+						</div>
+
+						<DialogFooter>
+							{onCancel && (
+								<Button type="button" variant="outline" onClick={onCancel}>
+									Cancel
 								</Button>
-								<p className="text-xs text-gray-500">
-									Clone one or more public GitHub repositories. Multiple templates are placed in separate subfolders.
-								</p>
-							</div>
+							)}
+							<Button type="button" variant="outline" onClick={() => setStep("context")}>
+								Next
+							</Button>
+						</DialogFooter>
+					</form>
+				)}
 
-							{/* Tech stack suggestions */}
-							{selectedTechStacks.length > 0 && techStacks.length > 0 && (
-								<div className="border rounded-lg p-3 bg-blue-50/30">
-									<p className="text-sm font-medium mb-2">Suggested from selected tech stacks:</p>
-									<div className="space-y-1">
-										{selectedTechStacks
-											.map((stackId) => techStacks.find((techStack) => techStack.id === stackId))
-											.filter((stack): stack is TechStack => Boolean(stack?.templateGithubUrl))
-											.map((stack) => {
-												const alreadyAdded = githubTemplates.some(
-													(githubTemplate) => githubTemplate.url.trim() === (stack.templateGithubUrl || "").trim()
-												);
+				{step === "templates" && (
+					<div className="space-y-4">
+						{templatesLoading ? (
+							<p className="text-sm text-gray-500">Loading templates...</p>
+						) : (
+							<>
+								{/* Local templates */}
+								<div className="space-y-2">
+									<p className="text-sm font-medium">Local Templates</p>
+									{templates.length === 0 ? (
+										<p className="text-xs italic text-gray-400">
+											No local templates. Add templates to the <code>templates/</code> directory.
+										</p>
+									) : (
+										<div className="border rounded-lg divide-y max-h-48 overflow-y-auto">
+											{templates.map((tpl) => {
+												const selected = selectedTemplates.includes(tpl.name);
 												return (
-													<div key={stack.id} className="flex items-center gap-2 text-xs">
-														<span className="font-medium">{stack.name}:</span>
-														<span className="text-gray-500 truncate flex-1">{stack.templateGithubUrl}</span>
-														<Button
-															type="button"
-															variant="outline"
-															size="sm"
-															disabled={alreadyAdded}
-															onClick={() => addGithubTemplate(stack.templateGithubUrl || "")}
-															className="h-6 px-2 text-xs"
-														>
-															{alreadyAdded ? "Added" : "Use"}
-														</Button>
-													</div>
+													// biome-ignore lint/a11y/noLabelWithoutControl: there is an input bound to the label
+													<label
+														key={tpl.name}
+														className={cn(
+															"flex items-start gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 transition-colors",
+															selected && "bg-blue-50/60"
+														)}
+													>
+														<Checkbox checked={selected} onCheckedChange={() => toggleTemplate(tpl.name)} />
+														<div className="flex-1 min-w-0">
+															<div className="text-sm font-medium">{tpl.name}</div>
+															{tpl.description && <div className="text-xs text-gray-500">{tpl.description}</div>}
+															{tpl.techStackNames.length > 0 && (
+																<div className="flex flex-wrap gap-1 mt-1">
+																	{tpl.techStackNames.map((name) => (
+																		<span key={name} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
+																			{name}
+																		</span>
+																	))}
+																</div>
+															)}
+														</div>
+														{selected && (
+															<Input
+																placeholder={`subdir · ${tpl.name}`}
+																value={templateSubdirs[tpl.name] || ""}
+																onChange={(event) => {
+																	event.stopPropagation();
+																	setTemplateSubdirs((prev) => ({ ...prev, [tpl.name]: event.target.value }));
+																}}
+																className="w-36 h-7 text-xs"
+																onClick={(event) => event.stopPropagation()}
+															/>
+														)}
+													</label>
 												);
 											})}
-									</div>
+										</div>
+									)}
 								</div>
+
+								{/* GitHub templates */}
+								<div className="space-y-2">
+									<Label className="text-sm font-medium">GitHub Repository URLs</Label>
+									{githubTemplates.length === 0 && <p className="text-xs italic text-gray-400">No GitHub templates added yet.</p>}
+									<div className="space-y-2">
+										{githubTemplates.map((githubTemplate) => (
+											<div key={githubTemplate.id} className="flex gap-2 items-center">
+												<Input
+													type="url"
+													value={githubTemplate.url}
+													onChange={(event) => updateGithubTemplate(githubTemplate.id, "url", event.target.value)}
+													placeholder="https://github.com/user/repo.git"
+													className="flex-1"
+												/>
+												<Input
+													value={githubTemplate.subdirectory}
+													onChange={(event) => updateGithubTemplate(githubTemplate.id, "subdirectory", event.target.value)}
+													placeholder={`subdir · ${githubTemplate.url ? defaultGithubSubdir(githubTemplate.url) || "auto" : "auto"}`}
+													className="w-44"
+												/>
+												<Button
+													type="button"
+													variant="ghost"
+													size="sm"
+													onClick={() => removeGithubTemplate(githubTemplate.id)}
+													className="text-gray-400 hover:text-destructive px-2"
+												>
+													✕
+												</Button>
+											</div>
+										))}
+									</div>
+									<Button type="button" variant="outline" size="sm" onClick={() => addGithubTemplate("")}>
+										+ Add GitHub template
+									</Button>
+									<p className="text-xs text-gray-500">
+										Clone one or more public GitHub repositories. Multiple templates are placed in separate subfolders.
+									</p>
+								</div>
+
+								{/* Tech stack suggestions */}
+								{selectedTechStacks.length > 0 && techStacks.length > 0 && (
+									<div className="border rounded-lg p-3 bg-blue-50/30">
+										<p className="text-sm font-medium mb-2">Suggested from selected tech stacks:</p>
+										<div className="space-y-1">
+											{selectedTechStacks
+												.map((stackId) => techStacks.find((techStack) => techStack.id === stackId))
+												.filter((stack): stack is TechStack => Boolean(stack?.templateGithubUrl))
+												.map((stack) => {
+													const alreadyAdded = githubTemplates.some(
+														(githubTemplate) => githubTemplate.url.trim() === (stack.templateGithubUrl || "").trim()
+													);
+													return (
+														<div key={stack.id} className="flex items-center gap-2 text-xs">
+															<span className="font-medium">{stack.name}:</span>
+															<span className="text-gray-500 truncate flex-1">{stack.templateGithubUrl}</span>
+															<Button
+																type="button"
+																variant="outline"
+																size="sm"
+																disabled={alreadyAdded}
+																onClick={() => addGithubTemplate(stack.templateGithubUrl || "")}
+																className="h-6 px-2 text-xs"
+															>
+																{alreadyAdded ? "Added" : "Use"}
+															</Button>
+														</div>
+													);
+												})}
+										</div>
+									</div>
+								)}
+							</>
+						)}
+
+						<DialogFooter>
+							{onCancel && (
+								<Button type="button" variant="outline" onClick={onCancel}>
+									Cancel
+								</Button>
 							)}
-						</>
-					)}
-
-					<DialogFooter>
-						{onCancel && (
-							<Button type="button" variant="outline" onClick={onCancel}>
-								Cancel
+							<Button type="button" variant="outline" onClick={() => setStep("context")}>
+								Back
 							</Button>
-						)}
-						<Button type="button" variant="outline" onClick={() => setStep("context")}>
-							Back
-						</Button>
-						<Button type="button" disabled={loading || !form.name.trim() || !form.clientId} onClick={() => handleSubmit()}>
-							{loading ? "Creating..." : "Create"}
-						</Button>
-					</DialogFooter>
-				</div>
-			)}
+							<Button type="button" disabled={loading || !form.name.trim() || !form.clientId} onClick={() => handleSubmit()}>
+								{loading ? "Creating..." : "Create"}
+							</Button>
+						</DialogFooter>
+					</div>
+				)}
 
-			{step === "context" && (
-				<div className="space-y-5">
-					{contextLoading ? (
-						<p className="text-sm text-gray-500">Loading library...</p>
-					) : (
-						<>
-							{/* Tech stacks */}
-							<div className="space-y-2">
-								<p className="text-sm font-medium">Tech Stacks</p>
-								{techStacks.length === 0 ? (
-									<p className="text-xs italic text-gray-400">No tech stacks in the library yet.</p>
-								) : (
-									<ul className="divide-y rounded-md border max-h-48 overflow-y-auto">
-										{techStacks.map((techStack) => {
-											const selected = selectedTechStacks.includes(techStack.id);
-											return (
-												<li key={techStack.id}>
-													<label
-														htmlFor={`stack-${techStack.id}`}
-														className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 transition-colors cursor-pointer"
-													>
-														<Checkbox
-															id={`stack-${techStack.id}`}
-															checked={selected}
-															onCheckedChange={() => toggleStack(techStack.id)}
-														/>
-														<span className="min-w-0">
-															<span className="block text-sm font-medium">{techStack.name}</span>
-															<span className="block text-xs text-gray-500">
-																{techStack.language}
-																{techStack.description ? ` · ${techStack.description}` : ""}
+				{step === "context" && (
+					<div className="space-y-5">
+						{contextLoading ? (
+							<p className="text-sm text-gray-500">Loading library...</p>
+						) : (
+							<>
+								{/* Tech stacks */}
+								<div className="space-y-2">
+									<p className="text-sm font-medium">Tech Stacks</p>
+									{techStacks.length === 0 ? (
+										<p className="text-xs italic text-gray-400">No tech stacks in the library yet.</p>
+									) : (
+										<ul className="divide-y rounded-md border max-h-48 overflow-y-auto">
+											{techStacks.map((techStack) => {
+												const selected = selectedTechStacks.includes(techStack.id);
+												return (
+													<li key={techStack.id}>
+														<label
+															htmlFor={`stack-${techStack.id}`}
+															className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 transition-colors cursor-pointer"
+														>
+															<Checkbox
+																id={`stack-${techStack.id}`}
+																checked={selected}
+																onCheckedChange={() => toggleStack(techStack.id)}
+															/>
+															<span className="min-w-0">
+																<span className="block text-sm font-medium">{techStack.name}</span>
+																<span className="block text-xs text-gray-500">
+																	{techStack.language}
+																	{techStack.description ? ` · ${techStack.description}` : ""}
+																</span>
 															</span>
-														</span>
-													</label>
-												</li>
-											);
-										})}
-									</ul>
-								)}
-							</div>
+														</label>
+													</li>
+												);
+											})}
+										</ul>
+									)}
+								</div>
 
-							{/* Guidelines by category */}
-							<div className="space-y-2">
-								<p className="text-sm font-medium">Guidelines</p>
-								{guidelines.length === 0 ? (
-									<p className="text-xs italic text-gray-400">No guidelines in the library yet.</p>
-								) : (
-									<GuidelinePickerList
-										guidelines={guidelines}
-										categories={categories}
-										selectedIds={selectedGuidelines}
-										onToggle={toggleGuideline}
-									/>
-								)}
-							</div>
-						</>
-					)}
-
-					<DialogFooter>
-						{onCancel && (
-							<Button type="button" variant="outline" onClick={onCancel}>
-								Cancel
-							</Button>
+								{/* Guidelines by category */}
+								<div className="space-y-2">
+									<p className="text-sm font-medium">Guidelines</p>
+									{guidelines.length === 0 ? (
+										<p className="text-xs italic text-gray-400">No guidelines in the library yet.</p>
+									) : (
+										<GuidelinePickerList
+											guidelines={guidelines}
+											categories={categories}
+											selectedIds={selectedGuidelines}
+											onToggle={toggleGuideline}
+										/>
+									)}
+								</div>
+							</>
 						)}
-						<Button type="button" variant="outline" onClick={() => setStep("basic")}>
-							Back
-						</Button>
-						<Button type="button" variant="outline" onClick={() => setStep("templates")}>
-							Next
-						</Button>
-					</DialogFooter>
+
+						<DialogFooter>
+							{onCancel && (
+								<Button type="button" variant="outline" onClick={onCancel}>
+									Cancel
+								</Button>
+							)}
+							<Button type="button" variant="outline" onClick={() => setStep("basic")}>
+								Back
+							</Button>
+							<Button type="button" variant="outline" onClick={() => setStep("templates")}>
+								Next
+							</Button>
+						</DialogFooter>
+					</div>
+				)}
+
+				<LlmClientDialog
+					open={addingClient}
+					onOpenChange={(open) => {
+						if (!open) setAddingClient(false);
+					}}
+					onSaved={onClientSaved}
+				/>
+			</div>
+			{loading && (
+				<div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 rounded-lg bg-background/95 p-6 backdrop-blur-sm">
+					<p className="text-sm font-medium text-muted-foreground">Creating project...</p>
+					{progressSteps.length === 0 ? (
+						<Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+					) : (
+						<ul className="w-full max-w-sm space-y-2">
+							{progressSteps.map((progressStep) => (
+								<li key={progressStep.key} className="space-y-1">
+									<div className="flex items-center gap-2 text-sm">
+										{progressStep.status === "running" && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-600" />}
+										{progressStep.status === "done" && <Check className="h-4 w-4 shrink-0 text-green-600" />}
+										{progressStep.status === "error" && <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />}
+										<span className={cn(progressStep.status === "error" && "text-amber-600")}>{progressStep.label}</span>
+									</div>
+									{progressStep.status === "error" && progressStep.detail && (
+										<p className="pl-6 text-xs text-muted-foreground">{progressStep.detail}</p>
+									)}
+									{progressStep.status === "running" && (progressLines[progressStep.key]?.length ?? 0) > 0 && (
+										<pre className="ml-6 max-h-24 overflow-y-auto rounded bg-muted px-2 py-1 text-[10px] leading-relaxed text-muted-foreground">
+											{progressLines[progressStep.key]?.join("\n")}
+										</pre>
+									)}
+								</li>
+							))}
+						</ul>
+					)}
 				</div>
 			)}
-
-			<LlmClientDialog
-				open={addingClient}
-				onOpenChange={(open) => {
-					if (!open) setAddingClient(false);
-				}}
-				onSaved={onClientSaved}
-			/>
-		</div>
+		</>
 	);
 }
 
@@ -871,12 +951,6 @@ export function NewProjectDialog({ open, onOpenChange }: NewProjectDialogProps) 
 					onSuccess={() => onOpenChange(false)}
 					onCancel={() => onOpenChange(false)}
 				/>
-				{loading && (
-					<div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg bg-background/80 backdrop-blur-sm">
-						<Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-						<p className="text-sm font-medium text-muted-foreground">Creating project...</p>
-					</div>
-				)}
 			</DialogContent>
 		</Dialog>
 	);

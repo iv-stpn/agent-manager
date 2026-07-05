@@ -63,6 +63,8 @@ export async function triggerReport(
 		if (result?.confirmed) {
 			confirmed = true;
 		}
+	} catch (err) {
+		console.error(`[Agent ${sessionId}] Discord report delivery failed (trigger=${trigger}):`, err instanceof Error ? err.message : err);
 	} finally {
 		const status = confirmed ? "answered" : "skipped";
 		updateCheckin(agent.db, checkinId, { status, completedAt: Date.now() });

@@ -69,7 +69,6 @@ export class EventHub {
 	// On first subscriber, open upstreams for whatever is already running.
 	private async ensureStarted(): Promise<void> {
 		if (this.started) return;
-		this.started = true;
 		try {
 			const projects = await this.manager.listProjects();
 			await Promise.all(
@@ -78,8 +77,12 @@ export class EventHub {
 					if (status.running) this.connect(project.id);
 				})
 			);
+			this.started = true;
 		} catch {
-			// best effort — lifecycle hooks will still wire things as they happen
+			// best effort — leave `started` false so the next subscriber retries
+			// this scan, rather than permanently giving up on connecting to
+			// projects that were already running before this failed (e.g. a
+			// startup race with the docker daemon not being ready yet).
 		}
 	}
 

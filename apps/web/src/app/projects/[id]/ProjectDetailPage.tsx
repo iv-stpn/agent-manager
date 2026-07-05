@@ -1,6 +1,7 @@
 import type { ProgressStreamAction } from "@agent-manager/utils";
 import {
 	ArrowLeft,
+	CheckSquare,
 	ClipboardList,
 	Hammer,
 	LayoutGrid,
@@ -26,8 +27,9 @@ import { OverviewTab } from "./components/OverviewTab";
 import { ReportsTab } from "./components/ReportsTab";
 import { SessionsTab } from "./components/SessionsTab";
 import { SettingsTab } from "./components/SettingsTab";
+import { TasksTab } from "./components/TasksTab";
 
-type Tab = "overview" | "sessions" | "logs" | "reports" | "settings";
+type Tab = "overview" | "sessions" | "tasks" | "logs" | "reports" | "settings";
 
 export default function ProjectDetailPage() {
 	return (
@@ -49,7 +51,7 @@ function ProjectDetailContent() {
 	const [searchParams, setSearchParams] = useSearchParams();
 	const projectId = params.id;
 
-	const validTabs: Tab[] = ["overview", "sessions", "logs", "reports", "settings"];
+	const validTabs: Tab[] = ["overview", "sessions", "tasks", "logs", "reports", "settings"];
 
 	const rawTab = searchParams.get("tab");
 	const tab: Tab = validTabs.find((tab) => tab === rawTab) ?? "sessions";
@@ -171,6 +173,7 @@ function ProjectDetailContent() {
 	const tabs: Array<{ key: Tab; label: string; icon: typeof List; count?: number | null }> = [
 		{ key: "sessions", label: "Sessions", icon: List, count: sessionCount },
 		{ key: "overview", label: "Overview", icon: LayoutGrid },
+		{ key: "tasks", label: "Tasks", icon: CheckSquare },
 		{ key: "logs", label: "Logs", icon: Terminal, count: logCount },
 		{ key: "reports", label: "Reports", icon: ClipboardList, count: reportCount },
 		{ key: "settings", label: "Settings", icon: SettingsIcon },
@@ -274,6 +277,7 @@ function ProjectDetailContent() {
 					{tab === "sessions" && (
 						<SessionsTab projectId={project.id} running={running} dialogOpen={dialogOpen} setDialogOpen={setDialogOpen} />
 					)}
+					{tab === "tasks" && <TasksTab projectId={project.id} running={running} />}
 					{tab === "logs" && <LogsTab projectId={project.id} running={running} />}
 					{tab === "reports" && <ReportsTab projectId={project.id} />}
 					{tab === "settings" && <SettingsTab projectId={project.id} />}

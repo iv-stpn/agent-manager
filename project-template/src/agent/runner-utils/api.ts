@@ -138,19 +138,24 @@ export async function requestSummary(agent: AgentState): Promise<string> {
 			})
 			.join("\n\n");
 
-		const resp = await agent.client.messages.create({
-			model: agent.llm.smallModel,
-			max_tokens: 512,
-			messages: [
-				{
-					role: "user",
-					content: `Summarise your recent progress concisely (≤300 words). Focus on what you did, decisions made, and any blockers.\n\n${transcript}`,
-				},
-			],
-		});
+		const resp = await withRetry(
+			() =>
+				agent.client.messages.create({
+					model: agent.llm.smallModel,
+					max_tokens: 512,
+					messages: [
+						{
+							role: "user",
+							content: `Summarise your recent progress concisely (≤300 words). Focus on what you did, decisions made, and any blockers.\n\n${transcript}`,
+						},
+					],
+				}),
+			{ maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 10_000 }
+		);
 
 		return extractTextContent(resp.content);
-	} catch {
+	} catch (err) {
+		console.error(`[Agent ${agent.sessionId}] requestSummary call failed:`, err);
 		return "(summary unavailable)";
 	}
 }

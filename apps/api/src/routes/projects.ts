@@ -1,4 +1,10 @@
-import { CreateProjectSchema, isProtectedDirectory, ProjectContextSchema, type SessionRecord, UpdateSettingsSchema } from "@agent-manager/projects";
+import {
+	CreateProjectSchema,
+	isProtectedDirectory,
+	ProjectContextSchema,
+	type SessionRecord,
+	UpdateSettingsSchema,
+} from "@agent-manager/projects";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -249,6 +255,62 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 		} catch (error) {
 			return c.json({ error: getErrorMessage(error) }, 400);
 		}
+	})
+	// Create new project with SSE progress stream (workspace setup, template
+	// clone/copy, dependency install). POST (not GET+EventSource) because the
+	// body can carry an LLM API key — that shouldn't go in a URL/query string.
+	.post("/create-stream", (c) => {
+		const origin = c.req.header("Origin");
+		if (origin) c.header("Access-Control-Allow-Origin", origin);
+
+		return streamSSE(c, async (stream) => {
+			// Writes must reach the client in the same order they were produced —
+			// onStep/onLine fire synchronously from createProject's sequential
+			// awaits and from process stdout/stderr 'data' events, neither of
+			// which wait for the write to actually complete. Chaining every write
+			// onto one shared promise serializes them without needing the manager
+			// layer to await anything.
+			let queue: Promise<void> = Promise.resolve();
+			const enqueue = (write: () => Promise<void>) => {
+				queue = queue.then(write, write);
+				return queue;
+			};
+			const send = (step: string, status: "running" | "done" | "error", log?: string) =>
+				enqueue(async () => {
+					await stream.writeSSE({ event: "progress", data: JSON.stringify({ step, status, log }) });
+					await stream.sleep(0);
+				});
+			const delta = (step: string, line: string) =>
+				enqueue(async () => {
+					await stream.writeSSE({ event: "delta", data: JSON.stringify({ step, line }) });
+					await stream.sleep(0);
+				});
+
+			try {
+				const body = await c.req.json();
+				const input = CreateProjectSchema.parse(body);
+
+				if (input.agent?.clientId) {
+					const client = c.var.orchestratorDb.getLlmClient(input.agent.clientId);
+					if (!client) throw new Error("LLM client not found");
+					input.agent.anthropicApiKey = input.agent.anthropicApiKey || client.apiKey;
+					input.agent.anthropicBaseUrl = input.agent.anthropicBaseUrl || client.baseUrl;
+					input.agent.model = input.agent.model || client.model;
+				}
+
+				const project = await c.var.manager.createProject(input, {
+					onStep: (step, status, detail) => void send(step, status, detail),
+					onLine: (step, l) => void delta(step, l),
+				});
+
+				await queue;
+				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: true, project }) });
+			} catch (error) {
+				const msg = getErrorMessage(error);
+				await queue;
+				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
+			}
+		});
 	})
 	.get("/:projectId", async (c) => {
 		try {
@@ -787,6 +849,14 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 		const { projectId } = c.req.param();
 		const sessionId = c.req.query("sessionId");
 		return c.json(await c.var.projectDatabaseManager.getTasks(projectId, sessionId));
+	})
+	.put("/:projectId/tasks/:taskId", async (c) => {
+		const { projectId, taskId } = c.req.param();
+		return proxyToAgent(c, projectId, `/api/tasks/${taskId}`);
+	})
+	.delete("/:projectId/tasks/:taskId", async (c) => {
+		const { projectId, taskId } = c.req.param();
+		return proxyToAgent(c, projectId, `/api/tasks/${taskId}`);
 	})
 	.post("/:projectId/sessions/:sessionId/stop", async (c) => {
 		const { projectId, sessionId } = c.req.param();

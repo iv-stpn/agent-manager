@@ -1,4 +1,9 @@
 FROM popwers/mini-bun:v1.3.14 AS base
+
+# Run as root: the agent's create_directory/delete_file tools (and mkdir/rm in
+# general) must be able to write into the bind-mounted /workspace, which is
+# owned by the host user, not by the base image's unused "bun" (uid 1000) account.
+USER root
 WORKDIR /app
 
 # install git + dependencies

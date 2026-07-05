@@ -16,9 +16,10 @@ export type {
 export type { EnrichedProject } from "@/lib/types";
 export type { Guideline, GuidelineCategory, LlmClient, LlmProvider, StackEntry, TechStack } from "../../../api/src";
 
-import type { CreateProjectInput, SessionRecord as Session } from "@agent-manager/projects";
+import type { CreateProjectInput, ProjectConfig, SessionRecord as Session } from "@agent-manager/projects";
 import { hc } from "hono/client";
 import { API_URL } from "@/constants";
+import { readSSEStream } from "@/lib/sse";
 
 const api = hc<AppType>(API_URL);
 
@@ -50,6 +51,46 @@ export async function createProject(data: CreateProjectInput) {
 	const res = await api.api.projects.$post({ json: data });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
 	return (await res.json()).project;
+}
+
+export interface CreateProjectStreamHandlers {
+	onStep?: (step: string, status: "running" | "done" | "error", log?: string) => void;
+	onLine?: (step: string, line: string) => void;
+}
+
+/**
+ * Same as `createProject`, but streams workspace-setup progress (cloning,
+ * installing dependencies, etc.) as it happens. Raw `fetch` + manual SSE
+ * parsing rather than the hono client / `EventSource`: the request body can
+ * carry an LLM API key, which can't go in a GET query string.
+ */
+export async function createProjectStream(
+	data: CreateProjectInput,
+	handlers: CreateProjectStreamHandlers = {}
+): Promise<ProjectConfig> {
+	const res = await fetch(`${API_URL}/api/projects/create-stream`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(data),
+	});
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+
+	let result: { success: boolean; error?: string; project?: ProjectConfig } | null = null;
+	await readSSEStream(res, (event, raw) => {
+		try {
+			const parsed = JSON.parse(raw);
+			if (event === "progress") handlers.onStep?.(parsed.step, parsed.status, parsed.log);
+			else if (event === "delta") handlers.onLine?.(parsed.step, parsed.line);
+			else if (event === "complete") result = parsed;
+		} catch {
+			// ignore malformed frame
+		}
+	});
+
+	if (!result) throw new Error("Stream ended without a completion event");
+	const { success, error, project } = result as { success: boolean; error?: string; project?: ProjectConfig };
+	if (!success || !project) throw new Error(error || "Failed to create project");
+	return project;
 }
 
 export async function startProject(projectId: string) {
@@ -193,6 +234,25 @@ export async function getTasks(projectId: string, sessionId?: string): Promise<T
 	const res = await fetch(`${API_URL}/api/projects/${projectId}/tasks${params}`);
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
 	return (await res.json()) as Task[];
+}
+
+export async function updateTask(
+	projectId: string,
+	taskId: string,
+	changes: { text?: string; status?: Task["status"] }
+): Promise<Task> {
+	const res = await fetch(`${API_URL}/api/projects/${projectId}/tasks/${taskId}`, {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(changes),
+	});
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return (await res.json()) as Task;
+}
+
+export async function deleteTask(projectId: string, taskId: string): Promise<void> {
+	const res = await fetch(`${API_URL}/api/projects/${projectId}/tasks/${taskId}`, { method: "DELETE" });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
 }
 
 export async function createSession(

@@ -70,6 +70,14 @@ export async function doCompaction(agent: AgentState): Promise<void> {
 		setStatus(agent, "running");
 	}
 
+	// compactMessages bails out (didCompact: false, `compacted === agent.messages`)
+	// when there's too little to summarize — nothing was restructured, so don't
+	// reset token counters or record/report a compaction that didn't happen.
+	if (!didCompact) {
+		console.log(`[Agent ${agent.sessionId}] Compaction skipped: not enough content to summarize.`);
+		return;
+	}
+
 	agent.messages = compacted;
 	// Reset — message array is restructured after compaction
 	agent.lastApiInputTokens = 0;

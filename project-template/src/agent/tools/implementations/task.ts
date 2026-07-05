@@ -100,9 +100,14 @@ export async function setCurrentTask(db: Db, sessionId: string, id: string): Pro
 		.returning()
 		.all();
 
+	// Emit unconditionally — tasks are project-wide and can be unassigned
+	// (sessionId null), so a demoted task without a session still needs to
+	// reach the project-wide stream (see the identical fix in updateTask below).
 	for (const prevTask of previousTasks) {
-		if (!prevTask.sessionId) continue;
-		sessionEmitter.emit(prevTask.sessionId, { type: "task_updated", data: { ...prevTask, status: "pending", updatedAt: now } });
+		sessionEmitter.emit(prevTask.sessionId ?? "", {
+			type: "task_updated",
+			data: { ...prevTask, status: "pending", updatedAt: now },
+		});
 	}
 
 	// Set the new current task
@@ -147,13 +152,13 @@ export async function updateTask(
 	}
 	const [updatedTask] = db.update(tasks).set(updates).where(eq(tasks.id, id)).returning().all();
 
-	// Emit task_updated event
-	if (task.sessionId) {
-		sessionEmitter.emit(task.sessionId, {
-			type: "task_updated",
-			data: updatedTask,
-		});
-	}
+	// Emit task_updated event. Tasks are project-wide and can be unassigned
+	// (sessionId null), so emit unconditionally — the project-wide stream still
+	// needs to hear about it even when no session channel matches.
+	sessionEmitter.emit(task.sessionId ?? "", {
+		type: "task_updated",
+		data: updatedTask,
+	});
 
 	return `Updated [${id}]: ${text ?? task.text} → ${status ?? task.status}`;
 }

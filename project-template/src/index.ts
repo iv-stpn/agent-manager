@@ -1,11 +1,18 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { getTasks, initDb, stopRunningSessions } from "./db";
+import z from "zod";
+import { deleteTaskById, getTasks, initDb, stopRunningSessions, updateTaskFields } from "./db";
+import { sessionEmitter } from "./emitter";
 import { env } from "./env";
 import { sessionsRouter } from "./routes/sessions";
 import { globalStreamRouter, streamRouter } from "./routes/stream";
 import type { HonoProjectEnv } from "./types";
+
+const UpdateTaskSchema = z.object({
+	text: z.string().min(1).optional(),
+	status: z.enum(["pending", "in_progress", "done", "cancelled"]).optional(),
+});
 
 // Initialize DB (creates tables if needed)
 const db = initDb(env.DATABASE_PATH);
@@ -29,6 +36,26 @@ app
 		const sessionId = c.req.query("sessionId");
 		const rows = getTasks(db, sessionId || undefined);
 		return c.json(rows);
+	})
+	.put("/api/tasks/:id", async (c) => {
+		const id = c.req.param("id");
+		let body: z.infer<typeof UpdateTaskSchema>;
+		try {
+			body = UpdateTaskSchema.parse(await c.req.json());
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : "Invalid request" }, 400);
+		}
+		const updated = updateTaskFields(db, id, body);
+		if (!updated) return c.json({ error: "Not found" }, 404);
+		// Tasks are project-wide and can be unassigned (sessionId null) — emit
+		// unconditionally so the update still reaches the project-wide stream.
+		sessionEmitter.emit(updated.sessionId ?? "", { type: "task_updated", data: updated });
+		return c.json(updated);
+	})
+	.delete("/api/tasks/:id", (c) => {
+		const deleted = deleteTaskById(db, c.req.param("id"));
+		if (!deleted) return c.json({ error: "Not found" }, 404);
+		return c.json({ success: true });
 	})
 	// Project-wide event stream (every session). api restreams this.
 	.route("/api/stream", globalStreamRouter)

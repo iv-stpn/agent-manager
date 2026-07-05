@@ -22,12 +22,11 @@ interface Props {
 	checkins: Checkin[];
 	questions: Question[];
 	compactions?: Compaction[];
-	mode?: "full" | "sinceLastCompaction";
 }
 
 type TimelineItem = { kind: "checkin"; ci: Checkin } | { kind: "compaction"; c: Compaction };
 
-export function CheckinTimeline({ checkins, questions, compactions = [], mode = "full" }: Props) {
+export function CheckinTimeline({ checkins, questions, compactions = [] }: Props) {
 	if (checkins.length === 0 && compactions.length === 0) {
 		return <p className="text-sm text-muted-foreground text-center py-8">No check-ins yet</p>;
 	}
@@ -36,20 +35,10 @@ export function CheckinTimeline({ checkins, questions, compactions = [], mode = 
 	// Both are fetched ascending by createdAt, so a stable sort keeps equal
 	// timestamps in their original order.
 	// Filter out compaction-triggered checkins since we display compactions separately.
-	let items: TimelineItem[] = [
+	const items: TimelineItem[] = [
 		...checkins.filter((checkin) => checkin.trigger !== "compaction").map((ci) => ({ kind: "checkin" as const, ci })),
 		...compactions.map((compaction) => ({ kind: "compaction" as const, c: compaction })),
 	].sort((timelineItem1, timelineItem2) => timeOf(timelineItem1) - timeOf(timelineItem2));
-
-	// Filter to items since last compaction when in that mode
-	if (mode === "sinceLastCompaction" && compactions.length > 0) {
-		const lastCompactionTime = compactions[compactions.length - 1].createdAt;
-		items = items.filter((item) => timeOf(item) >= lastCompactionTime);
-	}
-
-	if (items.length === 0) {
-		return <p className="text-sm text-muted-foreground text-center py-8">No items in this view</p>;
-	}
 
 	return (
 		<ol className="relative border-l border-border ml-3">

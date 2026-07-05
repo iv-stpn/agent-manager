@@ -20,6 +20,10 @@ export function formatRelativeTime(ts: number): string {
 	return new Date(ts).toLocaleDateString();
 }
 
+export function formatDateTime(ts: number): string {
+	return new Date(ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 export function statusColor(status: string): string {
 	switch (status) {
 		case "running":

@@ -23,7 +23,18 @@ const CreateTechStackSchema = z.object({
 	templateGithubUrl: z.string().url().nullable().optional(),
 });
 
-const UpdateTechStackSchema = CreateTechStackSchema.partial();
+// Hand-written rather than `CreateTechStackSchema.partial()`: zod's `.partial()`
+// doesn't protect fields defined with `.default()` (description, stack) — it
+// leaves the ZodDefault wrapper in place, so an update payload that omits one
+// of those keys still gets it defaulted to "" / [] and silently wipes the
+// existing value in the DB. See the identical bug fixed in llm-clients.ts.
+const UpdateTechStackSchema = z.object({
+	language: z.string().min(1).optional(),
+	name: z.string().min(1).optional(),
+	description: z.string().optional(),
+	stack: z.array(StackEntrySchema).optional(),
+	templateGithubUrl: z.string().url().nullable().optional(),
+});
 
 export const techStacksRouter = new Hono<HonoOrchestratorEnv>()
 	.get("/", (c) => {

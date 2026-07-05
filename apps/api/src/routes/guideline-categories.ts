@@ -10,7 +10,16 @@ const CreateCategorySchema = z.object({
 	color: z.string().default("#6b7280"),
 });
 
-const UpdateCategorySchema = CreateCategorySchema.partial();
+// Hand-written rather than `CreateCategorySchema.partial()`: zod's `.partial()`
+// doesn't protect fields defined with `.default()` (description, color) — it
+// leaves the ZodDefault wrapper in place, so an update payload that omits one
+// of those keys still gets it defaulted and silently wipes the existing value
+// in the DB. See the identical bug fixed in llm-clients.ts.
+const UpdateCategorySchema = z.object({
+	name: z.string().min(1).optional(),
+	description: z.string().optional(),
+	color: z.string().optional(),
+});
 
 export const guidelineCategoriesRouter = new Hono<HonoOrchestratorEnv>()
 	.get("/", (c) => {

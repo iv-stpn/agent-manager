@@ -8,9 +8,19 @@ import { ProjectContextSchema } from "./types";
 const PROJECTS_DIR = ".projects";
 const BASE_SERVER_PORT = 4000;
 
+/** Optional progress callbacks for `createProject`, used by the streaming create route. */
+export interface CreateProjectProgress {
+	onStep?: (step: string, status: "running" | "done" | "error", detail?: string) => void;
+	onLine?: (step: string, line: string) => void;
+}
+
 /** Expand a leading `~` / `~/` in a path to the user's home directory. */
 function expandHome(path: string): string {
 	return path === "~" || path.startsWith("~/") ? path.replace("~", homedir()) : path;
+}
+
+function getErrorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -58,16 +68,86 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
 	await cp(src, dest, { recursive: true });
 }
 
+/** Accumulates chunks and emits complete lines, matching the buffering style docker.ts uses for its streamed output. */
+function makeLineEmitter(onLine?: (line: string) => void) {
+	let buffer = "";
+	return {
+		push(chunk: Buffer) {
+			buffer += chunk.toString();
+			const parts = buffer.split("\n");
+			buffer = parts.pop() ?? "";
+			for (const line of parts) if (line.trim()) onLine?.(line);
+		},
+		flush() {
+			if (buffer.trim()) onLine?.(buffer);
+		},
+	};
+}
+
+/**
+ * Run a shell command with a hard timeout that kills its whole process
+ * group on expiry. `exec`'s built-in `timeout` option only signals the
+ * immediate shell process — grandchildren it forked (a package manager's
+ * own worker processes, a postinstall script) survive as orphans, which
+ * defeats the point of bounding a hung install or clone.
+ */
+async function execWithTimeout(
+	command: string,
+	options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs: number; onLine?: ((line: string) => void) | undefined }
+): Promise<void> {
+	const { spawn } = await import("node:child_process");
+
+	await new Promise<void>((resolvePromise, reject) => {
+		const child = spawn(command, { cwd: options.cwd, env: options.env, shell: true, detached: true });
+
+		const timer = setTimeout(() => {
+			if (child.pid) {
+				try {
+					process.kill(-child.pid, "SIGKILL"); // negative pid: whole process group
+				} catch {
+					// Process group may already be gone.
+				}
+			}
+			reject(new Error(`Command timed out after ${options.timeoutMs}ms: ${command}`));
+		}, options.timeoutMs);
+
+		let stderr = "";
+		const stdoutEmitter = makeLineEmitter(options.onLine);
+		const stderrEmitter = makeLineEmitter(options.onLine);
+		child.stdout?.on("data", (chunk: Buffer) => stdoutEmitter.push(chunk));
+		child.stderr?.on("data", (chunk: Buffer) => {
+			stderr += chunk;
+			stderrEmitter.push(chunk);
+		});
+
+		child.on("error", (err) => {
+			clearTimeout(timer);
+			reject(err);
+		});
+
+		child.on("exit", (code) => {
+			clearTimeout(timer);
+			stdoutEmitter.flush();
+			stderrEmitter.flush();
+			if (code === 0) resolvePromise();
+			else reject(new Error(`Command failed with exit code ${code}: ${command}${stderr ? `\n${stderr}` : ""}`));
+		});
+	});
+}
+
 /**
  * Clone a GitHub repository to a destination directory.
  */
-async function cloneGitHubRepo(repoUrl: string, dest: string): Promise<void> {
-	const { exec } = await import("node:child_process");
-	const { promisify } = await import("node:util");
-	const execAsync = promisify(exec);
-
-	// Clone the repo
-	await execAsync(`git clone ${repoUrl} "${dest}"`);
+async function cloneGitHubRepo(repoUrl: string, dest: string, onLine?: (line: string) => void): Promise<void> {
+	// --depth 1: history is discarded right below anyway. GIT_TERMINAL_PROMPT=0
+	// and a hard timeout: an unreachable/private repo must fail loudly rather
+	// than hang project creation forever with no error surfaced (there's no
+	// controlling tty, so a credential prompt would otherwise block forever).
+	await execWithTimeout(`git clone --depth 1 ${repoUrl} "${dest}"`, {
+		env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+		timeoutMs: 60_000,
+		onLine,
+	});
 
 	// Remove .git directory to make it a fresh project
 	const gitDir = join(dest, ".git");
@@ -85,19 +165,27 @@ async function cloneGitHubRepo(repoUrl: string, dest: string): Promise<void> {
  * this host. Non-Node templates (no package.json) are left uninstalled, and
  * install failures (e.g. no network) are logged but never abort project
  * creation — the workspace is already usable and the install can be retried
- * manually.
+ * manually. A hard timeout backs that guarantee: without one, a stalled
+ * fetch or a postinstall script blocked reading stdin (exec's stdin pipe is
+ * opened but never closed) would hang forever instead of failing into the
+ * catch below. Runs in the background when not awaited by the caller (the
+ * plain, non-streaming create path — see call site), so the timeout can
+ * afford to be generous: large monorepos can legitimately take minutes on a
+ * cold cache. Never throws — returns a result so a streaming caller can
+ * report success/failure without the failure aborting project creation.
  */
-async function installTemplateDependencies(dir: string): Promise<void> {
-	if (!existsSync(join(dir, "package.json"))) return;
-
-	const { exec } = await import("node:child_process");
-	const { promisify } = await import("node:util");
-	const execAsync = promisify(exec);
+async function installTemplateDependencies(
+	dir: string,
+	onLine?: (line: string) => void
+): Promise<{ success: boolean; error?: string }> {
+	if (!existsSync(join(dir, "package.json"))) return { success: true };
 
 	try {
-		await execAsync("bun install", { cwd: dir });
+		await execWithTimeout("bun install", { cwd: dir, timeoutMs: 600_000, env: { ...process.env, CI: "true" }, onLine });
+		return { success: true };
 	} catch (error) {
 		console.error(`Failed to install dependencies in "${dir}" with "bun install":`, error);
+		return { success: false, error: getErrorMessage(error) };
 	}
 }
 
@@ -259,7 +347,7 @@ export class ProjectManager {
 
 	// ── Create ───────────────────────────────────────────────────────────────
 
-	async createProject(input: CreateProjectInput): Promise<ProjectConfig> {
+	async createProject(input: CreateProjectInput, progress?: CreateProjectProgress): Promise<ProjectConfig> {
 		await this.ensureProjectsDir();
 
 		const projectId = input.id
@@ -287,8 +375,43 @@ export class ProjectManager {
 			);
 		}
 
+		try {
+			return await this.initializeProject(input, progress, projectId, projectDir, ports, workspace);
+		} catch (error) {
+			// Nothing above this point touched disk, so any failure from here on can
+			// leave behind a partially seeded project: a half-cloned template, a
+			// projectDir with no docker-compose.yml, etc. Since projectId was confirmed
+			// free at the top of this method, everything under projectDir belongs to
+			// this failed attempt — remove it so the id can be retried and no orphaned
+			// directory lingers on disk. For an external workspace, projectDir never
+			// held the workspace itself, so only clear what this attempt wrote into it.
+			await rm(projectDir, { recursive: true, force: true }).catch(() => {});
+			if (workspace.type === "external" && existsSync(workspace.path)) {
+				const entries = await readdir(workspace.path).catch(() => []);
+				await Promise.all(
+					entries.map((entry) => rm(join(workspace.path, entry), { recursive: true, force: true }).catch(() => {}))
+				);
+			}
+			throw error;
+		}
+	}
+
+	private async initializeProject(
+		input: CreateProjectInput,
+		progress: CreateProjectProgress | undefined,
+		projectId: string,
+		projectDir: string,
+		ports: { server: number },
+		workspace: { path: string; type: "internal" | "external" }
+	): Promise<ProjectConfig> {
+		const step = (name: string, status: "running" | "done" | "error", detail?: string) =>
+			progress?.onStep?.(name, status, detail);
+		const line = (name: string, text: string) => progress?.onLine?.(name, text);
+
 		// Handle template initialization if specified
 		if (input.templates && input.templates.length > 0) {
+			step("workspace", "running", "Setting up workspace...");
+
 			// If the workspace path exists and is not empty, clear its contents first
 			// so the template can be cloned into a clean directory.
 			if (existsSync(workspace.path)) {
@@ -298,6 +421,7 @@ export class ProjectManager {
 
 			// Initialize from templates
 			await mkdir(workspace.path, { recursive: true });
+			step("workspace", "done");
 
 			// If multiple templates, each goes into a subdirectory
 			// If single template without subdirectory, goes directly into workspace
@@ -309,27 +433,48 @@ export class ProjectManager {
 						? join(workspace.path, template.subdirectory || template.source.replace(/[^a-z0-9-]/gi, "-"))
 						: workspace.path;
 
-				if (template.type === "local") {
-					// Copy from local template
-					const templatePath = join(resolveWorkspaceRoot(), "templates", template.source);
-					if (!existsSync(templatePath)) {
-						throw new Error(`Template "${template.source}" not found`);
-					}
+				const seedStep = multipleTemplates ? `seed:${template.source}` : "seed";
+				try {
+					if (template.type === "local") {
+						step(seedStep, "running", `Copying template "${template.source}"...`);
+						// Copy from local template
+						const templatePath = join(resolveWorkspaceRoot(), "templates", template.source);
+						if (!existsSync(templatePath)) {
+							throw new Error(`Template "${template.source}" not found`);
+						}
 
-					if (targetPath !== workspace.path) {
+						if (targetPath !== workspace.path) {
+							await mkdir(targetPath, { recursive: true });
+						}
+
+						await copyDirectory(templatePath, targetPath);
+					} else if (template.type === "github") {
+						step(seedStep, "running", `Cloning ${template.source}...`);
+						// Clone from GitHub
 						await mkdir(targetPath, { recursive: true });
+						await cloneGitHubRepo(template.source, targetPath, (l) => line(seedStep, l));
 					}
-
-					await copyDirectory(templatePath, targetPath);
-				} else if (template.type === "github") {
-					// Clone from GitHub
-					await mkdir(targetPath, { recursive: true });
-					await cloneGitHubRepo(template.source, targetPath);
+					step(seedStep, "done");
+				} catch (error) {
+					step(seedStep, "error", getErrorMessage(error));
+					throw error;
 				}
 
-				// Install dependencies for this template (root workspace, or its
-				// own subdirectory when multiple templates are seeded).
-				await installTemplateDependencies(targetPath);
+				// Install dependencies for this template (root workspace, or its own
+				// subdirectory when multiple templates are seeded). When a progress
+				// callback is given (streaming create), this is awaited so the caller
+				// sees real completion; otherwise it's fire-and-forget — this can take
+				// minutes for a large monorepo, and the plain create response shouldn't
+				// block on it. installTemplateDependencies handles/logs its own failures
+				// either way, so a slow/failed install never aborts project creation.
+				const installStep = multipleTemplates ? `install:${template.source}` : "install";
+				if (progress && existsSync(join(targetPath, "package.json"))) {
+					step(installStep, "running", "Installing dependencies...");
+					const result = await installTemplateDependencies(targetPath, (l) => line(installStep, l));
+					step(installStep, result.success ? "done" : "error", result.error);
+				} else {
+					void installTemplateDependencies(targetPath);
+				}
 			}
 		}
 
@@ -346,6 +491,8 @@ export class ProjectManager {
 			status: "stopped",
 			binaries: input.binaries,
 		};
+
+		step("finalize", "running", "Writing project configuration...");
 
 		// Create project directory structure
 		await mkdir(projectDir, { recursive: true });
@@ -371,6 +518,8 @@ export class ProjectManager {
 				templates: input.templates,
 			});
 		}
+
+		step("finalize", "done");
 
 		return config;
 	}
@@ -495,6 +644,10 @@ export class ProjectManager {
 		const envLines = [
 			`      DATABASE_PATH: /data/agent.db`,
 			`      WORKSPACE_PATH: /workspace`,
+			// The container runs as the host uid (see userLine below) so bind-mounted
+			// files stay host-owned; that uid has no /etc/passwd entry inside the
+			// container, so $HOME must be set explicitly to a writable path.
+			`      HOME: /tmp`,
 			`      ORCHESTRATOR_API_URL: http://host.docker.internal:${process.env.ORCHESTRATOR_PORT ?? 3100}`,
 			`      PORT: "${config.ports.server}"`,
 			`      PROJECT_ID: "${projectId}"`,
@@ -524,6 +677,16 @@ export class ProjectManager {
 
 		const clientIdComment = config.agent?.clientId ? `# LLM Client ID: ${config.agent.clientId}\n` : "";
 
+		// Run the container as the host user so files the agent creates in the
+		// bind-mounted /workspace and /data are host-owned. Without this the
+		// container's default root user creates root-owned entries there, which
+		// this (non-root) process can then fail to delete with EPERM/EACCES —
+		// e.g. in deleteProject below. getuid/getgid are POSIX-only (no-op on Windows).
+		const userLine =
+			typeof process.getuid === "function" && typeof process.getgid === "function"
+				? `    user: "${process.getuid()}:${process.getgid()}"\n`
+				: "";
+
 		const dockerCompose = `# Project: ${config.name}
 # Created: ${config.createdAt}
 ${binariesComment}${clientIdComment}
@@ -534,7 +697,7 @@ services:
     build:
       context: ${buildContext}
       dockerfile: ${dockerfilePath}
-    environment:
+${userLine}    environment:
 ${envLines.join("\n")}
     extra_hosts:
       - "host.docker.internal:host-gateway"
