@@ -3,12 +3,17 @@ import { join } from "node:path";
 const GIT_AUTHOR_NAME = "Claude Agent";
 const GIT_AUTHOR_EMAIL = "agent@agent-manager.local";
 
-/** Run a git command in the workspace, returning its exit code and trimmed stdout. */
+/** Run a git command in the workspace, returning its exit code and trimmed stdout.
+ * Streams are read concurrently with the exit wait — reading after exit deadlocks
+ * once output exceeds the OS pipe buffer. */
 async function git(workspace: string, args: string[]): Promise<{ exitCode: number; stdout: string }> {
 	const proc = Bun.spawn(["git", "-C", workspace, ...args], { stdout: "pipe", stderr: "pipe" });
-	const exitCode = await proc.exited;
-	const stdout = (await new Response(proc.stdout).text()).trim();
-	return { exitCode, stdout };
+	const [stdout, , exitCode] = await Promise.all([
+		new Response(proc.stdout).text(),
+		new Response(proc.stderr).text(),
+		proc.exited,
+	]);
+	return { exitCode, stdout: stdout.trim() };
 }
 
 export async function isGitRepo(workspace: string): Promise<boolean> {
@@ -107,9 +112,12 @@ export async function commitChanges(workspace: string, message: string, runQuali
 			stdout: "pipe",
 			stderr: "pipe",
 		});
-		const exitCode = await proc.exited;
-		const stdout = await new Response(proc.stdout).text();
-		const stderr = await new Response(proc.stderr).text();
+		// Read streams concurrently with the exit wait (pipe-buffer deadlock otherwise)
+		const [stdout, stderr, exitCode] = await Promise.all([
+			new Response(proc.stdout).text(),
+			new Response(proc.stderr).text(),
+			proc.exited,
+		]);
 		const combined = [stdout, stderr].filter(Boolean).join("\n").trim();
 		return { ok: exitCode === 0, out: combined };
 	};

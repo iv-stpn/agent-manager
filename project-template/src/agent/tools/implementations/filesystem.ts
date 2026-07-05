@@ -1,23 +1,36 @@
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { env } from "../../../env";
-import { executeBash } from "./commands";
+import { executeBash, runGrep } from "./commands";
 
 const WORKSPACE = env.WORKSPACE_PATH;
 
-/** Resolve a path to an absolute path within the workspace sandbox */
-function sandboxPath(path: string): string {
-	if (path.startsWith("/")) {
-		if (!path.startsWith(WORKSPACE)) return join(WORKSPACE, path.replace(/^\/+/, ""));
-		return path;
-	}
-	return join(WORKSPACE, path);
+function isWithinWorkspace(abs: string): boolean {
+	const rel = relative(WORKSPACE, abs);
+	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
+
+/** Resolve a path to an absolute path within the workspace sandbox.
+ * Absolute paths outside the workspace are re-rooted into it; `..` segments
+ * that would escape the workspace after resolution are rejected. */
+function sandboxPath(path: string): string {
+	const candidate = isAbsolute(path)
+		? isWithinWorkspace(resolve(path))
+			? resolve(path)
+			: join(WORKSPACE, path.replace(/^\/+/, ""))
+		: join(WORKSPACE, path);
+	const abs = resolve(candidate);
+	if (!isWithinWorkspace(abs)) throw new Error(`Path escapes the workspace sandbox: ${path}`);
+	return abs;
+}
+
+const READ_FILE_MAX_CHARS = 20_000;
 
 export async function readFile(path: string): Promise<string> {
 	const abs = sandboxPath(path);
 	try {
 		const text = await Bun.file(abs).text();
-		return text.slice(0, 20_000);
+		if (text.length <= READ_FILE_MAX_CHARS) return text;
+		return `${text.slice(0, READ_FILE_MAX_CHARS)}\n\n[Truncated: ${text.length.toLocaleString()} chars total, showing first ${READ_FILE_MAX_CHARS.toLocaleString()}. Use read_file_range for the rest.]`;
 	} catch (err) {
 		throw new Error(`Cannot read ${path}: ${err}`);
 	}
@@ -42,14 +55,12 @@ export async function searchFiles(
 	maxResults = 100
 ): Promise<string> {
 	const abs = sandboxPath(path);
-	const caseFlag = caseSensitive ? "" : "-i";
-	const includeFlag = filePattern === "*" ? "" : `--include="${filePattern}"`;
-
-	const cmd = `cd "${abs}" && grep -rn ${caseFlag} ${includeFlag} -E "${pattern.replace(/"/g, '\\"')}" . 2>/dev/null | head -${maxResults}`;
-	const result = await executeBash(cmd, 15_000);
-
-	if (result.exitCode !== 0 && !result.stdout) return "No matches found.";
-	return result.stdout || "No matches found.";
+	return runGrep(pattern, {
+		path: abs,
+		caseSensitive,
+		maxResults,
+		...(filePattern !== "*" && { include: filePattern }),
+	});
 }
 
 export async function editFile(path: string, oldString: string, newString: string, replaceAll = false): Promise<string> {
