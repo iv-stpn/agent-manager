@@ -8,6 +8,7 @@ import {
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { deleteProjectCategory } from "../discord/channels";
 import { env } from "../env";
 import { getErrorMessage } from "../lib/errors";
 import type { HonoOrchestratorEnv } from "../types";
@@ -343,6 +344,9 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 				// Ignore if already stopped
 			}
 			await Promise.all([manager.deleteProject(projectId), dropLanceTable(projectId)]);
+			// Best-effort: remove the project's Discord category + channels so the
+			// guild doesn't accumulate orphans (no-op when Discord is disabled).
+			deleteProjectCategory(projectId).catch(() => {});
 			hub.projectStopped(projectId);
 			return c.json({ success: true });
 		} catch (error) {
@@ -390,6 +394,8 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 				// Delete project data
 				await send("delete-project", "running", "Deleting project...");
 				await Promise.all([manager.deleteProject(projectId), dropLanceTable(projectId)]);
+				// Best-effort Discord cleanup (no-op when Discord is disabled)
+				deleteProjectCategory(projectId).catch(() => {});
 				hub.projectStopped(projectId);
 				await send("delete-project", "done", "Project deleted");
 
