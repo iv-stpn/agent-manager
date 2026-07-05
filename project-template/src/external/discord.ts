@@ -20,7 +20,7 @@ export interface CheckinFormResult {
 	confirmed: boolean;
 }
 
-export interface QuestionOption {
+interface QuestionOption {
 	label: string;
 	description: string;
 }
@@ -83,38 +83,4 @@ export async function sendQuestions(
 	}
 	const data = (await res.json()) as { answers: Record<string, string> };
 	return { answers: data.answers, completed: Object.keys(data.answers).length > 0 };
-}
-
-/**
- * Send a plain message to the session's Discord channel.
- */
-export async function sendMessage(sessionId: string, content: string): Promise<void> {
-	const res = await fetch(`${ORCHESTRATOR_API_URL}/api/projects/${PROJECT_ID}/discord/message`, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ sessionId, content }),
-	});
-	if (!res.ok) {
-		const errorText = await res.text().catch(() => "Unknown error");
-		throw new Error(`Discord message failed (${res.status}): ${errorText}`);
-	}
-}
-
-/**
- * Send a rendered Mermaid graph (PNG buffer) to the session's Discord channel.
- */
-export async function sendGraph(sessionId: string, png: Buffer, title?: string): Promise<void> {
-	const formData = new FormData();
-	formData.append("sessionId", sessionId);
-	if (title) formData.append("title", title);
-	formData.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "graph.png");
-
-	const res = await fetch(`${ORCHESTRATOR_API_URL}/api/projects/${PROJECT_ID}/discord/graph`, {
-		method: "POST",
-		body: formData,
-	});
-	if (!res.ok) {
-		const errorText = await res.text().catch(() => "Unknown error");
-		throw new Error(`Discord graph upload failed (${res.status}): ${errorText}`);
-	}
 }

@@ -387,12 +387,12 @@ export function validateSetCurrentTask(input: Input): asserts input is SetCurren
 
 // ── Questions ─────────────────────────────────────────────────────────────────
 
-export interface AskUserQuestionOption {
+interface AskUserQuestionOption {
 	label: string;
 	description: string;
 }
 
-export interface AskUserQuestionItem {
+interface AskUserQuestionItem {
 	question: string;
 	header: string;
 	options: AskUserQuestionOption[];

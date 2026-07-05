@@ -140,7 +140,7 @@ export async function executeTools(
 	return results;
 }
 
-export async function dispatchTool(agent: AgentState, name: ToolName, input: Record<string, unknown>): Promise<string> {
+async function dispatchTool(agent: AgentState, name: ToolName, input: Record<string, unknown>): Promise<string> {
 	// ── Plan mode enforcement ────────────────────────────────────────────────────
 	if (agent.planMode) {
 		if (!PLAN_MODE_TOOLS.has(name)) return PLAN_MODE_BLOCKED_MESSAGE;

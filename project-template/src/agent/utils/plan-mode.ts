@@ -118,10 +118,6 @@ export function isBashCommandReadOnly(command: string): boolean {
 	return false;
 }
 
-export function isPlanModeToolAllowed(toolName: string): boolean {
-	return PLAN_MODE_TOOLS.has(toolName);
-}
-
 export const PLAN_MODE_BLOCKED_MESSAGE =
 	"⚠️ Tool blocked: you are in plan mode (read-only). Use `exit_plan_mode` to resume full access, or use read-only tools (grep, glob, read_file, list_directory, search_files, bash with read-only commands) to continue planning.";
 

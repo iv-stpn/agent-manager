@@ -19,15 +19,15 @@ import { calculateTokenWarningState, MODEL_CONTEXT_WINDOW } from "../token-budge
 import type { AgentState } from "../types";
 import { classifyApiError } from "../utils/errors";
 import { bootstrapWorkspace, buildStartupContext } from "../workspace";
-import { callAnthropicApi, recordApiTokens, recordAssistantMessage, requestSummary } from "./api";
-import { buildImproveMessage, handleStopThreshold, handleTotalTimeout, triggerReport } from "./reports";
+import { callAnthropicApi, recordApiTokens, recordAssistantMessage } from "./api";
+import { buildImproveMessage, handleStopThreshold, handleTotalTimeout, triggerAutoReport, triggerReport } from "./reports";
 import { emitMessage, setStatus } from "./status";
 import { executeTools } from "./tools";
 import { runVerificationSuite } from "./verification";
 
 /** Push a message onto the list, merging same-role consecutive turns to keep
  * strict user/assistant alternation required by the Anthropic API. */
-export function pushOrMergeMessage(messages: MessageParam[], role: "user" | "assistant", content: MessageParam["content"]): void {
+function pushOrMergeMessage(messages: MessageParam[], role: "user" | "assistant", content: MessageParam["content"]): void {
 	const last = messages[messages.length - 1];
 	if (last?.role === role) {
 		// Merge into the previous turn. When either side is a block array, the
@@ -177,7 +177,7 @@ export async function doCompaction(agent: AgentState): Promise<void> {
  * unfixable suite from ping-ponging until the token budget kills the session. */
 const MAX_VERIFICATION_ROUNDS = 3;
 
-export async function runLoop(agent: AgentState): Promise<void> {
+async function runLoop(agent: AgentState): Promise<void> {
 	try {
 		// ── Main agent loop ────────────────────────────────────────────────
 		while (!agent.stopped && !agent.pauseRequested) {
@@ -237,8 +237,7 @@ export async function runLoop(agent: AgentState): Promise<void> {
 			// Auto-report interval
 			const reportIntervalMs = agent.config.reportIntervalMins * 60_000;
 			if (reportIntervalMs > 0 && Date.now() - (agent.lastReportTime ?? agent.startTime) >= reportIntervalMs) {
-				const summary = await requestSummary(agent);
-				await triggerReport(agent, { title: "⏱ Scheduled Report", sections: [{ title: "Progress", content: summary }] }, "timer");
+				await triggerAutoReport(agent);
 				agent.lastReportTime = Date.now();
 			}
 

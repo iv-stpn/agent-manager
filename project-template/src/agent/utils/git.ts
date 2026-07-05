@@ -50,7 +50,7 @@ export async function initGitRepo(workspace: string): Promise<string> {
 	return `Git repo initialised in ${workspace}.`;
 }
 
-export async function getCurrentCommit(workspace: string): Promise<string | null> {
+async function getCurrentCommit(workspace: string): Promise<string | null> {
 	const { exitCode, stdout } = await git(workspace, ["rev-parse", "HEAD"]);
 	return exitCode === 0 ? stdout.slice(0, 12) : null;
 }
@@ -61,7 +61,7 @@ export interface CommitResult {
 	commit: string | null;
 }
 
-export async function detectQualityCommands(workspace: string): Promise<string[]> {
+async function detectQualityCommands(workspace: string): Promise<string[]> {
 	const commands: string[] = [];
 
 	// Node / Bun project

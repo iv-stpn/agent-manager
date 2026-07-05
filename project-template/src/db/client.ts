@@ -9,23 +9,11 @@ import { env } from "../env";
 
 export type Db = ReturnType<typeof drizzle<typeof schema>>;
 
-let _db: ReturnType<typeof drizzle> | null = null;
-
 function ensureDir(path: string) {
 	const dir = dirname(path);
 	if (dir && dir !== ".") {
 		mkdirSync(dir, { recursive: true });
 	}
-}
-
-export function getDb(path = env.DATABASE_PATH) {
-	if (_db) return _db;
-	ensureDir(path);
-	const sqlite = new Database(path, { create: true });
-	sqlite.exec("PRAGMA journal_mode = WAL;");
-	sqlite.exec("PRAGMA foreign_keys = ON;");
-	_db = drizzle(sqlite, { schema });
-	return _db;
 }
 
 export function initDb(path = env.DATABASE_PATH) {

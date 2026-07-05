@@ -115,19 +115,6 @@ export async function createDirectory(path: string): Promise<string> {
 	return `Created directory ${path}`;
 }
 
-export async function getFileInfo(path: string): Promise<string> {
-	const abs = sandboxPath(path);
-
-	const result = await executeBash(
-		`stat -f "Size: %z bytes\nModified: %Sm\nType: %HT\nPermissions: %Sp" "${abs}" 2>/dev/null || stat --format="Size: %s bytes\nModified: %y\nType: %F\nPermissions: %A" "${abs}" 2>/dev/null`
-	);
-	if (result.exitCode !== 0) throw new Error(`Cannot get info for ${path}: file not found`);
-
-	const wcResult = await executeBash(`wc -l "${abs}" 2>/dev/null`);
-	const lines = wcResult.exitCode === 0 ? `\nLines: ${wcResult.stdout.trim().split(/\s+/)[0]}` : "";
-	return result.stdout + lines;
-}
-
 export async function readFileRange(path: string, startLine: number, endLine: number): Promise<string> {
 	const abs = sandboxPath(path);
 

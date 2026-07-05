@@ -3,9 +3,9 @@ import type { MessageParam } from "@anthropic-ai/sdk/resources";
 import type { Db } from "../db";
 import type { CompactionCircuitBreaker, TokenWarningState } from "./token-budget";
 
-export type AlwaysImproveMode = "yes" | "no" | "custom";
-export type AwaitAskMode = "always" | "requiredOnly" | "onReportOnly" | "never";
-export type AwaitReportMode = "always" | "never" | "custom";
+type AlwaysImproveMode = "yes" | "no" | "custom";
+type AwaitAskMode = "always" | "requiredOnly" | "onReportOnly" | "never";
+type AwaitReportMode = "always" | "never" | "custom";
 
 /** Runtime configuration for an agent session. Mirrors the session DB columns. */
 export type AgentStateConfig = {

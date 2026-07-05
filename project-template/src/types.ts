@@ -1,6 +1,6 @@
 import type { Db } from "./db";
 
-export type HonoProjectVariables = {
+type HonoProjectVariables = {
 	db: Db;
 };
 

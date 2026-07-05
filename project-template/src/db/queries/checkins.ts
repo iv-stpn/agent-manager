@@ -32,19 +32,6 @@ export function answerQuestion(db: Db, id: string, answer: string) {
 	db.update(questions).set({ answer, answeredAt: Date.now() }).where(eq(questions.id, id)).run();
 }
 
-export function updateQuestionCheckin(db: Db, id: string, checkinId: string) {
-	db.update(questions).set({ checkinId }).where(eq(questions.id, id)).run();
-}
-
-export function getPendingQuestions(db: Db, sessionId: string): Question[] {
-	return db
-		.select()
-		.from(questions)
-		.where(eq(questions.sessionId, sessionId))
-		.all()
-		.filter((query) => query.answer === null);
-}
-
 export function getQuestions(db: Db, sessionId: string): Question[] {
 	return db.select().from(questions).where(eq(questions.sessionId, sessionId)).orderBy(asc(questions.createdAt)).all();
 }

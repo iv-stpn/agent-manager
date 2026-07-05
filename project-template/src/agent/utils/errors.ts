@@ -18,7 +18,7 @@ export class AgentError extends Error {
 	}
 }
 
-export class ApiRateLimitError extends AgentError {
+class ApiRateLimitError extends AgentError {
 	readonly retryAfterMs: number;
 
 	constructor(message: string, retryAfterMs = 5000) {
@@ -28,45 +28,28 @@ export class ApiRateLimitError extends AgentError {
 	}
 }
 
-export class ApiOverloadError extends AgentError {
+class ApiOverloadError extends AgentError {
 	constructor(message = "API overloaded") {
 		super(message, "overload", true);
 		this.name = "ApiOverloadError";
 	}
 }
 
-export class ApiAuthError extends AgentError {
+class ApiAuthError extends AgentError {
 	constructor(message = "Authentication failed") {
 		super(message, "auth", false);
 		this.name = "ApiAuthError";
 	}
 }
 
-export class ApiInvalidRequestError extends AgentError {
+class ApiInvalidRequestError extends AgentError {
 	constructor(message: string) {
 		super(message, "invalid_request", false);
 		this.name = "ApiInvalidRequestError";
 	}
 }
 
-export class ToolExecutionError extends AgentError {
-	readonly toolName: string;
-
-	constructor(toolName: string, message: string) {
-		super(message, "tool_execution", false);
-		this.name = "ToolExecutionError";
-		this.toolName = toolName;
-	}
-}
-
-export class CompactionError extends AgentError {
-	constructor(message = "Context compaction failed") {
-		super(message, "compaction", true);
-		this.name = "CompactionError";
-	}
-}
-
-export class NetworkError extends AgentError {
+class NetworkError extends AgentError {
 	constructor(message = "Network error") {
 		super(message, "network", true);
 		this.name = "NetworkError";

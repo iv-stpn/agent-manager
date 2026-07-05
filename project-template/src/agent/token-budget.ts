@@ -18,7 +18,7 @@ const MAX_OUTPUT_TOKENS_FOR_SUMMARY = 20_000;
  * Effective window = context window minus space reserved for summary output.
  * For small windows (<100K) use 20% instead of a fixed 20K.
  */
-export function getEffectiveContextWindow(): number {
+function getEffectiveContextWindow(): number {
 	const reserved = Math.min(MAX_OUTPUT_TOKENS_FOR_SUMMARY, Math.floor(MODEL_CONTEXT_WINDOW * 0.2));
 	return MODEL_CONTEXT_WINDOW - reserved;
 }
@@ -36,17 +36,17 @@ function scaleBuffer(buffer: number, effectiveWindow: number): number {
 	return Math.round(buffer * (effectiveWindow / REFERENCE_WINDOW));
 }
 
-export function getAutoCompactThreshold(): number {
+function getAutoCompactThreshold(): number {
 	const effective = getEffectiveContextWindow();
 	return Math.max(0, effective - scaleBuffer(AUTOCOMPACT_BUFFER_TOKENS, effective));
 }
 
-export function getWarningThreshold(): number {
+function getWarningThreshold(): number {
 	const effective = getEffectiveContextWindow();
 	return Math.max(0, effective - scaleBuffer(WARNING_THRESHOLD_BUFFER_TOKENS, effective));
 }
 
-export function getBlockingLimit(): number {
+function getBlockingLimit(): number {
 	const effective = getEffectiveContextWindow();
 	return Math.max(0, effective - scaleBuffer(BLOCKING_BUFFER_TOKENS, effective));
 }

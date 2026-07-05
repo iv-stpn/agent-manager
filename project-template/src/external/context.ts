@@ -8,18 +8,18 @@ import { env } from "../env";
 const ORCHESTRATOR_API_URL = env.ORCHESTRATOR_API_URL;
 const PROJECT_ID = env.PROJECT_ID;
 
-export interface StackLibrary {
+interface StackLibrary {
 	name: string;
 	version?: string;
 }
 
-export interface StackEntry {
+interface StackEntry {
 	label: string;
 	libraries: StackLibrary[];
 	usagePatterns: string[];
 }
 
-export interface TechStack {
+interface TechStack {
 	id: string;
 	language: string;
 	name: string;
@@ -27,7 +27,7 @@ export interface TechStack {
 	stack: StackEntry[];
 }
 
-export interface Guideline {
+interface Guideline {
 	id: string;
 	name: string;
 	description: string;
@@ -68,9 +68,4 @@ export async function fetchProjectContext(): Promise<ResolvedProjectContext> {
 	} catch {
 		return EMPTY_CONTEXT;
 	}
-}
-
-/** Invalidate the cached context (e.g. after a context update). */
-export function invalidateContextCache(): void {
-	cached = null;
 }
