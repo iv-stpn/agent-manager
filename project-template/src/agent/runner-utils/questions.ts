@@ -11,10 +11,10 @@ import { shouldAwait } from "./reports";
 import { setStatus } from "./status";
 
 /**
- * Record an answer for a question in the database and update its vector memory entry.
- * Called after a check-in is confirmed with answers.
+ * Record an answer for a question in the database and update its vector memory
+ * entry. Called when ask_user_question answers arrive (blocking or deferred).
  */
-export async function recordAnswer(db: Db, questionId: string, answer: string): Promise<void> {
+async function recordAnswer(db: Db, questionId: string, answer: string): Promise<void> {
 	answerQuestion(db, questionId, answer);
 
 	// Update the question's vector memory entry with the answer (best-effort)
@@ -36,10 +36,14 @@ export async function handleAskUserQuestion(agent: AgentState, input: AskUserQue
 	const title = input.title ?? "Questions";
 	const urgent = input.urgent ?? false;
 
-	// Record each question in DB + memory
+	// Record each question in DB + memory. Answers come back keyed by header,
+	// so keep the header → row-id mapping to record them against the right row.
+	const questionIdByHeader = new Map<string, string>();
 	for (const item of input.questions) {
+		const questionId = nanoid();
+		questionIdByHeader.set(item.header, questionId);
 		insertQuestion(agent.db, {
-			id: nanoid(),
+			id: questionId,
 			sessionId: agent.sessionId,
 			text: item.question,
 			context: input.context ?? null,
@@ -55,13 +59,21 @@ export async function handleAskUserQuestion(agent: AgentState, input: AskUserQue
 		).catch(() => {});
 	}
 
+	const persistAnswers = async (answers: Record<string, string>): Promise<void> => {
+		for (const [header, answer] of Object.entries(answers)) {
+			const questionId = questionIdByHeader.get(header);
+			if (questionId) await recordAnswer(agent.db, questionId, answer);
+		}
+	};
+
 	// In "never" mode: fire the question to Discord in the background and return
 	// immediately. When the user eventually replies, inject the answers as a
 	// steering message so the agent picks them up at the start of its next turn.
 	if (agent.config.awaitAskMode === "never") {
 		sendQuestions(agent.sessionId, title, input.questions, urgent)
-			.then((result) => {
+			.then(async (result) => {
 				if (!result.completed) return;
+				await persistAnswers(result.answers);
 				const answersText = Object.entries(result.answers)
 					.map(([header, answer]) => `- ${header}: ${answer}`)
 					.join("\n");
@@ -77,6 +89,7 @@ export async function handleAskUserQuestion(agent: AgentState, input: AskUserQue
 	const result = await sendQuestions(agent.sessionId, title, input.questions, urgent, agent.abortController.signal);
 
 	if (result.completed) {
+		await persistAnswers(result.answers);
 		const answersText = Object.entries(result.answers)
 			.map(([header, answer]) => `- ${header}: ${answer}`)
 			.join("\n");
