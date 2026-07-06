@@ -43,14 +43,32 @@ export function addTokens(
 ): void {
 	const session = getSession(db, id);
 	if (!session) return;
+	// The prompt occupying the window this call. Invariant to cache behavior:
+	// a cache miss only shifts tokens from cacheRead into input, the sum stays
+	// the same — so deltas derived from it never re-count re-read context.
+	const promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
+	// New prompt tokens added since the previous call (user/tool-result content).
+	// The previous contextTokens already includes the previous output, which the
+	// current prompt re-contains as an assistant message, so the delta is purely
+	// what was appended. Clamped: the prompt shrinks on restart (error rows are
+	// dropped from the rebuild), which must not produce negative additions.
+	const inputAdded = Math.max(0, promptTokens - session.contextTokens);
 	updateSession(db, id, {
+		// Totals stay billing sums: what the API actually charged per call.
 		totalInputTokens: session.totalInputTokens + inputTokens,
 		totalOutputTokens: session.totalOutputTokens + outputTokens,
 		totalCacheReadTokens: session.totalCacheReadTokens + cacheReadTokens,
 		totalCacheWriteTokens: session.totalCacheWriteTokens + cacheWriteTokens,
-		tokensInputSinceCompaction: session.tokensInputSinceCompaction + inputTokens,
+		// Since-compaction input/output track context composition, not billing:
+		// input added + output generated ≈ current context size, so these read
+		// directly against compactThresholdTokens. Cache counters remain billing
+		// sums (a per-call metric has no context interpretation).
+		tokensInputSinceCompaction: session.tokensInputSinceCompaction + inputAdded,
 		tokensOutputSinceCompaction: session.tokensOutputSinceCompaction + outputTokens,
 		tokensCacheReadSinceCompaction: session.tokensCacheReadSinceCompaction + cacheReadTokens,
 		tokensCacheWriteSinceCompaction: session.tokensCacheWriteSinceCompaction + cacheWriteTokens,
+		// Live context size: everything this call put in the window. This is the
+		// metric the auto-compaction trigger compares against compactThresholdTokens.
+		contextTokens: promptTokens + outputTokens,
 	});
 }

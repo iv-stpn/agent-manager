@@ -271,6 +271,7 @@ const acquireSessionStream = connectionManager((_key: string, sessionId: string,
 								tokensOutputSinceCompaction: event.data.tokensOutputSinceCompaction,
 								tokensCacheReadSinceCompaction: event.data.tokensCacheReadSinceCompaction,
 								tokensCacheWriteSinceCompaction: event.data.tokensCacheWriteSinceCompaction,
+								contextTokens: event.data.contextTokens,
 							}
 						: session
 				);

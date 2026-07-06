@@ -39,6 +39,11 @@ const ADDED_COLUMNS: Record<string, Array<{ name: string; ddl: string }>> = {
 			name: "tokens_cache_write_since_compaction",
 			ddl: "ALTER TABLE sessions ADD COLUMN tokens_cache_write_since_compaction INTEGER NOT NULL DEFAULT 0",
 		},
+		// Live context size (the compaction-trigger metric). Default 0 on old rows.
+		{
+			name: "context_tokens",
+			ddl: "ALTER TABLE sessions ADD COLUMN context_tokens INTEGER NOT NULL DEFAULT 0",
+		},
 	],
 };
 

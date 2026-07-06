@@ -123,6 +123,7 @@ export function recordApiTokens(
 			tokensOutputSinceCompaction: totals?.tokensOutputSinceCompaction ?? 0,
 			tokensCacheReadSinceCompaction: totals?.tokensCacheReadSinceCompaction ?? 0,
 			tokensCacheWriteSinceCompaction: totals?.tokensCacheWriteSinceCompaction ?? 0,
+			contextTokens: totals?.contextTokens ?? 0,
 		},
 	});
 }

@@ -22,6 +22,7 @@ export type TokenUpdatePayload = {
 	tokensOutputSinceCompaction: number;
 	tokensCacheReadSinceCompaction: number;
 	tokensCacheWriteSinceCompaction: number;
+	contextTokens: number;
 };
 
 export type TokenWarningPayload = {

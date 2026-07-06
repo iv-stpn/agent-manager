@@ -544,6 +544,31 @@ export default function SessionPage() {
 								</Card>
 								<Card>
 									<CardContent className="pt-4 pb-3">
+										<div className="flex items-baseline justify-between">
+											<p className="text-sm text-muted-foreground">Context size</p>
+											<p className="text-sm font-mono">
+												{formatTokens(session.contextTokens)}
+												{session.compactThresholdTokens > 0 && <> / {formatTokens(session.compactThresholdTokens)}</>}
+											</p>
+										</div>
+										{session.compactThresholdTokens > 0 && (
+											<div className="mt-2 h-1.5 w-full rounded-full bg-muted">
+												<div
+													className="h-1.5 rounded-full bg-orange-500"
+													style={{
+														width: `${Math.min(100, (session.contextTokens / session.compactThresholdTokens) * 100)}%`,
+													}}
+												/>
+											</div>
+										)}
+										<p className="text-[10px] text-muted-foreground mt-1">
+											Live context from the last model call — auto-compaction triggers when this reaches the threshold. Input +
+											output since the last compaction approximately compose it; cache rows are cumulative API billing.
+										</p>
+									</CardContent>
+								</Card>
+								<Card>
+									<CardContent className="pt-4 pb-3">
 										<table className="w-full text-sm">
 											<thead>
 												<tr className="border-b">
@@ -555,36 +580,22 @@ export default function SessionPage() {
 											<tbody>
 												<tr className="border-b">
 													<td className="py-2 text-muted-foreground">Input tokens</td>
-													<td className="py-2 text-right font-mono">
-														{formatTokens(compactions.length > 0 ? session.tokensInputSinceCompaction : session.totalInputTokens)}
-													</td>
+													<td className="py-2 text-right font-mono">{formatTokens(session.tokensInputSinceCompaction)}</td>
 													<td className="py-2 text-right font-mono">{formatTokens(session.totalInputTokens)}</td>
 												</tr>
 												<tr className="border-b">
 													<td className="py-2 text-muted-foreground">Output tokens</td>
-													<td className="py-2 text-right font-mono">
-														{formatTokens(
-															compactions.length > 0 ? session.tokensOutputSinceCompaction : session.totalOutputTokens
-														)}
-													</td>
+													<td className="py-2 text-right font-mono">{formatTokens(session.tokensOutputSinceCompaction)}</td>
 													<td className="py-2 text-right font-mono">{formatTokens(session.totalOutputTokens)}</td>
 												</tr>
 												<tr className="border-b">
 													<td className="py-2 text-muted-foreground">Cache read tokens</td>
-													<td className="py-2 text-right font-mono">
-														{formatTokens(
-															compactions.length > 0 ? session.tokensCacheReadSinceCompaction : session.totalCacheReadTokens
-														)}
-													</td>
+													<td className="py-2 text-right font-mono">{formatTokens(session.tokensCacheReadSinceCompaction)}</td>
 													<td className="py-2 text-right font-mono">{formatTokens(session.totalCacheReadTokens)}</td>
 												</tr>
 												<tr>
 													<td className="py-2 text-muted-foreground">Cache write tokens</td>
-													<td className="py-2 text-right font-mono">
-														{formatTokens(
-															compactions.length > 0 ? session.tokensCacheWriteSinceCompaction : session.totalCacheWriteTokens
-														)}
-													</td>
+													<td className="py-2 text-right font-mono">{formatTokens(session.tokensCacheWriteSinceCompaction)}</td>
 													<td className="py-2 text-right font-mono">{formatTokens(session.totalCacheWriteTokens)}</td>
 												</tr>
 											</tbody>
