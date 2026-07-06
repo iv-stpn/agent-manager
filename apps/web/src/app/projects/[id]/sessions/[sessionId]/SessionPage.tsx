@@ -440,7 +440,6 @@ export default function SessionPage() {
 							messages={messageSegments.find((segment) => segment.key === timelineTab)?.messages ?? messages}
 							toolCalls={toolCalls}
 							sessionStatus={session.status}
-							pendingToolCalls={toolCalls.filter((tc) => tc.status === "pending").length}
 							streamingText={streamingText}
 							streamingThinking={streamingThinking}
 							streamingToolcall={streamingToolcall}
