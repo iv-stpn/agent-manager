@@ -237,6 +237,7 @@ An autonomous agent run within a project. Holds the task, its runtime configurat
 | `tokens_output_since_compaction` | `integer` | not null, default `0` | — |
 | `tokens_cache_read_since_compaction` | `integer` | not null, default `0` | — |
 | `tokens_cache_write_since_compaction` | `integer` | not null, default `0` | — |
+| `context_tokens` | `integer` | not null, default `0` | inflate when a cache miss re-reads context that was already counted. |
 | `discord_channel_id` | `text` | — | Discord channel mirroring this session, if any. |
 | `created_at` | `integer` | not null, default `expression` | Creation time (epoch ms). |
 | `updated_at` | `integer` | not null, default `expression` | Last update time (epoch ms). |
