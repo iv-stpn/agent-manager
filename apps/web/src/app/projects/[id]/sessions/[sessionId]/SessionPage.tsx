@@ -172,7 +172,8 @@ export default function SessionPage() {
 			sublabel: undefined,
 			messages: messages.filter((message) => message.createdAt >= sorted[sorted.length - 1].createdAt),
 		};
-		return [current, ...closed];
+		// Most-recent-first: "Current" leftmost, then closed segments newest → oldest.
+		return [current, ...closed.reverse()];
 	}, [messages, compactions]);
 
 	// Auto-switch to the "Current" segment when a new compaction arrives

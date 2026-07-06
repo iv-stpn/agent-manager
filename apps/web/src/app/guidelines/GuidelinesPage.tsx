@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { Guideline, GuidelineCategory } from "@/lib/agent-api";
 import { createGuideline, deleteGuideline, getGuidelineCategories, getGuidelines, updateGuideline } from "@/lib/agent-api";
 import { mutateCache, useQuery } from "@/lib/query-cache";
-import { cn } from "@/lib/utils";
+import { byNewestFirst, cn } from "@/lib/utils";
 
 type Form = { name: string; description: string; categoryId: string | null; language: string | null; content: string };
 
@@ -22,7 +22,9 @@ export default function GuidelinesPage() {
 	const { data: categories = [] } = useQuery<GuidelineCategory[]>("guideline-categories", getGuidelineCategories);
 
 	const categoryName = (id: string | null) => categories.find((category) => category.id === id)?.name ?? "Uncategorized";
-	const visible = filter === "all" ? guidelines : guidelines.filter((guideline) => guideline.categoryId === filter);
+	const visible = [...(filter === "all" ? guidelines : guidelines.filter((guideline) => guideline.categoryId === filter))].sort(
+		byNewestFirst
+	);
 
 	function openCreate() {
 		setForm(EMPTY_FORM);

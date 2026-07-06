@@ -24,6 +24,12 @@ export function formatDateTime(ts: number): string {
 	return new Date(ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+/** Array.sort comparator ordering records newest-first by `createdAt`. Works for
+ * both epoch-ms numbers and ISO-8601 strings (both sort chronologically). */
+export function byNewestFirst<T extends { createdAt: string | number }>(a: T, b: T): number {
+	return a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0;
+}
+
 export function statusBg(status: string): string {
 	switch (status) {
 		case "running":

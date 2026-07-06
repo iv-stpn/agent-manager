@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { getSessions } from "@/lib/agent-api";
 import { mutateCache, useQuery } from "@/lib/query-cache";
 import type { Project } from "@/lib/types";
+import { byNewestFirst } from "@/lib/utils";
 
 interface SessionsTabProps {
 	projectId: string;
@@ -50,10 +51,11 @@ export function SessionsTab({ projectId, running, dialogOpen, setDialogOpen }: S
 		);
 	}
 
-	const active = sessions.filter(
+	const sorted = [...sessions].sort(byNewestFirst);
+	const active = sorted.filter(
 		(session) => session.status === "running" || session.status === "paused" || session.status === "compacting"
 	);
-	const finished = sessions.filter(
+	const finished = sorted.filter(
 		(session) => session.status === "completed" || session.status === "aborted" || session.status === "error"
 	);
 

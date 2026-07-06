@@ -5,7 +5,7 @@ import { NewProjectDialog } from "@/components/dialog/new-project-dialog";
 import { getProjects } from "@/lib/agent-api";
 import { useQuery } from "@/lib/query-cache";
 import { useOrchestratorSSE } from "@/lib/stores";
-import { cn } from "@/lib/utils";
+import { byNewestFirst, cn } from "@/lib/utils";
 
 export function Sidebar() {
 	const { pathname } = useLocation();
@@ -41,7 +41,7 @@ export function Sidebar() {
 
 				{/* Projects list */}
 				<div className="flex-1 flex flex-col items-center gap-2 overflow-y-auto w-full px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-					{projects.map((project) => {
+					{[...projects].sort(byNewestFirst).map((project) => {
 						const active = project.id === activeProjectId;
 						return (
 							<Link

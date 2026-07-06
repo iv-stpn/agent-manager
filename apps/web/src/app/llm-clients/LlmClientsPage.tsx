@@ -5,6 +5,7 @@ import { LlmClientDialog } from "@/components/dialog/llm-client-dialog";
 import type { LlmClient, LlmProvider } from "@/lib/agent-api";
 import { deleteLlmClient, getLlmClients } from "@/lib/agent-api";
 import { mutateCache, useQuery } from "@/lib/query-cache";
+import { byNewestFirst } from "@/lib/utils";
 
 const PROVIDER_LABELS: Record<LlmProvider, string> = {
 	anthropic: "Anthropic",
@@ -69,7 +70,7 @@ export default function LlmClientsPage() {
 					</div>
 				) : (
 					<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-						{clients.map((client) => (
+						{[...clients].sort(byNewestFirst).map((client) => (
 							<div
 								key={client.id}
 								className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3 hover:border-gray-300 transition-colors"
