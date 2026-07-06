@@ -15,12 +15,22 @@ export const MODEL_CONTEXT_WINDOW = env.AGENT_MAX_CONTEXT_TOKENS
 const MAX_OUTPUT_TOKENS_FOR_SUMMARY = 20_000;
 
 /**
+ * Output budget for the compaction summary call — the same amount
+ * `getEffectiveContextWindow` reserves, so the call can always afford it.
+ * Sized well above the summary itself because thinking models (e.g. a local
+ * Qwen behind llama-server) spend most of this budget on a thinking block
+ * before emitting any text.
+ */
+export function getSummaryMaxTokens(): number {
+	return Math.min(MAX_OUTPUT_TOKENS_FOR_SUMMARY, Math.floor(MODEL_CONTEXT_WINDOW * 0.2));
+}
+
+/**
  * Effective window = context window minus space reserved for summary output.
  * For small windows (<100K) use 20% instead of a fixed 20K.
  */
 function getEffectiveContextWindow(): number {
-	const reserved = Math.min(MAX_OUTPUT_TOKENS_FOR_SUMMARY, Math.floor(MODEL_CONTEXT_WINDOW * 0.2));
-	return MODEL_CONTEXT_WINDOW - reserved;
+	return MODEL_CONTEXT_WINDOW - getSummaryMaxTokens();
 }
 
 // ── Adaptive Buffer Scaling ──────────────────────────────────────────────────

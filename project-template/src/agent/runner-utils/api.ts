@@ -5,7 +5,7 @@ import { sessionEmitter } from "../../emitter";
 import { BASE_MAX_TOKENS, ESCALATED_MAX_TOKENS } from "../token-budget";
 import { AGENT_TOOLS } from "../tools/definitions";
 import type { AgentState } from "../types";
-import { type AgentError, withRetry } from "../utils/errors";
+import { type AgentError, LLM_CALL_RETRY, withRetry } from "../utils/errors";
 import { emitMessage } from "./status";
 
 export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Messages.Message> {
@@ -51,9 +51,7 @@ export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Mes
 
 	// Retry with exponential backoff for transient errors
 	const response = await withRetry(() => makeRequest(BASE_MAX_TOKENS), {
-		maxAttempts: 3,
-		baseDelayMs: 1000,
-		maxDelayMs: 10_000,
+		...LLM_CALL_RETRY,
 		signal: agent.abortController.signal,
 		onRetry: (err: AgentError, attempt: number, nextDelayMs: number) => {
 			console.log(`[Agent ${agent.sessionId}] API retry #${attempt}: ${err.category} — waiting ${Math.round(nextDelayMs)}ms`);
@@ -70,9 +68,7 @@ export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Mes
 			`[Agent ${agent.sessionId}] Response truncated at ${BASE_MAX_TOKENS} tokens, retrying with ${ESCALATED_MAX_TOKENS}`
 		);
 		return withRetry(() => makeRequest(ESCALATED_MAX_TOKENS), {
-			maxAttempts: 2,
-			baseDelayMs: 1000,
-			maxDelayMs: 5000,
+			...LLM_CALL_RETRY,
 			signal: agent.abortController.signal,
 		});
 	}
@@ -143,7 +139,10 @@ export async function requestSummary(agent: AgentState): Promise<string> {
 			() =>
 				agent.client.messages.create({
 					model: agent.llm.smallModel,
-					max_tokens: 512,
+					// Room for thinking models to finish their thinking block and
+					// still emit text — at 512 they hit max_tokens mid-thought and
+					// the response contains no text at all.
+					max_tokens: 4096,
 					messages: [
 						{
 							role: "user",
@@ -151,10 +150,11 @@ export async function requestSummary(agent: AgentState): Promise<string> {
 						},
 					],
 				}),
-			{ maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 10_000 }
+			LLM_CALL_RETRY
 		);
 
-		return extractTextContent(resp.content);
+		const text = extractTextContent(resp.content).trim();
+		return text || "(summary unavailable)";
 	} catch (err) {
 		console.error(`[Agent ${agent.sessionId}] requestSummary call failed:`, err);
 		return "(summary unavailable)";

@@ -130,6 +130,21 @@ export interface RetryOptions {
 	onRetry?: (error: AgentError, attempt: number, nextDelayMs: number) => void;
 }
 
+/**
+ * Shared retry budget for every LLM call. Worst case ≈ 2 minutes of backoff
+ * (2s, 4s, 8s, 16s, 32s, 60s) before a retryable failure is declared fatal.
+ * Sized for self-hosted/proxied backends (ANTHROPIC_BASE_URL), which can be
+ * unreachable or return 503 "Loading model" for tens of seconds at a time —
+ * the previous ~3s budget (3 attempts, 1s base, 10s cap) made sessions die
+ * exactly at the compaction boundary, where requests are heaviest and a local
+ * backend is most likely to stall.
+ */
+export const LLM_CALL_RETRY = {
+	maxAttempts: 7,
+	baseDelayMs: 2000,
+	maxDelayMs: 60_000,
+} satisfies Pick<RetryOptions, "maxAttempts" | "baseDelayMs" | "maxDelayMs">;
+
 export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions): Promise<T> {
 	const { maxAttempts, baseDelayMs, maxDelayMs, signal, onRetry } = opts;
 

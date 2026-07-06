@@ -1,3 +1,4 @@
+import { extractTextContent } from "@agent-manager/utils/blocks";
 import Anthropic from "@anthropic-ai/sdk";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
@@ -61,7 +62,10 @@ function autoNameSession(db: Db, sessionId: string, task: string, llm: AgentLlmC
 	client.messages
 		.create({
 			model: llm.smallModel,
-			max_tokens: 30,
+			// Generous despite the tiny reply: thinking models (local backends
+			// serve one regardless of the requested model name) emit a thinking
+			// block first and return no text at all if it hits max_tokens.
+			max_tokens: 2048,
 			messages: [
 				{
 					role: "user",
@@ -70,7 +74,8 @@ function autoNameSession(db: Db, sessionId: string, task: string, llm: AgentLlmC
 			],
 		})
 		.then((res) => {
-			const text = res.content[0]?.type === "text" ? res.content[0].text.trim() : null;
+			// Text may follow a thinking block, so scan all blocks
+			const text = extractTextContent(res.content).trim();
 			if (text) {
 				updateSession(db, sessionId, { name: text });
 				sessionEmitter.emit(sessionId, { type: "session_updated", data: { id: sessionId, name: text } });
