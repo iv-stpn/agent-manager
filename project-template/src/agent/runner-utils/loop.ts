@@ -102,12 +102,15 @@ export async function doCompaction(agent: AgentState): Promise<void> {
 	agent.lastApiInputTokens = 0;
 	agent.lastApiOutputTokens = 0;
 
+	const estAfter = estimateTokens(agent.messages);
+
 	// Reset "since compaction" token counters — a fresh cycle begins
 	updateSession(agent.db, agent.sessionId, {
 		tokensInputSinceCompaction: 0,
 		tokensOutputSinceCompaction: 0,
 		tokensCacheReadSinceCompaction: 0,
 		tokensCacheWriteSinceCompaction: 0,
+		contextTokens: estAfter,
 	});
 
 	// Persist the compaction boundary so the fresh conversation appears in the
@@ -117,18 +120,23 @@ export async function doCompaction(agent: AgentState): Promise<void> {
 	//      (kept in the DB/timeline, skipped on API rebuild).
 	//   2. Persist the restart primer as the new first active message so the
 	//      restarted conversation is visible live and after a reload.
+	// One shared timestamp for the primer row, its SSE copy, and the compaction
+	// record: the web timeline assigns messages to segments by comparing
+	// message.createdAt against compaction.createdAt (primer ≥ compaction ⇒
+	// current segment). Stamping them a few ms apart put the primer at the tail
+	// of the compacted segment instead of the top of the fresh one.
+	const compactedAt = Date.now();
 	markSessionMessagesCompacted(agent.db, agent.sessionId);
 	const restartContent = compacted[0]?.content;
 	const restartRow = insertMessage(agent.db, {
 		sessionId: agent.sessionId,
 		role: "user",
 		content: typeof restartContent === "string" ? restartContent : JSON.stringify(restartContent),
-		createdAt: Date.now(),
+		createdAt: compactedAt,
 	});
 	agent.lastUserMessageId = restartRow.id;
-	emitMessage(agent, { id: restartRow.id, role: "user", content: restartContent });
+	emitMessage(agent, { id: restartRow.id, role: "user", content: restartContent, createdAt: compactedAt });
 
-	const estAfter = estimateTokens(agent.messages);
 	console.log(
 		`[Agent ${agent.sessionId}] Compacted context: ${before} → ${compacted.length} messages (${estBefore} → ${estAfter} est. tokens)`
 	);
@@ -146,7 +154,7 @@ export async function doCompaction(agent: AgentState): Promise<void> {
 		tokensAfter: estAfter,
 		thresholdTokens: agent.config.compactThresholdTokens,
 		summary,
-		createdAt: Date.now(),
+		createdAt: compactedAt,
 	});
 	sessionEmitter.emit(agent.sessionId, {
 		type: "compaction",

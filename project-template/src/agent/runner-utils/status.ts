@@ -22,6 +22,9 @@ export function emitMessage(
 		cacheWriteTokens?: number;
 		error?: string;
 		errorDetails?: string;
+		/** Override for when the emitted copy must match a persisted row's
+		 * timestamp (e.g. the compaction restart primer). */
+		createdAt?: number;
 	}
 ): void {
 	sessionEmitter.emit(agent.sessionId, {
@@ -37,7 +40,7 @@ export function emitMessage(
 			cacheWriteTokens: data.cacheWriteTokens ?? 0,
 			error: data.error,
 			errorDetails: data.errorDetails,
-			createdAt: Date.now(),
+			createdAt: data.createdAt ?? Date.now(),
 		},
 	});
 }
