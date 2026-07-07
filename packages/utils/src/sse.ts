@@ -41,6 +41,12 @@ export type ErrorRecoveredPayload = {
 	attempt: number;
 	error: string;
 	nextRetryMs: number;
+	// Error category from classifyApiError (e.g. "network", "server_crash").
+	// Lets the UI distinguish a crashed-backend reboot (long fixed wait) from an
+	// ordinary transient blip (short exponential backoff).
+	category?: string;
+	// Total attempts allowed for this error class, so the UI can show "#N of M".
+	maxAttempts?: number;
 };
 
 export type CheckinStartedPayload = CheckinRecord & { questions: QuestionRecord[] };

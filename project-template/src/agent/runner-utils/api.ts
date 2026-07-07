@@ -53,11 +53,13 @@ export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Mes
 	const response = await withRetry(() => makeRequest(BASE_MAX_TOKENS), {
 		...LLM_CALL_RETRY,
 		signal: agent.abortController.signal,
-		onRetry: (err: AgentError, attempt: number, nextDelayMs: number) => {
-			console.log(`[Agent ${agent.sessionId}] API retry #${attempt}: ${err.category} — waiting ${Math.round(nextDelayMs)}ms`);
+		onRetry: (err: AgentError, attempt: number, nextDelayMs: number, maxAttempts: number) => {
+			console.log(
+				`[Agent ${agent.sessionId}] API retry #${attempt}/${maxAttempts}: ${err.category} — waiting ${Math.round(nextDelayMs)}ms`
+			);
 			sessionEmitter.emit(agent.sessionId, {
 				type: "error_recovered",
-				data: { attempt, error: err.message, nextRetryMs: Math.round(nextDelayMs) },
+				data: { attempt, error: err.message, nextRetryMs: Math.round(nextDelayMs), category: err.category, maxAttempts },
 			});
 		},
 	});

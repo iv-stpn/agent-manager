@@ -56,10 +56,45 @@ class NetworkError extends AgentError {
 	}
 }
 
+/**
+ * The backend process died mid-request — Bun's fetch drops the TCP socket with
+ * no HTTP response and throws the literal message below. Against a self-hosted
+ * backend (ANTHROPIC_BASE_URL) that means the LLM server crashed and is
+ * (re)booting, which takes far longer than a network blip. Retried on the slow
+ * SERVER_CRASH_RETRY budget (3-min waits) rather than the fast exponential one.
+ */
+class ServerCrashError extends AgentError {
+	constructor(message = "LLM server crashed") {
+		super(message, "server_crash", true);
+		this.name = "ServerCrashError";
+	}
+}
+
+// Bun raises this exact phrasing when a socket closes before any response is
+// received. It appears either as the top-level error message or nested in the
+// `.cause` chain when the SDK wraps it, so we scan both.
+const SOCKET_CLOSED_MARKER = "socket connection was closed unexpectedly";
+
+function messageChainIncludes(err: unknown, needle: string, depth = 0): boolean {
+	if (depth > 5 || !(err instanceof Error)) return false;
+	if ((err.message ?? "").toLowerCase().includes(needle)) return true;
+	return messageChainIncludes((err as { cause?: unknown }).cause, needle, depth + 1);
+}
+
 // ── Error Classification ─────────────────────────────────────────────────────
 
 export function classifyApiError(err: unknown): AgentError {
 	if (err instanceof AgentError) return err;
+
+	// Server crash (socket dropped with no response) — checked before the
+	// APIConnectionError branch below because the SDK sometimes wraps this Bun
+	// error as an APIConnectionError whose own message is the generic
+	// "Connection error.", hiding the socket marker unless we walk `.cause`.
+	// A crashed backend needs the multi-minute reboot budget, not the ~2-min
+	// exponential one, so it must be classified as its own category.
+	if (messageChainIncludes(err, SOCKET_CLOSED_MARKER)) {
+		return new ServerCrashError(err instanceof Error ? err.message : String(err));
+	}
 
 	// The SDK's APIConnectionError/APIConnectionTimeoutError (thrown on DNS/TLS/reset/timeout
 	// failures at the fetch layer) always carries the literal message "Connection error." or
@@ -127,8 +162,22 @@ export interface RetryOptions {
 	baseDelayMs: number;
 	maxDelayMs: number;
 	signal?: AbortSignal;
-	onRetry?: (error: AgentError, attempt: number, nextDelayMs: number) => void;
+	onRetry?: (error: AgentError, attempt: number, nextDelayMs: number, maxAttempts: number) => void;
 }
+
+/**
+ * Retry budget for a crashed backend (ServerCrashError). A crashed LLM server
+ * takes far longer to come back than a transient blip, so this waits a fixed
+ * 3 minutes between attempts (no exponential ramp — the wait is dominated by
+ * the reboot, not by backing off a busy server) and gives up after 4 retries
+ * (≈12 min total) rather than the ~2-min exponential budget of LLM_CALL_RETRY.
+ * Tracked on a counter separate from the normal-retry counter in withRetry so
+ * a crash never eats the ordinary-blip budget and vice versa.
+ */
+export const SERVER_CRASH_RETRY = {
+	maxRetries: 4,
+	delayMs: 180_000,
+} as const;
 
 /**
  * Shared retry budget for every LLM call. Worst case ≈ 2 minutes of backoff
@@ -148,7 +197,16 @@ export const LLM_CALL_RETRY = {
 export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions): Promise<T> {
 	const { maxAttempts, baseDelayMs, maxDelayMs, signal, onRetry } = opts;
 
-	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+	// A crashed backend and an ordinary transient blip are counted separately: a
+	// server reboot (ServerCrashError) burns the slow 3-min SERVER_CRASH_RETRY
+	// budget while everything else keeps the fast exponential LLM_CALL_RETRY one.
+	// Keeping the counters apart means a mid-session crash can't silently eat the
+	// ordinary-retry budget (and vice versa), and each still terminates on its own
+	// ceiling.
+	let normalRetries = 0;
+	let crashRetries = 0;
+
+	while (true) {
 		try {
 			return await fn();
 		} catch (rawErr) {
@@ -157,48 +215,63 @@ export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions): Pr
 
 			const err = classifyApiError(rawErr);
 
-			// Non-retryable or last attempt — throw
-			if (!err.retryable || attempt >= maxAttempts) {
-				throw err;
+			if (!err.retryable) throw err;
+
+			// Server crash: fixed multi-minute wait, its own attempt ceiling.
+			if (err instanceof ServerCrashError) {
+				if (crashRetries >= SERVER_CRASH_RETRY.maxRetries) throw err;
+				crashRetries++;
+				const delay = SERVER_CRASH_RETRY.delayMs;
+				onRetry?.(err, crashRetries, delay, SERVER_CRASH_RETRY.maxRetries);
+				await sleepWithAbort(delay, signal);
+				continue;
 			}
+
+			// Ordinary transient error: exponential backoff, shared budget.
+			// maxAttempts total tries ⇒ maxAttempts - 1 retries.
+			if (normalRetries >= maxAttempts - 1) throw err;
+			normalRetries++;
 
 			// Calculate delay with exponential backoff + jitter
 			let delay: number;
 			if (err instanceof ApiRateLimitError && err.retryAfterMs > 0) {
 				delay = err.retryAfterMs;
 			} else {
-				delay = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs);
+				delay = Math.min(baseDelayMs * 2 ** (normalRetries - 1), maxDelayMs);
 				// Add jitter (±25%)
 				delay = delay * (0.75 + Math.random() * 0.5);
 			}
 
-			onRetry?.(err, attempt, delay);
+			onRetry?.(err, normalRetries, delay, maxAttempts);
 
-			// Wait, respecting abort signal. Reject with a real AbortError (matching
-			// what AbortController/fetch throw natively) so the caller's
-			// `err.name === "AbortError"` check recognizes a stop/interject during
-			// the backoff wait the same way it recognizes one during the live
-			// request — otherwise it falls through to the fatal-error path and a
-			// clean Stop gets reported as a crash.
-			await new Promise<void>((resolve, reject) => {
-				const onAbort = () => {
-					clearTimeout(timeout);
-					reject(new DOMException("Aborted", "AbortError"));
-				};
-				const timeout = setTimeout(() => {
-					signal?.removeEventListener("abort", onAbort);
-					resolve();
-				}, delay);
-				signal?.addEventListener("abort", onAbort, { once: true });
-			});
+			await sleepWithAbort(delay, signal);
 		}
 	}
-
-	// Should be unreachable
-	throw new AgentError("Retry loop exhausted", "unknown", false);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Sleep for `ms`, resolving early-and-rejecting if the signal aborts. Rejects
+ * with a real AbortError (matching what AbortController/fetch throw natively) so
+ * the caller's `err.name === "AbortError"` check recognizes a stop/interject
+ * during the backoff wait the same way it recognizes one during the live
+ * request — otherwise it falls through to the fatal-error path and a clean Stop
+ * gets reported as a crash.
+ */
+function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+	return new Promise<void>((resolve, reject) => {
+		const onAbort = () => {
+			clearTimeout(timeout);
+			reject(new DOMException("Aborted", "AbortError"));
+		};
+		const timeout = setTimeout(() => {
+			signal?.removeEventListener("abort", onAbort);
+			resolve();
+		}, ms);
+		signal?.addEventListener("abort", onAbort, { once: true });
+	});
+}
 
 function parseRetryAfter(err: Record<string, unknown>): number {
 	// Try to extract retry-after from headers or error body
