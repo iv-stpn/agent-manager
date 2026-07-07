@@ -142,6 +142,7 @@ A point at which the agent surfaces progress and may block for input. Drives the
 | `summary` | `text` | not null | Human-readable progress summary. |
 | `discord_message_id` | `text` | — | Mirrored Discord message id, if posted. |
 | `status` | `text` | not null, default `pending` | Resolution state of the check-in. One of: `pending`, `answered`, `skipped`, `timeout` |
+| `archived` | `integer` | not null, default `false` | "Archived" tab. Never read by the agent. |
 | `created_at` | `integer` | not null, default `expression` | Creation time (epoch ms). |
 | `completed_at` | `integer` | — | When resolved (epoch ms), if done. |
 
@@ -239,6 +240,7 @@ An autonomous agent run within a project. Holds the task, its runtime configurat
 | `tokens_cache_write_since_compaction` | `integer` | not null, default `0` | — |
 | `context_tokens` | `integer` | not null, default `0` | inflate when a cache miss re-reads context that was already counted. |
 | `discord_channel_id` | `text` | — | Discord channel mirroring this session, if any. |
+| `archived` | `integer` | not null, default `false` | Never read by the agent — purely for organizing finished/abandoned sessions. |
 | `created_at` | `integer` | not null, default `expression` | Creation time (epoch ms). |
 | `updated_at` | `integer` | not null, default `expression` | Last update time (epoch ms). |
 
@@ -253,6 +255,7 @@ A unit of work the agent coordinates. Tasks are project-wide (not bound to a sin
 | `text` | `text` | not null | The task description. |
 | `status` | `text` | not null, default `pending` | Progress state of the task. One of: `pending`, `in_progress`, `done`, `cancelled` |
 | `metadata` | `text` | — | JSON: { dependsOn?: string[] } plus arbitrary fields. Null when empty. |
+| `archived` | `integer` | not null, default `false` | tab. Never read by the agent. |
 | `created_at` | `integer` | not null, default `expression` | Creation time (epoch ms). |
 | `updated_at` | `integer` | not null, default `expression` | Last update time (epoch ms). |
 
