@@ -30,6 +30,12 @@ const AGENT_PROXY_TIMEOUT_MS = 15_000;
 // gated by isProtectedDirectory + an is-directory check at each call site.
 const PathBodySchema = z.object({ path: z.string().min(1, "path is required") });
 
+// Body for the archive toggle. `archived: true` hides the row into the UI's
+// "Archived" tab; `false` restores it. Written straight to the project DB (see
+// ProjectDatabase.set*Archived) — it's a UI-only column the agent never reads,
+// so it works whether or not the container is running.
+const ArchiveBodySchema = z.object({ archived: z.boolean() });
+
 function lanceTableName(projectId: string): string {
 	return `project_${projectId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 }
@@ -916,4 +922,75 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 	.put("/:projectId/sessions/:sessionId/settings", async (c) => {
 		const { projectId, sessionId } = c.req.param();
 		return proxyToAgent(c, projectId, `/api/sessions/${sessionId}/settings`);
+	})
+	// ── Archive toggles ────────────────────────────────────────────────────
+	// Written directly to the project DB (not proxied to the agent): `archived`
+	// is a UI-only column the agent never touches, so this works whether the
+	// container is running or stopped.
+	.post("/:projectId/tasks/:taskId/archive", async (c) => {
+		const { projectId, taskId } = c.req.param();
+		const parsed = ArchiveBodySchema.safeParse(await c.req.json().catch(() => ({})));
+		if (!parsed.success) return c.json({ error: "archived (boolean) is required" }, 400);
+		try {
+			const ok = await c.var.projectDatabaseManager.setTaskArchived(projectId, taskId, parsed.data.archived);
+			if (!ok) return c.json({ error: "Not found" }, 404);
+			return c.json({ success: true, archived: parsed.data.archived });
+		} catch (error) {
+			return c.json({ error: getErrorMessage(error) }, 500);
+		}
+	})
+	.post("/:projectId/sessions/:sessionId/archive", async (c) => {
+		const { projectId, sessionId } = c.req.param();
+		const parsed = ArchiveBodySchema.safeParse(await c.req.json().catch(() => ({})));
+		if (!parsed.success) return c.json({ error: "archived (boolean) is required" }, 400);
+		try {
+			const ok = await c.var.projectDatabaseManager.setSessionArchived(projectId, sessionId, parsed.data.archived);
+			if (!ok) return c.json({ error: "Not found" }, 404);
+			return c.json({ success: true, archived: parsed.data.archived });
+		} catch (error) {
+			return c.json({ error: getErrorMessage(error) }, 500);
+		}
+	})
+	.post("/:projectId/reports/:reportId/archive", async (c) => {
+		const { projectId, reportId } = c.req.param();
+		const parsed = ArchiveBodySchema.safeParse(await c.req.json().catch(() => ({})));
+		if (!parsed.success) return c.json({ error: "archived (boolean) is required" }, 400);
+		try {
+			const ok = await c.var.projectDatabaseManager.setReportArchived(projectId, reportId, parsed.data.archived);
+			if (!ok) return c.json({ error: "Not found" }, 404);
+			return c.json({ success: true, archived: parsed.data.archived });
+		} catch (error) {
+			return c.json({ error: getErrorMessage(error) }, 500);
+		}
+	})
+	// ── Bulk "archive finished" actions ──────────────────────────────────────
+	// Archive every finished-but-not-yet-archived row in one DB write. "Finished"
+	// mirrors the UI's grouping: tasks = done/cancelled, sessions =
+	// completed/aborted/error, reports = check-ins whose session is finished.
+	.post("/:projectId/tasks/archive-finished", async (c) => {
+		const { projectId } = c.req.param();
+		try {
+			const count = await c.var.projectDatabaseManager.archiveFinishedTasks(projectId);
+			return c.json({ success: true, count });
+		} catch (error) {
+			return c.json({ error: getErrorMessage(error) }, 500);
+		}
+	})
+	.post("/:projectId/sessions/archive-finished", async (c) => {
+		const { projectId } = c.req.param();
+		try {
+			const count = await c.var.projectDatabaseManager.archiveFinishedSessions(projectId);
+			return c.json({ success: true, count });
+		} catch (error) {
+			return c.json({ error: getErrorMessage(error) }, 500);
+		}
+	})
+	.post("/:projectId/reports/archive-finished", async (c) => {
+		const { projectId } = c.req.param();
+		try {
+			const count = await c.var.projectDatabaseManager.archiveReportsOfFinishedSessions(projectId);
+			return c.json({ success: true, count });
+		} catch (error) {
+			return c.json({ error: getErrorMessage(error) }, 500);
+		}
 	});

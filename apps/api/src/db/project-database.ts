@@ -12,7 +12,7 @@ import type {
 	SessionRecord,
 	ToolCallRecord,
 } from "@agent-manager/projects";
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as schema from "./project-schema";
 import { checkins, compactions, messages, questions, sessions, tasks, toolCalls } from "./project-schema";
@@ -71,6 +71,28 @@ export class ProjectDatabase {
 		this.ensureMigrated(projectId, dbPath);
 		const sqlite = new Database(dbPath, { readonly: true });
 		return { db: drizzle(sqlite, { schema }), sqlite };
+	}
+
+	/**
+	 * Open the project DB writable for a short-lived mutation (the UI archive
+	 * toggle). The orchestrator is normally a read-only reader — the agent owns
+	 * writes — but `archived` is a UI-only flag the agent never touches, so a
+	 * brief writable connection here can't race the agent on that column, and it
+	 * lets a user archive a session/task/report whether or not the container is
+	 * running. WAL + a busy timeout keeps the write from failing if the agent
+	 * happens to hold the write lock for another column at that instant.
+	 */
+	private withWritableDb<T>(projectId: string, fn: (db: ProjectDb) => T): T {
+		const dbPath = this.manager.getProjectDatabaseManagerPath(projectId);
+		if (!existsSync(dbPath)) throw new Error(`Project "${projectId}" database not found`);
+		this.ensureMigrated(projectId, dbPath);
+		const sqlite = new Database(dbPath);
+		sqlite.exec("PRAGMA busy_timeout = 5000;");
+		try {
+			return fn(drizzle(sqlite, { schema }));
+		} finally {
+			sqlite.close();
+		}
 	}
 
 	private withDb<T>(projectId: string, fn: (db: ProjectDb) => T): T {
@@ -197,6 +219,7 @@ export class ProjectDatabase {
 					summary: checkins.summary,
 					discordMessageId: checkins.discordMessageId,
 					status: checkins.status,
+					archived: checkins.archived,
 					createdAt: checkins.createdAt,
 					completedAt: checkins.completedAt,
 					sessionName: sessions.name,
@@ -221,6 +244,98 @@ export class ProjectDatabase {
 				return db.select().from(tasks).where(eq(tasks.sessionId, sessionId)).all();
 			}
 			return db.select().from(tasks).all();
+		});
+	}
+
+	// ── Archive writes ─────────────────────────────────────────────────────────
+	// The `archived` flag is a UI-only organizing device (no agent behaviour hangs
+	// off it), so it's written straight to the project DB here rather than proxied
+	// through the running agent — which means archiving works whether or not the
+	// container is up. Each write is a single targeted UPDATE of one column; the
+	// agent's own updates only ever set their specific columns, so they never race
+	// or clobber `archived`. Returns whether a row actually matched.
+
+	async setTaskArchived(projectId: string, taskId: string, archived: boolean): Promise<boolean> {
+		return this.withWritableDb(projectId, (db) => {
+			const updated = db
+				.update(tasks)
+				.set({ archived, updatedAt: Date.now() })
+				.where(eq(tasks.id, taskId))
+				.returning({ id: tasks.id })
+				.all();
+			return updated.length > 0;
+		});
+	}
+
+	async setSessionArchived(projectId: string, sessionId: string, archived: boolean): Promise<boolean> {
+		return this.withWritableDb(projectId, (db) => {
+			const updated = db
+				.update(sessions)
+				.set({ archived, updatedAt: Date.now() })
+				.where(eq(sessions.id, sessionId))
+				.returning({ id: sessions.id })
+				.all();
+			return updated.length > 0;
+		});
+	}
+
+	// A "report" in the UI is a check-in row (see getReports), so archiving one
+	// flips the flag on the underlying check-in.
+	async setReportArchived(projectId: string, reportId: string, archived: boolean): Promise<boolean> {
+		return this.withWritableDb(projectId, (db) => {
+			const updated = db.update(checkins).set({ archived }).where(eq(checkins.id, reportId)).returning({ id: checkins.id }).all();
+			return updated.length > 0;
+		});
+	}
+
+	// ── Bulk "archive finished" ──────────────────────────────────────────────
+	// Each archives every not-yet-archived row in a terminal state in one UPDATE,
+	// mirroring the "Finished" grouping the UI shows. Returns the count archived.
+
+	// Finished tasks = done or cancelled.
+	async archiveFinishedTasks(projectId: string): Promise<number> {
+		return this.withWritableDb(projectId, (db) => {
+			const updated = db
+				.update(tasks)
+				.set({ archived: true, updatedAt: Date.now() })
+				.where(and(eq(tasks.archived, false), inArray(tasks.status, ["done", "cancelled"])))
+				.returning({ id: tasks.id })
+				.all();
+			return updated.length;
+		});
+	}
+
+	// Finished sessions = completed, aborted, or error.
+	async archiveFinishedSessions(projectId: string): Promise<number> {
+		return this.withWritableDb(projectId, (db) => {
+			const updated = db
+				.update(sessions)
+				.set({ archived: true, updatedAt: Date.now() })
+				.where(and(eq(sessions.archived, false), inArray(sessions.status, ["completed", "aborted", "error"])))
+				.returning({ id: sessions.id })
+				.all();
+			return updated.length;
+		});
+	}
+
+	// Reports (check-ins) belonging to a finished session. Resolves the finished
+	// session ids first, then archives their un-archived check-ins.
+	async archiveReportsOfFinishedSessions(projectId: string): Promise<number> {
+		return this.withWritableDb(projectId, (db) => {
+			const finished = db
+				.select({ id: sessions.id })
+				.from(sessions)
+				.where(inArray(sessions.status, ["completed", "aborted", "error"]))
+				.all()
+				.map((row) => row.id);
+			if (finished.length === 0) return 0;
+			const updated = db
+				.update(checkins)
+				.set({ archived: true })
+				.where(and(eq(checkins.archived, false), inArray(checkins.sessionId, finished)))
+				.returning({ id: checkins.id })
+				.all();
+			return updated.length;
 		});
 	}
 }
