@@ -337,14 +337,6 @@ export default function SessionPage() {
 	// the status flips back to "running" (driven over SSE).
 	const isCompacting = session.status === "compacting";
 
-	// Estimate system prompt + tool definition tokens from the first message that
-	// reads the cache: its cacheReadTokens is the constant system prompt + tool
-	// definitions that get replayed (as cache reads) on every subsequent turn.
-	const firstCacheRead = messages.find(
-		(message) => (message.role === "assistant" || message.role === "system") && (message.cacheReadTokens ?? 0) > 0
-	);
-	const systemPromptTokens = firstCacheRead?.cacheReadTokens ?? 0;
-
 	return (
 		<div className="h-full flex flex-col  overflow-x-hidden">
 			{/* Top bar */}
@@ -602,18 +594,6 @@ export default function SessionPage() {
 										</table>
 									</CardContent>
 								</Card>
-								{systemPromptTokens > 0 && (
-									<Card>
-										<CardContent className="pt-4 pb-3">
-											<p className="text-xs text-muted-foreground">System prompt + tools</p>
-											<p className="text-xl font-bold text-orange-500">{formatTokens(systemPromptTokens)}</p>
-											<p className="text-[10px] text-muted-foreground mt-1">
-												Replayed as cache read every turn · {formatTokens(systemPromptTokens)} of each turn's cache read is this
-												constant overhead
-											</p>
-										</CardContent>
-									</Card>
-								)}
 								<Card>
 									<CardHeader className="pb-2 pt-4">
 										<CardTitle className="text-sm">Token usage over time</CardTitle>
