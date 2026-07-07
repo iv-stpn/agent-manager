@@ -1,10 +1,11 @@
-import { Loader2, Pencil, RefreshCw, Trash2, X } from "lucide-react";
+import { Archive, ArchiveRestore, Loader2, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ViewToggle } from "@/components/ui/view-toggle";
 import type { Task } from "@/lib/agent-api";
-import { deleteTask, getTasks, updateTask } from "@/lib/agent-api";
+import { archiveFinishedTasks, archiveTask, deleteTask, getTasks, updateTask } from "@/lib/agent-api";
 import { mutateCache, useQuery } from "@/lib/query-cache";
 import { cn, formatRelativeTime } from "@/lib/utils";
 
@@ -70,6 +71,17 @@ function TaskRow({ projectId, task, editable }: TaskRowProps) {
 		}
 	};
 
+	const toggleArchive = async () => {
+		try {
+			await archiveTask(projectId, task.id, !task.archived);
+			mutateCache<Task[]>(tasksKey(projectId), (prev) =>
+				prev.map((t) => (t.id === task.id ? { ...t, archived: !task.archived } : t))
+			);
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "Failed to archive task");
+		}
+	};
+
 	const remove = async () => {
 		if (!confirm(`Delete task "${task.text}"? This cannot be undone.`)) return;
 		try {
@@ -122,8 +134,13 @@ function TaskRow({ projectId, task, editable }: TaskRowProps) {
 			</div>
 			<div className="flex items-center gap-3 shrink-0">
 				<span className="text-xs text-gray-400">{formatRelativeTime(task.updatedAt)}</span>
-				<Button variant="ghost" size="icon" onClick={startEdit} title="Edit task" disabled={!editable}>
-					<Pencil className="w-4 h-4" />
+				{!task.archived && (
+					<Button variant="ghost" size="icon" onClick={startEdit} title="Edit task" disabled={!editable}>
+						<Pencil className="w-4 h-4" />
+					</Button>
+				)}
+				<Button variant="ghost" size="icon" onClick={toggleArchive} title={task.archived ? "Restore task" : "Archive task"}>
+					{task.archived ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
 				</Button>
 				<Button
 					variant="ghost"
@@ -141,12 +158,27 @@ function TaskRow({ projectId, task, editable }: TaskRowProps) {
 }
 
 export function TasksTab({ projectId, running }: TasksTabProps) {
+	const [view, setView] = useState<"active" | "archived">("active");
+	const [archivingAll, setArchivingAll] = useState(false);
 	const {
 		data: tasks = [],
 		loading,
 		error,
 		refetch: fetchTasks,
 	} = useQuery<Task[]>(tasksKey(projectId), () => getTasks(projectId));
+
+	const archiveAllFinished = async () => {
+		setArchivingAll(true);
+		try {
+			const count = await archiveFinishedTasks(projectId);
+			fetchTasks();
+			toast.success(count > 0 ? `Archived ${count} finished task${count === 1 ? "" : "s"}` : "No finished tasks to archive");
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "Failed to archive finished tasks");
+		} finally {
+			setArchivingAll(false);
+		}
+	};
 
 	if (loading && tasks.length === 0) {
 		return <div className="text-gray-500">Loading tasks...</div>;
@@ -168,18 +200,12 @@ export function TasksTab({ projectId, running }: TasksTabProps) {
 		);
 	}
 
-	if (tasks.length === 0) {
-		return (
-			<div className="text-center py-12 space-y-2">
-				<p className="text-gray-400">No tasks yet</p>
-				<p className="text-sm text-gray-500">Tasks appear here as the agent plans and works through its to-do list.</p>
-			</div>
-		);
-	}
-
 	const sorted = [...tasks].sort((a, b) => b.updatedAt - a.updatedAt);
-	const active = sorted.filter((task) => task.status === "pending" || task.status === "in_progress");
-	const finished = sorted.filter((task) => task.status === "done" || task.status === "cancelled");
+	const notArchived = sorted.filter((task) => !task.archived);
+	const archived = sorted.filter((task) => task.archived);
+	const shown = view === "archived" ? archived : notArchived;
+	const active = shown.filter((task) => task.status === "pending" || task.status === "in_progress");
+	const finished = shown.filter((task) => task.status === "done" || task.status === "cancelled");
 
 	return (
 		<div className="space-y-6">
@@ -188,33 +214,58 @@ export function TasksTab({ projectId, running }: TasksTabProps) {
 					Project is not running — showing tasks from the database (read-only). Start the project to edit or delete tasks.
 				</div>
 			)}
-			<div className="flex items-center justify-between">
-				<p className="text-sm text-gray-500">
-					{tasks.length} total · {active.length} active
-				</p>
-				<Button variant="secondary" size="icon" onClick={fetchTasks} title="Refresh tasks">
-					<RefreshCw className="w-4 h-4" />
-				</Button>
+			<div className="flex items-center justify-between gap-3">
+				<ViewToggle
+					value={view}
+					onChange={setView}
+					options={[
+						{ value: "active", label: "Active", count: notArchived.length },
+						{ value: "archived", label: "Archived", count: archived.length },
+					]}
+				/>
+				<div className="flex items-center gap-2">
+					{view === "active" && finished.length > 0 && (
+						<Button variant="secondary" size="sm" onClick={archiveAllFinished} disabled={archivingAll}>
+							{archivingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
+							Archive finished
+						</Button>
+					)}
+					<Button variant="secondary" size="icon" onClick={fetchTasks} title="Refresh tasks">
+						<RefreshCw className="w-4 h-4" />
+					</Button>
+				</div>
 			</div>
-			{active.length > 0 && (
-				<section>
-					<h2 className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wide">Active</h2>
-					<ul className="space-y-2">
-						{active.map((task) => (
-							<TaskRow key={task.id} projectId={projectId} task={task} editable={running} />
-						))}
-					</ul>
-				</section>
-			)}
-			{finished.length > 0 && (
-				<section>
-					<h2 className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wide">Finished</h2>
-					<ul className="space-y-2">
-						{finished.map((task) => (
-							<TaskRow key={task.id} projectId={projectId} task={task} editable={running} />
-						))}
-					</ul>
-				</section>
+
+			{shown.length === 0 ? (
+				<div className="text-center py-12 space-y-2">
+					<p className="text-gray-400">{view === "archived" ? "No archived tasks" : "No tasks yet"}</p>
+					{view === "active" && (
+						<p className="text-sm text-gray-500">Tasks appear here as the agent plans and works through its to-do list.</p>
+					)}
+				</div>
+			) : (
+				<>
+					{active.length > 0 && (
+						<section>
+							<h2 className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wide">Active</h2>
+							<ul className="space-y-2">
+								{active.map((task) => (
+									<TaskRow key={task.id} projectId={projectId} task={task} editable={running} />
+								))}
+							</ul>
+						</section>
+					)}
+					{finished.length > 0 && (
+						<section>
+							<h2 className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wide">Finished</h2>
+							<ul className="space-y-2">
+								{finished.map((task) => (
+									<TaskRow key={task.id} projectId={projectId} task={task} editable={running} />
+								))}
+							</ul>
+						</section>
+					)}
+				</>
 			)}
 		</div>
 	);

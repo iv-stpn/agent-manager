@@ -1,8 +1,12 @@
-import { RefreshCw } from "lucide-react";
+import { Archive, Loader2, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { NewSessionDialog } from "@/components/dialog/new-session-dialog";
 import { SessionCard } from "@/components/session-card";
 import { Button } from "@/components/ui/button";
-import { getSessions } from "@/lib/agent-api";
+import { ViewToggle } from "@/components/ui/view-toggle";
+import type { Session } from "@/lib/agent-api";
+import { archiveFinishedSessions, archiveSession, getSessions } from "@/lib/agent-api";
 import { mutateCache, useQuery } from "@/lib/query-cache";
 import type { Project } from "@/lib/types";
 import { byNewestFirst } from "@/lib/utils";
@@ -15,6 +19,9 @@ interface SessionsTabProps {
 }
 
 export function SessionsTab({ projectId, running, dialogOpen, setDialogOpen }: SessionsTabProps) {
+	const [view, setView] = useState<"active" | "archived">("active");
+	const [archivingAll, setArchivingAll] = useState(false);
+
 	// Initial load (and read-only fallback when the project is stopped). While
 	// running, the project SSE stream in the parent keeps this cache live.
 	const {
@@ -30,6 +37,32 @@ export function SessionsTab({ projectId, running, dialogOpen, setDialogOpen }: S
 		}));
 		return data;
 	});
+
+	const toggleArchive = async (session: Session) => {
+		try {
+			await archiveSession(projectId, session.id, !session.archived);
+			mutateCache<Session[]>(`sessions:${projectId}`, (prev) =>
+				prev.map((s) => (s.id === session.id ? { ...s, archived: !session.archived } : s))
+			);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Failed to archive session");
+		}
+	};
+
+	const archiveAllFinished = async () => {
+		setArchivingAll(true);
+		try {
+			const count = await archiveFinishedSessions(projectId);
+			fetchSessions();
+			toast.success(
+				count > 0 ? `Archived ${count} finished session${count === 1 ? "" : "s"}` : "No finished sessions to archive"
+			);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Failed to archive finished sessions");
+		} finally {
+			setArchivingAll(false);
+		}
+	};
 
 	if (loading && sessions.length === 0) {
 		return <div className="text-gray-500">Loading sessions...</div>;
@@ -52,10 +85,13 @@ export function SessionsTab({ projectId, running, dialogOpen, setDialogOpen }: S
 	}
 
 	const sorted = [...sessions].sort(byNewestFirst);
-	const active = sorted.filter(
+	const notArchived = sorted.filter((session) => !session.archived);
+	const archived = sorted.filter((session) => session.archived);
+	const shown = view === "archived" ? archived : notArchived;
+	const active = shown.filter(
 		(session) => session.status === "running" || session.status === "paused" || session.status === "compacting"
 	);
-	const finished = sorted.filter(
+	const finished = shown.filter(
 		(session) => session.status === "completed" || session.status === "aborted" || session.status === "error"
 	);
 
@@ -67,11 +103,22 @@ export function SessionsTab({ projectId, running, dialogOpen, setDialogOpen }: S
 					interact.
 				</div>
 			)}
-			<div className="flex items-center justify-between">
-				<p className="text-sm text-gray-500">
-					{sessions.length} total · {active.length} active
-				</p>
+			<div className="flex items-center justify-between gap-3">
+				<ViewToggle
+					value={view}
+					onChange={setView}
+					options={[
+						{ value: "active", label: "Active", count: notArchived.length },
+						{ value: "archived", label: "Archived", count: archived.length },
+					]}
+				/>
 				<div className="flex gap-2">
+					{view === "active" && finished.length > 0 && (
+						<Button variant="secondary" size="sm" onClick={archiveAllFinished} disabled={archivingAll}>
+							{archivingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Archive className="w-4 h-4" />}
+							Archive finished
+						</Button>
+					)}
 					<Button variant="secondary" size="icon" onClick={fetchSessions} title="Refresh sessions">
 						<RefreshCw className="w-4 h-4" />
 					</Button>
@@ -86,16 +133,17 @@ export function SessionsTab({ projectId, running, dialogOpen, setDialogOpen }: S
 				</div>
 			</div>
 
-			{sessions.length === 0 ? (
+			{shown.length === 0 ? (
 				<div className="text-center py-12 space-y-3">
-					<p className="text-gray-400">No sessions yet</p>
-					{running ? (
-						<button type="button" onClick={() => setDialogOpen(true)} className="text-blue-600 hover:text-blue-700">
-							Start your first agent
-						</button>
-					) : (
-						<p className="text-sm text-gray-500">Start the project to create a session.</p>
-					)}
+					<p className="text-gray-400">{view === "archived" ? "No archived sessions" : "No sessions yet"}</p>
+					{view === "active" &&
+						(running ? (
+							<button type="button" onClick={() => setDialogOpen(true)} className="text-blue-600 hover:text-blue-700">
+								Start your first agent
+							</button>
+						) : (
+							<p className="text-sm text-gray-500">Start the project to create a session.</p>
+						))}
 				</div>
 			) : (
 				<div className="space-y-6">
@@ -104,7 +152,7 @@ export function SessionsTab({ projectId, running, dialogOpen, setDialogOpen }: S
 							<h2 className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wide">Active</h2>
 							<div className="grid gap-3">
 								{active.map((session) => (
-									<SessionCard key={session.id} session={session} projectId={projectId} />
+									<SessionCard key={session.id} session={session} projectId={projectId} onArchive={toggleArchive} />
 								))}
 							</div>
 						</section>
@@ -114,7 +162,7 @@ export function SessionsTab({ projectId, running, dialogOpen, setDialogOpen }: S
 							<h2 className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wide">Finished</h2>
 							<div className="grid gap-3">
 								{finished.map((session) => (
-									<SessionCard key={session.id} session={session} projectId={projectId} />
+									<SessionCard key={session.id} session={session} projectId={projectId} onArchive={toggleArchive} />
 								))}
 							</div>
 						</section>

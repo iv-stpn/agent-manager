@@ -1,11 +1,28 @@
-import { ArrowRight, Bot, Clock, Coins } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowRight, Bot, Clock, Coins } from "lucide-react";
+import type { MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { Session } from "@/lib/agent-api";
 import { cn, formatRelativeTime, formatTokens, statusBg } from "@/lib/utils";
 
-export function SessionCard({ session, projectId }: { session: Session; projectId: string }) {
+export function SessionCard({
+	session,
+	projectId,
+	onArchive,
+}: {
+	session: Session;
+	projectId: string;
+	onArchive?: (session: Session) => void;
+}) {
+	const handleArchive = (event: MouseEvent) => {
+		// The card is a Link — keep the archive click from navigating into the session.
+		event.preventDefault();
+		event.stopPropagation();
+		onArchive?.(session);
+	};
+
 	return (
 		<Link to={`/projects/${projectId}/sessions/${session.id}`}>
 			<Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer group">
@@ -20,7 +37,19 @@ export function SessionCard({ session, projectId }: { session: Session; projectI
 								</p>
 							</div>
 						</div>
-						<Badge className={cn("shrink-0 capitalize", statusBg(session.status))}>{session.status}</Badge>
+						<div className="flex items-center gap-1 shrink-0">
+							<Badge className={cn("capitalize", statusBg(session.status))}>{session.status}</Badge>
+							{onArchive && (
+								<Button
+									variant="ghost"
+									size="icon"
+									onClick={handleArchive}
+									title={session.archived ? "Restore session" : "Archive session"}
+								>
+									{session.archived ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
+								</Button>
+							)}
+						</div>
 					</div>
 				</CardHeader>
 				<CardContent>
