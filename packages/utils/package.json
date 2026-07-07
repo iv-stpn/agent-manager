@@ -11,6 +11,6 @@
 		"@agent-manager/projects": "workspace:*"
 	},
 	"devDependencies": {
-		"@anthropic-ai/sdk": "^0.54.0"
+		"@anthropic-ai/sdk": "0.54.0"
 	}
 }
