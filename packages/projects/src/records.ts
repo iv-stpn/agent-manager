@@ -32,6 +32,8 @@ export interface SessionRecord {
 	tokensCacheWriteSinceCompaction: number;
 	contextTokens: number;
 	discordChannelId: string | null;
+	// UI-only flag: hide the session into an "Archived" tab. Never read by the agent.
+	archived: boolean;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -71,6 +73,8 @@ export interface CheckinRecord {
 	summary: string;
 	discordMessageId: string | null;
 	status: "pending" | "answered" | "skipped" | "timeout";
+	// UI-only flag: hide the check-in into the Reports "Archived" tab. Never read by the agent.
+	archived: boolean;
 	createdAt: number;
 	completedAt: number | null;
 }

@@ -12,11 +12,16 @@ export function getTasks(db: Db, sessionId?: string) {
 	return db.select().from(tasks).all();
 }
 
-/** Manual edit of a task's text/status from the UI. Returns null if the task doesn't exist. */
-export function updateTaskFields(db: Db, id: string, changes: { text?: string | undefined; status?: TaskStatus | undefined }) {
+/** Manual edit of a task's text/status/archived flag from the UI. Returns null if the task doesn't exist. */
+export function updateTaskFields(
+	db: Db,
+	id: string,
+	changes: { text?: string | undefined; status?: TaskStatus | undefined; archived?: boolean | undefined }
+) {
 	const updates: Partial<typeof tasks.$inferInsert> = { updatedAt: Date.now() };
 	if (changes.text !== undefined) updates.text = changes.text;
 	if (changes.status !== undefined) updates.status = changes.status;
+	if (changes.archived !== undefined) updates.archived = changes.archived;
 	const [updated] = db.update(tasks).set(updates).where(eq(tasks.id, id)).returning().all();
 	return updated ?? null;
 }

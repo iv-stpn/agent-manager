@@ -64,6 +64,7 @@ export type TaskPayload = {
 	text: string;
 	status: string;
 	metadata: string | null;
+	archived: boolean;
 	createdAt: number;
 	updatedAt: number;
 };

@@ -52,7 +52,7 @@ export async function addTask(
 	// Emit task_created event
 	sessionEmitter.emit(sessionId, {
 		type: "task_created",
-		data: { id, sessionId, text, status, metadata, createdAt, updatedAt: createdAt },
+		data: { id, sessionId, text, status, metadata, archived: false, createdAt, updatedAt: createdAt },
 	});
 
 	const depNote = dependsOn && dependsOn.length > 0 ? ` (depends on: ${dependsOn.join(", ")})` : "";
