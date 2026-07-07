@@ -5,7 +5,7 @@ import { StartupProgressModal } from "@/components/dialog/docker-progress-modal"
 import { NewProjectDialog } from "@/components/dialog/new-project-dialog";
 import { API_URL } from "@/constants";
 import { useOrchestratorSSE } from "@/lib/stores";
-import { cn, containerClassName } from "@/lib/utils";
+import { byNewestFirst, cn, containerClassName } from "@/lib/utils";
 import { getProjects } from "../lib/agent-api";
 import { useQuery } from "../lib/query-cache";
 
@@ -127,7 +127,7 @@ export default function HomePage() {
 					</div>
 				) : (
 					<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-						{projects.map((project) => (
+						{[...projects].sort(byNewestFirst).map((project) => (
 							<div key={project.id} className="bg-white rounded-lg border border-gray-200 p-6 flex flex-col">
 								{/* Status Indicator */}
 								<div className="flex items-center justify-between mb-4">

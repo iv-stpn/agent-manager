@@ -5,6 +5,7 @@
  */
 
 import { env } from "../env";
+import { orchestratorHeaders } from "./orchestrator";
 
 const ORCHESTRATOR_API_URL = env.ORCHESTRATOR_API_URL;
 const PROJECT_ID = env.PROJECT_ID;
@@ -49,7 +50,7 @@ export async function sendReport(
 ): Promise<CheckinFormResult | null> {
 	const res = await fetch(`${ORCHESTRATOR_API_URL}/api/projects/${PROJECT_ID}/discord/report`, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: orchestratorHeaders({ "Content-Type": "application/json" }),
 		body: JSON.stringify({ sessionId, report, trigger, awaiting }),
 		signal: signal ?? null,
 	});
@@ -73,7 +74,7 @@ export async function sendQuestions(
 ): Promise<ChecklistResult> {
 	const res = await fetch(`${ORCHESTRATOR_API_URL}/api/projects/${PROJECT_ID}/discord/questions`, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: orchestratorHeaders({ "Content-Type": "application/json" }),
 		body: JSON.stringify({ sessionId, title, questions, urgent: urgent ?? false }),
 		signal: signal ?? null,
 	});

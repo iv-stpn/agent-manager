@@ -102,52 +102,68 @@ export async function doCompaction(agent: AgentState): Promise<void> {
 	agent.lastApiInputTokens = 0;
 	agent.lastApiOutputTokens = 0;
 
-	// Reset "since compaction" token counters — a fresh cycle begins
-	updateSession(agent.db, agent.sessionId, {
-		tokensInputSinceCompaction: 0,
-		tokensOutputSinceCompaction: 0,
-		tokensCacheReadSinceCompaction: 0,
-		tokensCacheWriteSinceCompaction: 0,
-	});
-
-	// Persist the compaction boundary so the fresh conversation appears in the
-	// same timeline AND a later resume/restart rebuilds from here instead of
-	// re-feeding the just-summarized transcript:
-	//   1. Mark every existing message as summarized out of the active context
-	//      (kept in the DB/timeline, skipped on API rebuild).
-	//   2. Persist the restart primer as the new first active message so the
-	//      restarted conversation is visible live and after a reload.
-	markSessionMessagesCompacted(agent.db, agent.sessionId);
-	const restartContent = compacted[0]?.content;
-	const restartRow = insertMessage(agent.db, {
-		sessionId: agent.sessionId,
-		role: "user",
-		content: typeof restartContent === "string" ? restartContent : JSON.stringify(restartContent),
-		createdAt: Date.now(),
-	});
-	agent.lastUserMessageId = restartRow.id;
-	emitMessage(agent, { id: restartRow.id, role: "user", content: restartContent });
-
 	const estAfter = estimateTokens(agent.messages);
+	const compactedAt = Date.now();
+	const restartContent = compacted[0]?.content;
+
+	// Persist the compaction boundary atomically. These writes must land as a
+	// unit: resetting the token counters, marking every prior message
+	// compacted-out, and inserting the restart primer as the new sole active
+	// message. A crash between "mark compacted" and "insert primer" would
+	// otherwise leave a session whose rebuild (getRebuildMessages filters on
+	// compactedOut=false) reads zero active rows → an empty context on the next
+	// resume/restart. The compaction timeline record joins the same transaction
+	// so a committed boundary always has a matching record.
+	//
+	// One shared timestamp for the primer row, its SSE copy, and the compaction
+	// record: the web timeline assigns messages to segments by comparing
+	// message.createdAt against compaction.createdAt (primer ≥ compaction ⇒
+	// current segment). Stamping them a few ms apart put the primer at the tail
+	// of the compacted segment instead of the top of the fresh one.
+	const { restartRow, compaction } = agent.db.transaction(() => {
+		// Reset "since compaction" token counters — a fresh cycle begins.
+		updateSession(agent.db, agent.sessionId, {
+			tokensInputSinceCompaction: 0,
+			tokensOutputSinceCompaction: 0,
+			tokensCacheReadSinceCompaction: 0,
+			tokensCacheWriteSinceCompaction: 0,
+			contextTokens: estAfter,
+		});
+		// Mark every existing message as summarized out of the active context
+		// (kept in the DB/timeline, skipped on API rebuild), then persist the
+		// restart primer as the new first active message so the restarted
+		// conversation is visible live and after a reload.
+		markSessionMessagesCompacted(agent.db, agent.sessionId);
+		const primer = insertMessage(agent.db, {
+			sessionId: agent.sessionId,
+			role: "user",
+			content: typeof restartContent === "string" ? restartContent : JSON.stringify(restartContent),
+			createdAt: compactedAt,
+		});
+		// Record the compaction in its own timeline — entirely separate from
+		// check-ins. A compaction is purely a token-threshold-driven context
+		// summarization; it never blocks the agent or asks the user anything.
+		const record = insertCompaction(agent.db, {
+			id: nanoid(),
+			sessionId: agent.sessionId,
+			messagesBefore: before,
+			messagesAfter: agent.messages.length,
+			tokensBefore: estBefore,
+			tokensAfter: estAfter,
+			thresholdTokens: agent.config.compactThresholdTokens,
+			summary,
+			createdAt: compactedAt,
+		});
+		return { restartRow: primer, compaction: record };
+	});
+
+	agent.lastUserMessageId = restartRow.id;
+	emitMessage(agent, { id: restartRow.id, role: "user", content: restartContent, createdAt: compactedAt });
+
 	console.log(
 		`[Agent ${agent.sessionId}] Compacted context: ${before} → ${compacted.length} messages (${estBefore} → ${estAfter} est. tokens)`
 	);
 
-	// Record the compaction in its own timeline — entirely separate from
-	// check-ins. A compaction is purely a token-threshold-driven context
-	// summarization; it never blocks the agent or asks the user anything.
-	const compactionId = nanoid();
-	const compaction = insertCompaction(agent.db, {
-		id: compactionId,
-		sessionId: agent.sessionId,
-		messagesBefore: before,
-		messagesAfter: agent.messages.length,
-		tokensBefore: estBefore,
-		tokensAfter: estAfter,
-		thresholdTokens: agent.config.compactThresholdTokens,
-		summary,
-		createdAt: Date.now(),
-	});
 	sessionEmitter.emit(agent.sessionId, {
 		type: "compaction",
 		data: compaction,
@@ -230,7 +246,14 @@ async function runLoop(agent: AgentState): Promise<void> {
 				circuitBreakerOpen: agent.circuitBreaker.isOpen,
 			});
 
-			if (agent.circuitBreaker.shouldAutoCompact(estTokens, agent.config.compactThresholdTokens)) {
+			// Compact when the normal threshold is crossed, OR force it when we're
+			// at the blocking limit — there, the next API call would overflow the
+			// context window and 400, so an over-the-cooldown compaction attempt is
+			// strictly better than proceeding (see CompactionCircuitBreaker.mustCompact).
+			if (
+				agent.circuitBreaker.shouldAutoCompact(estTokens, agent.config.compactThresholdTokens) ||
+				agent.circuitBreaker.mustCompact(estTokens)
+			) {
 				await doCompaction(agent);
 			}
 
@@ -449,43 +472,53 @@ async function runLoop(agent: AgentState): Promise<void> {
 			}
 		}
 	} catch (err) {
-		const classified = classifyApiError(err);
-		console.error(`[Agent ${agent.sessionId}] Fatal error [${classified.category}]:`, classified.message);
-
-		// Save error message to database
-		const errorStack = err instanceof Error ? err.stack : undefined;
-		const errorData = {
-			error: classified.message,
-			content: JSON.stringify([{ type: "text", text: `An error occurred during execution: ${classified.category}` }]),
-			...(errorStack !== undefined && { errorDetails: errorStack }),
-		};
-
-		const message = insertMessage(agent.db, {
-			sessionId: agent.sessionId,
-			role: "assistant",
-			content: errorData.content,
-			inputTokens: 0,
-			outputTokens: 0,
-			cacheReadTokens: 0,
-			cacheWriteTokens: 0,
-			error: errorData.error,
-			errorDetails: errorData.errorDetails,
-			createdAt: Date.now(),
-		});
-
-		emitMessage(agent, {
-			id: message.id,
-			role: "assistant",
-			content: errorData.content,
-			error: errorData.error,
-			...(errorData.errorDetails !== undefined && { errorDetails: errorData.errorDetails }),
-		});
-
-		// Any error reaching this fatal catch block is a real failure — retries
-		// (if the error was retryable) are already exhausted inside callAnthropicApi/withRetry.
-		updateSession(agent.db, agent.sessionId, { status: "error" });
-		sessionEmitter.emit(agent.sessionId, { type: "error", data: { message: errorData.error } });
+		recordFatalError(agent, err);
 	}
+}
+
+/**
+ * Persist a fatal error, surface it over SSE, and move the session to "error".
+ * Shared by the main-loop catch and the pre-loop bootstrap guard (run/resume/
+ * restart) so a throw before the loop starts can't leave the session stuck
+ * "running" and un-restartable.
+ */
+function recordFatalError(agent: AgentState, err: unknown): void {
+	const classified = classifyApiError(err);
+	console.error(`[Agent ${agent.sessionId}] Fatal error [${classified.category}]:`, classified.message);
+
+	// Save error message to database
+	const errorStack = err instanceof Error ? err.stack : undefined;
+	const errorData = {
+		error: classified.message,
+		content: JSON.stringify([{ type: "text", text: `An error occurred during execution: ${classified.category}` }]),
+		...(errorStack !== undefined && { errorDetails: errorStack }),
+	};
+
+	const message = insertMessage(agent.db, {
+		sessionId: agent.sessionId,
+		role: "assistant",
+		content: errorData.content,
+		inputTokens: 0,
+		outputTokens: 0,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		error: errorData.error,
+		errorDetails: errorData.errorDetails,
+		createdAt: Date.now(),
+	});
+
+	emitMessage(agent, {
+		id: message.id,
+		role: "assistant",
+		content: errorData.content,
+		error: errorData.error,
+		...(errorData.errorDetails !== undefined && { errorDetails: errorData.errorDetails }),
+	});
+
+	// Any error reaching this fatal handler is a real failure — retries (if the
+	// error was retryable) are already exhausted inside callAnthropicApi/withRetry.
+	updateSession(agent.db, agent.sessionId, { status: "error" });
+	sessionEmitter.emit(agent.sessionId, { type: "error", data: { message: errorData.error } });
 }
 
 // ── Public entry points ────────────────────────────────────────────────────
@@ -493,31 +526,41 @@ async function runLoop(agent: AgentState): Promise<void> {
 const WORKSPACE = env.WORKSPACE_PATH;
 
 export async function run(agent: AgentState, task: string): Promise<void> {
-	// ── Bootstrap workspace ────────────────────────────────────────────
-	const { isNewProject, isFirstSession } = await bootstrapWorkspace(WORKSPACE);
+	// The bootstrap below (workspace setup, context/prompt fetches, startup
+	// context build) runs before runLoop's own try/catch. A throw here would
+	// otherwise escape with the session still "running" (the route set it so
+	// before calling run) — stuck and un-restartable. Guard it with the same
+	// fatal handler the loop uses.
+	try {
+		// ── Bootstrap workspace ────────────────────────────────────────────
+		const { isNewProject, isFirstSession } = await bootstrapWorkspace(WORKSPACE);
 
-	// On first session, rebuild system prompt without recall instructions
-	if (isFirstSession) {
-		const context = await fetchProjectContext();
-		agent.systemPrompt = buildSystemPrompt(agent.config, { isFirstSession: true, context });
-	}
+		// On first session, rebuild system prompt without recall instructions
+		if (isFirstSession) {
+			const context = await fetchProjectContext();
+			agent.systemPrompt = buildSystemPrompt(agent.config, { isFirstSession: true, context });
+		}
 
-	// ── Build startup context ──────────────────────────────────────────
-	// Persist the system prompt as a display-only "system" row (skipped when rebuilding
-	// Anthropic message history on resume — the prompt is sent as a separate API param).
-	const systemMessage = insertMessage(agent.db, {
-		sessionId: agent.sessionId,
-		role: "system",
-		content: agent.systemPrompt,
-		createdAt: Date.now(),
-	});
-	emitMessage(agent, { id: systemMessage.id, role: "system", content: agent.systemPrompt });
+		// ── Build startup context ──────────────────────────────────────────
+		// Persist the system prompt as a display-only "system" row (skipped when rebuilding
+		// Anthropic message history on resume — the prompt is sent as a separate API param).
+		const systemMessage = insertMessage(agent.db, {
+			sessionId: agent.sessionId,
+			role: "system",
+			content: agent.systemPrompt,
+			createdAt: Date.now(),
+		});
+		emitMessage(agent, { id: systemMessage.id, role: "system", content: agent.systemPrompt });
 
-	const startupMsgs = await buildStartupContext(task, isNewProject);
-	agent.messages = startupMsgs.map((content) => ({ role: "user", content }));
-	for (const content of startupMsgs) {
-		const row = insertMessage(agent.db, { sessionId: agent.sessionId, role: "user", content, createdAt: Date.now() });
-		emitMessage(agent, { id: row.id, role: "user", content });
+		const startupMsgs = await buildStartupContext(task, isNewProject);
+		agent.messages = startupMsgs.map((content) => ({ role: "user", content }));
+		for (const content of startupMsgs) {
+			const row = insertMessage(agent.db, { sessionId: agent.sessionId, role: "user", content, createdAt: Date.now() });
+			emitMessage(agent, { id: row.id, role: "user", content });
+		}
+	} catch (err) {
+		recordFatalError(agent, err);
+		return;
 	}
 
 	await runLoop(agent);
@@ -559,10 +602,14 @@ export async function resume(agent: AgentState, message: string): Promise<void> 
 	agent.startTime = Date.now();
 	agent.lastReportTime = Date.now();
 
-	agent.messages = rebuildMessagesFromDb(agent);
-
-	// Append and persist the new user message
-	appendUserTurn(agent, message);
+	try {
+		agent.messages = rebuildMessagesFromDb(agent);
+		// Append and persist the new user message
+		appendUserTurn(agent, message);
+	} catch (err) {
+		recordFatalError(agent, err);
+		return;
+	}
 
 	setStatus(agent, "running");
 
@@ -579,7 +626,12 @@ export async function restart(agent: AgentState): Promise<void> {
 	agent.startTime = Date.now();
 	agent.lastReportTime = Date.now();
 
-	agent.messages = rebuildMessagesFromDb(agent);
+	try {
+		agent.messages = rebuildMessagesFromDb(agent);
+	} catch (err) {
+		recordFatalError(agent, err);
+		return;
+	}
 
 	setStatus(agent, "running");
 

@@ -5,7 +5,7 @@ import type { Report } from "@/lib/agent-api";
 import { getReports } from "@/lib/agent-api";
 import { mutateCache, useQuery } from "@/lib/query-cache";
 import type { Project } from "@/lib/types";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { byNewestFirst, cn, formatRelativeTime } from "@/lib/utils";
 
 interface ReportsTabProps {
 	projectId: string;
@@ -80,7 +80,7 @@ export function ReportsTab({ projectId }: ReportsTabProps) {
 				</Button>
 			</div>
 			<ol className="space-y-3">
-				{reports.map((report) => {
+				{[...reports].sort(byNewestFirst).map((report) => {
 					const Icon = reportTriggerIcon[report.trigger] ?? Clock;
 					return (
 						<li key={report.id}>

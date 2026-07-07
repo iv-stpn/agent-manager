@@ -1,27 +1,7 @@
-import { isAbsolute, join, relative, resolve } from "node:path";
-import { env } from "../../../env";
-import { executeBash, runGrep } from "./commands";
-
-const WORKSPACE = env.WORKSPACE_PATH;
-
-function isWithinWorkspace(abs: string): boolean {
-	const rel = relative(WORKSPACE, abs);
-	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
-
-/** Resolve a path to an absolute path within the workspace sandbox.
- * Absolute paths outside the workspace are re-rooted into it; `..` segments
- * that would escape the workspace after resolution are rejected. */
-function sandboxPath(path: string): string {
-	const candidate = isAbsolute(path)
-		? isWithinWorkspace(resolve(path))
-			? resolve(path)
-			: join(WORKSPACE, path.replace(/^\/+/, ""))
-		: join(WORKSPACE, path);
-	const abs = resolve(candidate);
-	if (!isWithinWorkspace(abs)) throw new Error(`Path escapes the workspace sandbox: ${path}`);
-	return abs;
-}
+import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { runGrep } from "./commands";
+import { sandboxPath } from "./sandbox";
 
 const READ_FILE_MAX_CHARS = 20_000;
 
@@ -43,8 +23,28 @@ export async function writeFile(path: string, content: string): Promise<void> {
 
 export async function listDirectory(path = ""): Promise<string> {
 	const abs = sandboxPath(path || ".");
-	const result = await executeBash(`ls -la "${abs}"`);
-	return result.stdout || result.stderr;
+	try {
+		const entries = await readdir(abs, { withFileTypes: true });
+		const lines = await Promise.all(
+			entries
+				.sort((a, b) => a.name.localeCompare(b.name))
+				.map(async (entry) => {
+					const kind = entry.isDirectory() ? "dir " : entry.isSymbolicLink() ? "link" : "file";
+					let size = "";
+					if (entry.isFile()) {
+						try {
+							size = String((await stat(join(abs, entry.name))).size);
+						} catch {
+							size = "?";
+						}
+					}
+					return `${kind}\t${size}\t${entry.name}${entry.isDirectory() ? "/" : ""}`;
+				})
+		);
+		return lines.length ? lines.join("\n") : "(empty directory)";
+	} catch (err) {
+		throw new Error(`Cannot list ${path}: ${err}`);
+	}
 }
 
 export async function searchFiles(
@@ -86,32 +86,43 @@ export async function moveFile(source: string, destination: string): Promise<str
 	const absSrc = sandboxPath(source);
 	const absDest = sandboxPath(destination);
 
-	const destDir = absDest.substring(0, absDest.lastIndexOf("/"));
-	if (destDir) await executeBash(`mkdir -p "${destDir}"`);
-
-	const result = await executeBash(`mv "${absSrc}" "${absDest}"`);
-	if (result.exitCode !== 0) throw new Error(`Cannot move ${source} to ${destination}: ${result.stderr}`);
+	const destDir = dirname(absDest);
+	try {
+		await mkdir(destDir, { recursive: true });
+		await rename(absSrc, absDest);
+	} catch (err) {
+		throw new Error(`Cannot move ${source} to ${destination}: ${err}`);
+	}
 	return `Moved ${source} → ${destination}`;
 }
 
 export async function deleteFile(path: string, recursive = false): Promise<string> {
 	const abs = sandboxPath(path);
 
-	const statResult = await executeBash(`test -d "${abs}" && echo "dir" || echo "file"`);
-	const isDir = statResult.stdout.trim() === "dir";
+	let isDir = false;
+	try {
+		isDir = (await stat(abs)).isDirectory();
+	} catch (err) {
+		throw new Error(`Cannot delete ${path}: ${err}`);
+	}
 
 	if (isDir && !recursive) throw new Error(`${path} is a directory. Set recursive=true to delete directories.`);
 
-	const flag = recursive ? "-rf" : "-f";
-	const result = await executeBash(`rm ${flag} "${abs}"`);
-	if (result.exitCode !== 0) throw new Error(`Cannot delete ${path}: ${result.stderr}`);
+	try {
+		await rm(abs, { recursive, force: true });
+	} catch (err) {
+		throw new Error(`Cannot delete ${path}: ${err}`);
+	}
 	return `Deleted ${path}`;
 }
 
 export async function createDirectory(path: string): Promise<string> {
 	const abs = sandboxPath(path);
-	const result = await executeBash(`mkdir -p "${abs}"`);
-	if (result.exitCode !== 0) throw new Error(`Cannot create directory ${path}: ${result.stderr}`);
+	try {
+		await mkdir(abs, { recursive: true });
+	} catch (err) {
+		throw new Error(`Cannot create directory ${path}: ${err}`);
+	}
 	return `Created directory ${path}`;
 }
 
@@ -120,8 +131,18 @@ export async function readFileRange(path: string, startLine: number, endLine: nu
 
 	if (startLine < 1 || endLine < startLine) throw new Error("Invalid line range. start_line must be ≥1 and ≤end_line");
 
-	const result = await executeBash(`sed -n '${startLine},${endLine}p' "${abs}" | head -1000`);
-	if (result.exitCode !== 0) throw new Error(`Cannot read ${path}: ${result.stderr}`);
-	if (!result.stdout) return `Lines ${startLine}-${endLine} are empty or beyond end of file.`;
-	return result.stdout;
+	let text: string;
+	try {
+		text = await Bun.file(abs).text();
+	} catch (err) {
+		throw new Error(`Cannot read ${path}: ${err}`);
+	}
+	// Slice the requested 1-indexed line range, capped at 1000 lines like the
+	// previous `head -1000`.
+	const lines = text
+		.split("\n")
+		.slice(startLine - 1, endLine)
+		.slice(0, 1000);
+	if (lines.length === 0) return `Lines ${startLine}-${endLine} are empty or beyond end of file.`;
+	return lines.join("\n");
 }

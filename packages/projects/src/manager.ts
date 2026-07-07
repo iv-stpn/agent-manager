@@ -1,7 +1,9 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { parseComposeEnvironment, yamlScalar } from "./compose-format";
 import type { CreateProjectInput, LooseOptional, ProjectConfig, ProjectContext } from "./types";
 import { ProjectContextSchema } from "./types";
 
@@ -92,13 +94,18 @@ function makeLineEmitter(onLine?: (line: string) => void) {
  * defeats the point of bounding a hung install or clone.
  */
 async function execWithTimeout(
-	command: string,
+	command: string[],
 	options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs: number; onLine?: ((line: string) => void) | undefined }
 ): Promise<void> {
 	const { spawn } = await import("node:child_process");
+	const [file, ...args] = command;
+	if (!file) throw new Error("execWithTimeout: empty command");
+	// No `shell: true`: args are passed directly to execvp, so user-controlled
+	// values (repo URLs, paths) can never be interpreted as shell syntax.
+	const commandLabel = command.join(" ");
 
 	await new Promise<void>((resolvePromise, reject) => {
-		const child = spawn(command, { cwd: options.cwd, env: options.env, shell: true, detached: true });
+		const child = spawn(file, args, { cwd: options.cwd, env: options.env, detached: true });
 
 		const timer = setTimeout(() => {
 			if (child.pid) {
@@ -108,7 +115,7 @@ async function execWithTimeout(
 					// Process group may already be gone.
 				}
 			}
-			reject(new Error(`Command timed out after ${options.timeoutMs}ms: ${command}`));
+			reject(new Error(`Command timed out after ${options.timeoutMs}ms: ${commandLabel}`));
 		}, options.timeoutMs);
 
 		let stderr = "";
@@ -130,7 +137,7 @@ async function execWithTimeout(
 			stdoutEmitter.flush();
 			stderrEmitter.flush();
 			if (code === 0) resolvePromise();
-			else reject(new Error(`Command failed with exit code ${code}: ${command}${stderr ? `\n${stderr}` : ""}`));
+			else reject(new Error(`Command failed with exit code ${code}: ${commandLabel}${stderr ? `\n${stderr}` : ""}`));
 		});
 	});
 }
@@ -143,7 +150,7 @@ async function cloneGitHubRepo(repoUrl: string, dest: string, onLine?: (line: st
 	// and a hard timeout: an unreachable/private repo must fail loudly rather
 	// than hang project creation forever with no error surfaced (there's no
 	// controlling tty, so a credential prompt would otherwise block forever).
-	await execWithTimeout(`git clone --depth 1 ${repoUrl} "${dest}"`, {
+	await execWithTimeout(["git", "clone", "--depth", "1", "--", repoUrl, dest], {
 		env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
 		timeoutMs: 60_000,
 		onLine,
@@ -181,7 +188,7 @@ async function installTemplateDependencies(
 	if (!existsSync(join(dir, "package.json"))) return { success: true };
 
 	try {
-		await execWithTimeout("bun install", { cwd: dir, timeoutMs: 600_000, env: { ...process.env, CI: "true" }, onLine });
+		await execWithTimeout(["bun", "install"], { cwd: dir, timeoutMs: 600_000, env: { ...process.env, CI: "true" }, onLine });
 		return { success: true };
 	} catch (error) {
 		console.error(`Failed to install dependencies in "${dir}" with "bun install":`, error);
@@ -234,6 +241,15 @@ export function resolveWorkspaceRoot(startDir: string = process.cwd()): string {
 export class ProjectManager {
 	private projectsRoot: string;
 
+	// Ports handed out by findAvailablePort but not yet visible in listProjects()
+	// (its docker-compose.yml isn't written until later in createProject). Two
+	// concurrent creates would otherwise both scan the same on-disk state, see the
+	// same lowest free port, and collide. Held until initializeProject settles.
+	private reservedPorts = new Set<number>();
+	// Serialises the scan-and-reserve so two concurrent creates can't pick the
+	// same port between one scanning and the next reserving.
+	private portAllocation: Promise<unknown> = Promise.resolve();
+
 	constructor(rootDir: string = resolveWorkspaceRoot()) {
 		this.projectsRoot = join(rootDir, PROJECTS_DIR);
 	}
@@ -272,14 +288,14 @@ export class ProjectManager {
 		}
 
 		const compose = readFileSync(composePath, "utf-8");
-		const env = this.parseComposeEnvironment(compose);
+		const env = parseComposeEnvironment(compose);
 
 		// Parse structural data from docker-compose comments + content
 		const nameMatch = compose.match(/^# Project: (.+)$/m);
 		const createdMatch = compose.match(/^# Created: (.+)$/m);
 		const binariesMatch = compose.match(/^# Binaries: (.+)$/m);
 		const clientIdMatch = compose.match(/^# LLM Client ID: (.+)$/m);
-		const portMatch = compose.match(/^\s+- "(\d+):\d+"$/m);
+		const portMatch = compose.match(/^\s+- "(?:[\d.]+:)?(\d+):\d+"$/m);
 		const volumeMatch = compose.match(/^\s+- ([^:]+):\/workspace$/m);
 		const workspaceType = volumeMatch?.[1]?.includes("/workspace") ? ("internal" as const) : ("external" as const);
 
@@ -359,9 +375,11 @@ export class ProjectManager {
 			throw new Error(`Project "${projectId}" already exists`);
 		}
 
-		// Allocate server port
-		const defaultServerPort = await this.findAvailablePort();
-		const ports = { server: input.ports?.server ?? defaultServerPort };
+		// Allocate server port. When the caller pins a port we skip the scan (and
+		// hold no reservation to release); otherwise the reserved port is released
+		// in the finally below once the project is on disk or the attempt failed.
+		const reservedPort = input.ports?.server === undefined ? await this.findAvailablePort() : undefined;
+		const ports = { server: input.ports?.server ?? reservedPort ?? BASE_SERVER_PORT };
 
 		// Determine workspace configuration
 		const workspace = input.workspacePath
@@ -393,6 +411,11 @@ export class ProjectManager {
 				);
 			}
 			throw error;
+		} finally {
+			// The port is now recorded on disk (compose file) for a successful create,
+			// or the attempt was cleaned up — either way listProjects sees the truth,
+			// so the in-memory reservation is no longer needed.
+			if (reservedPort !== undefined) this.releasePort(reservedPort);
 		}
 	}
 
@@ -610,28 +633,50 @@ export class ProjectManager {
 		}
 	}
 
-	private async findAvailablePort(): Promise<number> {
-		const projects = await this.listProjects();
-		const usedPorts = new Set<number>();
-		for (const project of projects) {
-			usedPorts.add(project.ports.server);
-		}
-		let serverPort = BASE_SERVER_PORT;
-		while (usedPorts.has(serverPort)) {
-			serverPort++;
-		}
-		return serverPort;
+	/** Can we bind 127.0.0.1:<port> right now? Catches ports held by a process
+	 * outside our project list (a stale container, another app). Best-effort — a
+	 * TOCTOU gap remains vs. the eventual container bind, but it rules out the
+	 * common "already in use" case the pure list-scan missed. */
+	private static isPortFree(port: number): Promise<boolean> {
+		return new Promise((resolve) => {
+			const tester = createServer();
+			tester.once("error", () => resolve(false));
+			tester.once("listening", () => tester.close(() => resolve(true)));
+			tester.listen(port, "127.0.0.1");
+		});
 	}
 
-	private parseComposeEnvironment(compose: string): Record<string, string> {
-		const vars: Record<string, string> = {};
-		const envBlock = compose.match(/^\s+environment:\n((?:\s+.+\n)*)/m);
-		if (!envBlock) return vars;
-		for (const line of envBlock[1].split("\n")) {
-			const match = line.match(/^\s+([A-Z_]+):\s*"?([^"]*)"?\s*$/);
-			if (match) vars[match[1]] = match[2];
-		}
-		return vars;
+	/**
+	 * Reserve the lowest free server port. Reservation is serialised (via
+	 * `portAllocation`) and the chosen port is added to `reservedPorts` before the
+	 * next caller scans, so concurrent creates never collide. The caller MUST
+	 * `releasePort` once the project is persisted (or its create failed).
+	 */
+	private async findAvailablePort(): Promise<number> {
+		const run = this.portAllocation.then(async () => {
+			const projects = await this.listProjects();
+			const usedPorts = new Set<number>(this.reservedPorts);
+			for (const project of projects) usedPorts.add(project.ports.server);
+
+			let serverPort = BASE_SERVER_PORT;
+			// Skip ports used by a known project, already reserved, or bound by any
+			// other process on the host.
+			while (usedPorts.has(serverPort) || !(await ProjectManager.isPortFree(serverPort))) {
+				serverPort++;
+			}
+			this.reservedPorts.add(serverPort);
+			return serverPort;
+		});
+		// Keep the chain alive even if this attempt throws, so a failed scan doesn't
+		// wedge every future allocation.
+		this.portAllocation = run.catch(() => undefined);
+		return run;
+	}
+
+	/** Drop a reservation made by findAvailablePort once the port is either
+	 * persisted to a project (visible to listProjects) or no longer wanted. */
+	private releasePort(port: number): void {
+		this.reservedPorts.delete(port);
 	}
 
 	// ── Generators ───────────────────────────────────────────────────────────
@@ -641,6 +686,11 @@ export class ProjectManager {
 		const networkName = `${projectName}_network`;
 		const projectDir = this.getProjectDir(projectId);
 
+		// User-controlled values (name, api key, base url, model) are wrapped with
+		// yamlScalar (JSON-encoded), which is valid YAML double-quoted-scalar
+		// syntax and escapes quotes/backslashes/newlines — so a value containing
+		// `"` or a newline can't break out of the string or inject extra compose
+		// keys. parseComposeEnvironment reverses this with JSON.parse.
 		const envLines = [
 			`      DATABASE_PATH: /data/agent.db`,
 			`      WORKSPACE_PATH: /workspace`,
@@ -649,19 +699,24 @@ export class ProjectManager {
 			// container, so $HOME must be set explicitly to a writable path.
 			`      HOME: /tmp`,
 			`      ORCHESTRATOR_API_URL: http://host.docker.internal:${process.env.ORCHESTRATOR_PORT ?? 3100}`,
-			`      PORT: "${config.ports.server}"`,
-			`      PROJECT_ID: "${projectId}"`,
-			`      PROJECT_NAME: "${config.name}"`,
+			`      PORT: ${yamlScalar(String(config.ports.server))}`,
+			`      PROJECT_ID: ${yamlScalar(projectId)}`,
+			`      PROJECT_NAME: ${yamlScalar(config.name)}`,
 		];
 
+		// Forward the orchestrator's bearer token so the container's calls back to
+		// the orchestrator API (memory, discord, context, agent-config) authenticate.
+		if (process.env.ORCHESTRATOR_API_TOKEN) {
+			envLines.push(`      ORCHESTRATOR_API_TOKEN: ${yamlScalar(process.env.ORCHESTRATOR_API_TOKEN)}`);
+		}
 		if (config.agent?.anthropicApiKey) {
-			envLines.push(`      ANTHROPIC_API_KEY: "${config.agent.anthropicApiKey}"`);
+			envLines.push(`      ANTHROPIC_API_KEY: ${yamlScalar(config.agent.anthropicApiKey)}`);
 		}
 		if (config.agent?.anthropicBaseUrl) {
-			envLines.push(`      ANTHROPIC_BASE_URL: "${config.agent.anthropicBaseUrl}"`);
+			envLines.push(`      ANTHROPIC_BASE_URL: ${yamlScalar(config.agent.anthropicBaseUrl)}`);
 		}
 		if (config.agent?.model) {
-			envLines.push(`      ANTHROPIC_MODEL: "${config.agent.model}"`);
+			envLines.push(`      ANTHROPIC_MODEL: ${yamlScalar(config.agent.model)}`);
 		}
 
 		// Generate custom Dockerfile if binaries are specified
@@ -705,7 +760,7 @@ ${envLines.join("\n")}
       - ${config.workspace.path}:/workspace
       - ./data:/data
     ports:
-      - "${config.ports.server}:${config.ports.server}"
+      - "127.0.0.1:${config.ports.server}:${config.ports.server}"
     restart: unless-stopped
     networks:
       - ${networkName}

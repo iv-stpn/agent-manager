@@ -56,6 +56,12 @@ export const sessions = sqliteTable("sessions", {
 	tokensCacheReadSinceCompaction: integer("tokens_cache_read_since_compaction").notNull().default(0),
 	tokensCacheWriteSinceCompaction: integer("tokens_cache_write_since_compaction").notNull().default(0),
 
+	// Live context size from the last API call (uncached input + cache read/write
+	// + output). This is what the auto-compaction trigger compares against
+	// compactThresholdTokens — unlike the cumulative counters above, it does not
+	// inflate when a cache miss re-reads context that was already counted.
+	contextTokens: integer("context_tokens").notNull().default(0),
+
 	// Discord
 	discordChannelId: text("discord_channel_id"), // Discord channel mirroring this session, if any.
 

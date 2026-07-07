@@ -19,9 +19,12 @@ export type { EnrichedProject } from "@/lib/types";
 import type { CreateProjectInput, ProjectConfig, SessionRecord as Session } from "@agent-manager/projects";
 import { hc } from "hono/client";
 import { API_URL } from "@/constants";
+import { authHeaders } from "@/lib/auth";
 import { readSSEStream } from "@/lib/sse";
 
-const api = hc<AppType>(API_URL);
+// `headers` is evaluated per request, so a token configured at build time is
+// attached to every hono-client call. Empty object when no token is set.
+const api = hc<AppType>(API_URL, { headers: authHeaders });
 
 // ── Project endpoints ─────────────────────────────────────────────────────────
 
@@ -64,7 +67,7 @@ export async function createProjectStream(
 ): Promise<ProjectConfig> {
 	const res = await fetch(`${API_URL}/api/projects/create-stream`, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: { "Content-Type": "application/json", ...authHeaders() },
 		body: JSON.stringify(data),
 	});
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
@@ -205,7 +208,7 @@ export interface Task {
 
 export async function getTasks(projectId: string, sessionId?: string): Promise<Task[]> {
 	const params = sessionId ? `?sessionId=${sessionId}` : "";
-	const res = await fetch(`${API_URL}/api/projects/${projectId}/tasks${params}`);
+	const res = await fetch(`${API_URL}/api/projects/${projectId}/tasks${params}`, { headers: authHeaders() });
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
 	return (await res.json()) as Task[];
 }
@@ -217,7 +220,7 @@ export async function updateTask(
 ): Promise<Task> {
 	const res = await fetch(`${API_URL}/api/projects/${projectId}/tasks/${taskId}`, {
 		method: "PUT",
-		headers: { "Content-Type": "application/json" },
+		headers: { "Content-Type": "application/json", ...authHeaders() },
 		body: JSON.stringify(changes),
 	});
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
@@ -225,7 +228,10 @@ export async function updateTask(
 }
 
 export async function deleteTask(projectId: string, taskId: string): Promise<void> {
-	const res = await fetch(`${API_URL}/api/projects/${projectId}/tasks/${taskId}`, { method: "DELETE" });
+	const res = await fetch(`${API_URL}/api/projects/${projectId}/tasks/${taskId}`, {
+		method: "DELETE",
+		headers: authHeaders(),
+	});
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
 }
 

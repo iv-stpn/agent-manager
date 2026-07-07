@@ -1,4 +1,5 @@
 import { env } from "../../../env";
+import { orchestratorHeaders } from "../../../external/orchestrator";
 
 const ORCHESTRATOR_API_URL = env.ORCHESTRATOR_API_URL;
 const PROJECT_ID = env.PROJECT_ID;
@@ -10,7 +11,7 @@ function memoryUrl(path = ""): string {
 async function memoryRequest(path: string, opts: RequestInit = {}): Promise<Record<string, unknown>> {
 	const res = await fetch(memoryUrl(path), {
 		...opts,
-		headers: { "Content-Type": "application/json", ...opts.headers },
+		headers: orchestratorHeaders({ "Content-Type": "application/json", ...opts.headers }),
 	});
 	if (!res.ok) {
 		const text = await res.text();

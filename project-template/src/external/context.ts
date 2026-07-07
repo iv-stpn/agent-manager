@@ -4,6 +4,7 @@
  */
 
 import { env } from "../env";
+import { orchestratorHeaders } from "./orchestrator";
 
 const ORCHESTRATOR_API_URL = env.ORCHESTRATOR_API_URL;
 const PROJECT_ID = env.PROJECT_ID;
@@ -60,7 +61,9 @@ export async function fetchProjectContext(): Promise<ResolvedProjectContext> {
 	if (!PROJECT_ID) return EMPTY_CONTEXT;
 
 	try {
-		const res = await fetch(`${ORCHESTRATOR_API_URL}/api/projects/${PROJECT_ID}/context/resolved`);
+		const res = await fetch(`${ORCHESTRATOR_API_URL}/api/projects/${PROJECT_ID}/context/resolved`, {
+			headers: orchestratorHeaders(),
+		});
 		if (!res.ok) return EMPTY_CONTEXT;
 		const data = (await res.json()) as ResolvedProjectContext;
 		cached = data;

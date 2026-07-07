@@ -28,7 +28,7 @@ const CreateTechStackSchema = z.object({
 // leaves the ZodDefault wrapper in place, so an update payload that omits one
 // of those keys still gets it defaulted to "" / [] and silently wipes the
 // existing value in the DB. See the identical bug fixed in llm-clients.ts.
-const UpdateTechStackSchema = z.object({
+export const UpdateTechStackSchema = z.object({
 	language: z.string().min(1).optional(),
 	name: z.string().min(1).optional(),
 	description: z.string().optional(),

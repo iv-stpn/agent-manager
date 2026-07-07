@@ -1,6 +1,7 @@
 import { Activity, Database, Play } from "lucide-react";
 import { getProjects } from "@/lib/agent-api";
 import { useQuery } from "@/lib/query-cache";
+import { byNewestFirst } from "@/lib/utils";
 
 function StatCard({
 	icon: Icon,
@@ -57,7 +58,7 @@ export default function StatisticsPage() {
 						<section>
 							<h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Projects</h2>
 							<div className="space-y-2">
-								{projects.map((project) => (
+								{[...projects].sort(byNewestFirst).map((project) => (
 									<div key={project.id} className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center gap-3">
 										<span
 											className={`w-2 h-2 rounded-full shrink-0 ${project.dockerStatus.running ? "bg-green-400" : "bg-gray-300"}`}

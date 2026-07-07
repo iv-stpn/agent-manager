@@ -5,7 +5,7 @@ import { sessionEmitter } from "../../emitter";
 import { BASE_MAX_TOKENS, ESCALATED_MAX_TOKENS } from "../token-budget";
 import { AGENT_TOOLS } from "../tools/definitions";
 import type { AgentState } from "../types";
-import { type AgentError, withRetry } from "../utils/errors";
+import { type AgentError, LLM_CALL_RETRY, withRetry } from "../utils/errors";
 import { emitMessage } from "./status";
 
 export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Messages.Message> {
@@ -51,15 +51,15 @@ export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Mes
 
 	// Retry with exponential backoff for transient errors
 	const response = await withRetry(() => makeRequest(BASE_MAX_TOKENS), {
-		maxAttempts: 3,
-		baseDelayMs: 1000,
-		maxDelayMs: 10_000,
+		...LLM_CALL_RETRY,
 		signal: agent.abortController.signal,
-		onRetry: (err: AgentError, attempt: number, nextDelayMs: number) => {
-			console.log(`[Agent ${agent.sessionId}] API retry #${attempt}: ${err.category} — waiting ${Math.round(nextDelayMs)}ms`);
+		onRetry: (err: AgentError, attempt: number, nextDelayMs: number, maxAttempts: number) => {
+			console.log(
+				`[Agent ${agent.sessionId}] API retry #${attempt}/${maxAttempts}: ${err.category} — waiting ${Math.round(nextDelayMs)}ms`
+			);
 			sessionEmitter.emit(agent.sessionId, {
 				type: "error_recovered",
-				data: { attempt, error: err.message, nextRetryMs: Math.round(nextDelayMs) },
+				data: { attempt, error: err.message, nextRetryMs: Math.round(nextDelayMs), category: err.category, maxAttempts },
 			});
 		},
 	});
@@ -69,10 +69,32 @@ export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Mes
 		console.log(
 			`[Agent ${agent.sessionId}] Response truncated at ${BASE_MAX_TOKENS} tokens, retrying with ${ESCALATED_MAX_TOKENS}`
 		);
+
+		// The truncated first attempt was still billed by the API. Record its usage
+		// against the session totals before discarding its content — otherwise every
+		// escalation silently drops a full BASE_MAX_TOKENS worth of billed output
+		// (and its input) from the accounting. Only billing totals are affected here;
+		// the loop derives its live context estimate from the returned (escalated)
+		// response's usage via recordApiTokens.
+		const firstUsage = response.usage;
+		addTokens(
+			agent.db,
+			agent.sessionId,
+			firstUsage.input_tokens,
+			firstUsage.output_tokens,
+			firstUsage.cache_read_input_tokens ?? 0,
+			firstUsage.cache_creation_input_tokens ?? 0
+		);
+
+		// The truncated attempt already streamed its partial text/thinking/tool-call
+		// deltas to the client. Reset the live streaming buffers (via turn_start)
+		// before re-streaming so the escalated response replaces the partial output
+		// rather than appending to it — without this the UI shows the truncated text
+		// followed by the full text, concatenated.
+		sessionEmitter.emit(agent.sessionId, { type: "turn_start", data: { turnNumber: agent.turnNumber } });
+
 		return withRetry(() => makeRequest(ESCALATED_MAX_TOKENS), {
-			maxAttempts: 2,
-			baseDelayMs: 1000,
-			maxDelayMs: 5000,
+			...LLM_CALL_RETRY,
 			signal: agent.abortController.signal,
 		});
 	}
@@ -123,6 +145,7 @@ export function recordApiTokens(
 			tokensOutputSinceCompaction: totals?.tokensOutputSinceCompaction ?? 0,
 			tokensCacheReadSinceCompaction: totals?.tokensCacheReadSinceCompaction ?? 0,
 			tokensCacheWriteSinceCompaction: totals?.tokensCacheWriteSinceCompaction ?? 0,
+			contextTokens: totals?.contextTokens ?? 0,
 		},
 	});
 }
@@ -142,7 +165,10 @@ export async function requestSummary(agent: AgentState): Promise<string> {
 			() =>
 				agent.client.messages.create({
 					model: agent.llm.smallModel,
-					max_tokens: 512,
+					// Room for thinking models to finish their thinking block and
+					// still emit text — at 512 they hit max_tokens mid-thought and
+					// the response contains no text at all.
+					max_tokens: 4096,
 					messages: [
 						{
 							role: "user",
@@ -150,10 +176,11 @@ export async function requestSummary(agent: AgentState): Promise<string> {
 						},
 					],
 				}),
-			{ maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 10_000 }
+			LLM_CALL_RETRY
 		);
 
-		return extractTextContent(resp.content);
+		const text = extractTextContent(resp.content).trim();
+		return text || "(summary unavailable)";
 	} catch (err) {
 		console.error(`[Agent ${agent.sessionId}] requestSummary call failed:`, err);
 		return "(summary unavailable)";

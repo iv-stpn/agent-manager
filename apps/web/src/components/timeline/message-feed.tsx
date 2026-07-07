@@ -140,7 +140,7 @@ function MessageBubble({
 	return (
 		<div
 			className={cn(
-				"flex gap-3 group",
+				"flex gap-3 group min-w-0",
 				isNew && "animate-msg-in",
 				isSystem ? "flex-row" : isAssistant ? "flex-row" : "flex-row-reverse"
 			)}
@@ -158,7 +158,10 @@ function MessageBubble({
 				{isSystem ? <Settings className="h-4 w-4" /> : isAssistant ? <Bot className="h-4 w-4" /> : <User className="h-4 w-4" />}
 			</div>
 			<div
-				className={cn("flex flex-col gap-2 max-w-[85%]", isSystem ? "items-start" : isAssistant ? "items-start" : "items-end")}
+				className={cn(
+					"flex flex-col gap-2 min-w-0 max-w-[85%] [overflow-wrap:anywhere]",
+					isSystem ? "items-start" : isAssistant ? "items-start" : "items-end"
+				)}
 			>
 				{blocks.map((block, index) => {
 					if (block.type === "text" && block.text) {
@@ -239,6 +242,37 @@ function ThinkingBubble({ label }: { label?: string }) {
 				<span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: "150ms" }} />
 				<span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: "300ms" }} />
 				{label && <span className="ml-2">{label}</span>}
+			</div>
+		</div>
+	);
+}
+
+/** Fallback bubble shown while tool calls run with no live stream yet — names the
+ * pending tools (collapsing duplicates into "name ×N") so the wait is legible. */
+function RunningToolsBubble({ tools }: { tools: ToolCall[] }) {
+	const counts = new Map<string, number>();
+	for (const tc of tools) counts.set(tc.toolName, (counts.get(tc.toolName) ?? 0) + 1);
+	return (
+		<div className="flex gap-3 items-start animate-msg-in">
+			<div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-violet-500/20 mt-1">
+				<Bot className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+			</div>
+			<div className="bg-muted rounded-lg px-4 py-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-muted-foreground">
+				<span className="flex items-center gap-1.5">
+					<span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: "0ms" }} />
+					<span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: "150ms" }} />
+					<span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: "300ms" }} />
+				</span>
+				<span>
+					Running {tools.length} tool{tools.length > 1 ? "s" : ""}:
+				</span>
+				{[...counts].map(([name, count]) => (
+					<span key={name} className="flex items-center gap-1 font-mono text-xs text-foreground">
+						<ToolIconBox name={name} className="h-5 w-5" />
+						{name}
+						{count > 1 && <span className="text-muted-foreground">×{count}</span>}
+					</span>
+				))}
 			</div>
 		</div>
 	);
@@ -334,7 +368,6 @@ interface Props {
 	messages: Message[];
 	toolCalls: ToolCall[];
 	sessionStatus?: string;
-	pendingToolCalls?: number;
 	streamingText?: string;
 	streamingThinking?: string;
 	streamingToolcall?: { name: string; inputDelta: string } | null;
@@ -348,7 +381,6 @@ export function MessageFeed({
 	messages,
 	toolCalls,
 	sessionStatus,
-	pendingToolCalls = 0,
 	streamingText = "",
 	streamingThinking = "",
 	streamingToolcall = null,
@@ -403,6 +435,9 @@ export function MessageFeed({
 	// user's answer (the handler awaits Discord without flipping status to paused),
 	// so prefer the awaiting-answer bubble over the generic "Running N tools" one.
 	const awaitingAnswer = toolCalls.some((tc) => tc.status === "pending" && tc.toolName === "ask_user_question");
+	// Tools still running (excluding the ask_user_question handled above) — named in
+	// the fallback bubble when there's no live stream yet.
+	const pendingTools = toolCalls.filter((tc) => tc.status === "pending" && tc.toolName !== "ask_user_question");
 
 	if (messages.length === 0 && !isRunning && !isPaused && !isCompacting && !isAborted) {
 		return (
@@ -440,11 +475,11 @@ export function MessageFeed({
 			<div className={cn("flex flex-col gap-4", messages.length > 0 && "mt-4")}>
 				{/* Live streaming text from the assistant */}
 				{isRunning && streamingText && (
-					<div className="flex gap-3 group">
+					<div className="flex gap-3 group min-w-0">
 						<div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-violet-500/20 text-violet-600 dark:text-violet-400 mt-1">
 							<Bot className="h-4 w-4" />
 						</div>
-						<div className="bg-muted rounded-lg px-3 py-2 text-sm leading-relaxed max-w-[85%] streaming-cursor">
+						<div className="bg-muted rounded-lg px-3 py-2 text-sm leading-relaxed min-w-0 max-w-[85%] [overflow-wrap:anywhere] streaming-cursor">
 							<Markdown>{streamingText}</Markdown>
 						</div>
 					</div>
@@ -458,12 +493,18 @@ export function MessageFeed({
 					<LiveThinkingBubble thinking={streamingThinking} />
 				)}
 				{/* Fallback status bubbles when no streaming content */}
-				{isRunning && !streamingText && !streamingToolcall && !streamingThinking && !awaitingAnswer && pendingToolCalls > 0 && (
-					<ThinkingBubble label={`Running ${pendingToolCalls} tool${pendingToolCalls > 1 ? "s" : ""}…`} />
-				)}
-				{isRunning && !streamingText && !streamingToolcall && !streamingThinking && !awaitingAnswer && pendingToolCalls === 0 && (
-					<ThinkingBubble />
-				)}
+				{isRunning &&
+					!streamingText &&
+					!streamingToolcall &&
+					!streamingThinking &&
+					!awaitingAnswer &&
+					pendingTools.length > 0 && <RunningToolsBubble tools={pendingTools} />}
+				{isRunning &&
+					!streamingText &&
+					!streamingToolcall &&
+					!streamingThinking &&
+					!awaitingAnswer &&
+					pendingTools.length === 0 && <ThinkingBubble />}
 				{(isPaused || awaitingAnswer) && <AwaitingAnswerBubble />}
 				{isCompacting && <ThinkingBubble label="Compacting context…" />}
 				{isAborted && <AbortedBubble />}

@@ -101,11 +101,17 @@ export function isBashCommandReadOnly(command: string): boolean {
 	// read-only one (`cat $(rm -rf x)`) — reject outright.
 	if (trimmed.includes("$(") || trimmed.includes("`")) return false;
 
-	// Split compound commands (&&, ||, ;) and verify every part. This must run
-	// BEFORE the prefix check: `cat x; unknown-cmd` would otherwise be approved
-	// on the strength of its `cat ` prefix alone.
-	if (/&&|\|\||;/.test(trimmed)) {
-		const parts = trimmed.split(/\s*(?:&&|\|\||;)\s*/).filter(Boolean);
+	// Split compound commands and verify every part. This must run BEFORE the
+	// prefix check: `cat x; unknown-cmd` would otherwise be approved on the
+	// strength of its `cat ` prefix alone. We split on every shell separator that
+	// starts a new command: `&&`, `||`, `;`, a NEWLINE, and a single pipe `|`.
+	// The pipe and newline matter for safety — `cat f | some-writer` and a
+	// two-line script both used to slip through because the splitter only saw
+	// `&&`/`||`/`;`, leaving the destructive half unchecked behind the `cat `
+	// prefix. (A `|` inside a quoted arg like `grep 'a|b'` will now over-split and
+	// be rejected — acceptable: plan mode fails closed.)
+	if (/&&|\|\||;|\||\n/.test(trimmed)) {
+		const parts = trimmed.split(/\s*(?:&&|\|\||;|\||\n)\s*/).filter(Boolean);
 		return parts.every((part) => isBashCommandReadOnly(part));
 	}
 

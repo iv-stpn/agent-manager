@@ -86,9 +86,13 @@ export function createProgressStream(
 	baseUrl: string,
 	projectId: string,
 	action: ProgressStreamAction,
-	callbacks: ProgressStreamCallbacks
+	callbacks: ProgressStreamCallbacks,
+	// EventSource can't set headers, so the orchestrator auth token (when
+	// configured) is passed as a `?token=` query param. Omit / empty = no auth.
+	token?: string
 ): () => void {
-	const endpoint = `${baseUrl}/api/projects/${projectId}/${action}-stream`;
+	const base = `${baseUrl}/api/projects/${projectId}/${action}-stream`;
+	const endpoint = token ? `${base}?token=${encodeURIComponent(token)}` : base;
 	const es = new EventSource(endpoint);
 
 	es.addEventListener("progress", (event: MessageEvent) => {

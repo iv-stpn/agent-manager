@@ -12,6 +12,7 @@
 
 import type { AgentLlmConfig } from "../agent/types";
 import { env } from "../env";
+import { orchestratorHeaders } from "./orchestrator";
 
 export type { AgentLlmConfig } from "../agent/types";
 
@@ -38,7 +39,9 @@ export async function fetchAgentConfig(): Promise<AgentLlmConfig> {
 	if (!PROJECT_ID) return fallback;
 
 	try {
-		const res = await fetch(`${ORCHESTRATOR_API_URL}/api/projects/${PROJECT_ID}/agent-config`);
+		const res = await fetch(`${ORCHESTRATOR_API_URL}/api/projects/${PROJECT_ID}/agent-config`, {
+			headers: orchestratorHeaders(),
+		});
 		if (!res.ok) return fallback;
 		const data = (await res.json()) as Partial<AgentLlmConfig>;
 		return {

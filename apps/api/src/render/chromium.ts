@@ -32,13 +32,17 @@ async function getBrowserWSEndpoint(): Promise<string> {
 async function withPage<T>(fn: (page: import("puppeteer-core").Page) => Promise<T>): Promise<T> {
 	const wsEndpoint = await getBrowserWSEndpoint();
 	const browser = await puppeteer.connect({ browserWSEndpoint: wsEndpoint });
+	// `page` must be declared outside the try so the finally can always close it.
+	// If `fn` throws (e.g. renderMermaid's setContent/waitForSelector timeout, or
+	// the "produced no SVG" throw), disconnecting the browser alone leaks the tab
+	// in the shared browserless container — over time that exhausts it.
+	let page: import("puppeteer-core").Page | undefined;
 	try {
-		const page = await browser.newPage();
+		page = await browser.newPage();
 		await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1.5 });
-		const result = await fn(page);
-		await page.close();
-		return result;
+		return await fn(page);
 	} finally {
+		if (page) await page.close().catch(() => {});
 		browser.disconnect();
 	}
 }

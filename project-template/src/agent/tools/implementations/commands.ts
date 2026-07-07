@@ -1,4 +1,5 @@
 import { env } from "../../../env";
+import { sandboxPath } from "./sandbox";
 
 const WORKSPACE = env.WORKSPACE_PATH;
 
@@ -92,15 +93,17 @@ export async function runGrep(pattern: string, options: GrepOptions = {}): Promi
 
 export async function grep(pattern: string, path = ".", include?: string, flags = ""): Promise<string> {
 	const extraFlags = flags.split(/\s+/).filter(Boolean);
-	const options: GrepOptions = { path, extraFlags };
+	// Constrain the search root to the workspace sandbox — an absolute or `../`
+	// path would otherwise let grep read arbitrary host files.
+	const options: GrepOptions = { path: sandboxPath(path), extraFlags };
 	if (include !== undefined) options.include = include;
 	return runGrep(pattern, options);
 }
 
 export async function glob(pattern: string, path = "."): Promise<string> {
-	// Resolve the search root against the workspace — a bare relative `path`
-	// would otherwise scan relative to the server process cwd, not the sandbox.
-	const cwd = path.startsWith("/") ? path : `${WORKSPACE}/${path}`;
+	// Resolve + sandbox the search root: a bare relative path would scan from the
+	// server cwd, and an absolute/`../` path would escape the workspace entirely.
+	const cwd = sandboxPath(path);
 	const scanner = new Bun.Glob(pattern).scan({ cwd, onlyFiles: false });
 	const matches: string[] = [];
 	for await (const file of scanner) matches.push(file);

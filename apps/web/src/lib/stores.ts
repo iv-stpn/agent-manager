@@ -230,6 +230,11 @@ const acquireSessionStream = connectionManager((_key: string, sessionId: string,
 		sessionId,
 		(event) => {
 			if (event.type === "turn_start") {
+				// Clear all live-streaming buffers, not just thinking/toolcall. The
+				// max_tokens escalation re-emits turn_start before re-streaming the
+				// whole response at the higher limit; without resetting streamText the
+				// truncated first attempt's text would be duplicated ahead of the retry.
+				updateCache(cacheKeys.streamText(sessionId), () => "");
 				updateCache(cacheKeys.streamThinking(sessionId), () => "");
 				updateCache<StreamingToolcall | null>(cacheKeys.streamToolcall(sessionId), () => null);
 			} else if (event.type === "text_delta") {
@@ -271,6 +276,7 @@ const acquireSessionStream = connectionManager((_key: string, sessionId: string,
 								tokensOutputSinceCompaction: event.data.tokensOutputSinceCompaction,
 								tokensCacheReadSinceCompaction: event.data.tokensCacheReadSinceCompaction,
 								tokensCacheWriteSinceCompaction: event.data.tokensCacheWriteSinceCompaction,
+								contextTokens: event.data.contextTokens,
 							}
 						: session
 				);
@@ -300,9 +306,22 @@ const acquireSessionStream = connectionManager((_key: string, sessionId: string,
 				else if (event.data.state === "error") toast.error("Context near limit — auto-compacting");
 				else if (event.data.state === "blocking") toast.error("Context at maximum capacity");
 			} else if (event.type === "error_recovered") {
-				toast.info(
-					`API retry #${event.data.attempt}: ${event.data.error} (retrying in ${Math.round(event.data.nextRetryMs / 1000)}s)`
-				);
+				const waitSec = Math.round(event.data.nextRetryMs / 1000);
+				const attemptLabel = event.data.maxAttempts
+					? `#${event.data.attempt} of ${event.data.maxAttempts}`
+					: `#${event.data.attempt}`;
+				if (event.data.category === "server_crash") {
+					// A crashed backend reboots on a multi-minute timescale, so keep the
+					// toast up for the whole wait (with a little slack) instead of the
+					// default few seconds — otherwise it vanishes long before the retry.
+					const waitLabel = waitSec >= 60 ? `${Math.round(waitSec / 60)}m` : `${waitSec}s`;
+					toast.warning(`LLM server crashed — waiting ${waitLabel} before retry ${attemptLabel}`, {
+						id: `server-crash-${sessionId}`,
+						duration: event.data.nextRetryMs + 10_000,
+					});
+				} else {
+					toast.info(`API retry ${attemptLabel}: ${event.data.error} (retrying in ${waitSec}s)`);
+				}
 			}
 		},
 		port

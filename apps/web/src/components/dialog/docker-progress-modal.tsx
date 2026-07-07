@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { API_URL } from "@/constants";
+import { orchestratorApiToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 interface StartupProgressModalProps {
@@ -37,39 +38,45 @@ export function StartupProgressModal({ open, onOpenChange, projectId, action, on
 		setSuccess(false);
 		setStopping(false);
 
-		const cancel = createProgressStream(API_URL, projectId, action, {
-			onProgress(step, status, log) {
-				setSteps((previous) =>
-					updateOrAppendById<ProgressStep>(
-						previous,
-						step,
-						(step) => ({ ...step, status, ...(log != null ? { log } : {}) }),
-						() => ({ id: step, label: PROGRESS_STEP_LABELS[step] || step, status, log })
-					)
-				);
+		const cancel = createProgressStream(
+			API_URL,
+			projectId,
+			action,
+			{
+				onProgress(step, status, log) {
+					setSteps((previous) =>
+						updateOrAppendById<ProgressStep>(
+							previous,
+							step,
+							(step) => ({ ...step, status, ...(log != null ? { log } : {}) }),
+							() => ({ id: step, label: PROGRESS_STEP_LABELS[step] || step, status, log })
+						)
+					);
+				},
+				onDelta(step, line) {
+					setSteps((prev) =>
+						updateOrAppendById<ProgressStep>(
+							prev,
+							step,
+							(step) => ({ ...step, log: (step.log ? `${step.log}\n` : "") + line }),
+							() => ({ id: step, label: PROGRESS_STEP_LABELS[step] || step, status: "running", log: line })
+						)
+					);
+				},
+				onComplete(success) {
+					cancelRef.current = null;
+					setDone(true);
+					setSuccess(success);
+					onCompleteRef.current(success);
+				},
+				onError() {
+					cancelRef.current = null;
+					setDone(true);
+					setSuccess(false);
+				},
 			},
-			onDelta(step, line) {
-				setSteps((prev) =>
-					updateOrAppendById<ProgressStep>(
-						prev,
-						step,
-						(step) => ({ ...step, log: (step.log ? `${step.log}\n` : "") + line }),
-						() => ({ id: step, label: PROGRESS_STEP_LABELS[step] || step, status: "running", log: line })
-					)
-				);
-			},
-			onComplete(success) {
-				cancelRef.current = null;
-				setDone(true);
-				setSuccess(success);
-				onCompleteRef.current(success);
-			},
-			onError() {
-				cancelRef.current = null;
-				setDone(true);
-				setSuccess(false);
-			},
-		});
+			orchestratorApiToken
+		);
 		cancelRef.current = cancel;
 		return () => {
 			cancel();

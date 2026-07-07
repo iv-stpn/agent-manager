@@ -1,7 +1,8 @@
 import { extractTextContent } from "@agent-manager/utils/blocks";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources";
-import { withRetry } from "./utils/errors";
+import { getSummaryMaxTokens } from "./token-budget";
+import { LLM_CALL_RETRY, withRetry } from "./utils/errors";
 
 // Rough token estimate: 1 token ≈ 4 chars
 export function estimateTokens(messages: MessageParam[]): number {
@@ -82,7 +83,10 @@ export async function compactMessages(
 		() =>
 			client.messages.create({
 				model,
-				max_tokens: 2048,
+				// The token-budget module reserves this much window space for the
+				// summary call; a hardcoded small cap here let thinking models hit
+				// max_tokens inside their thinking block and return no text at all.
+				max_tokens: getSummaryMaxTokens(),
 				messages: [
 					{
 						role: "user",
@@ -98,10 +102,19 @@ Output only the summary.`,
 					},
 				],
 			}),
-		{ maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 10_000 }
+		LLM_CALL_RETRY
 	);
 
 	const summary = extractTextContent(resp.content);
+
+	// A response with no text blocks (e.g. a thinking model that stopped at
+	// max_tokens mid-thought, or a refusal) must never replace the transcript
+	// with an empty primer. Throw like any other summarization failure so
+	// doCompaction records it and leaves agent.messages intact.
+	if (!summary.trim()) {
+		const blockTypes = resp.content.map((b) => b.type).join(", ") || "none";
+		throw new Error(`Compaction summary was empty (stop_reason: ${resp.stop_reason}, content blocks: ${blockTypes})`);
+	}
 
 	// Restart the conversation with just a context primer from the memory
 	const restartMessage: MessageParam = {

@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { StackEntry, TechStack } from "@/lib/agent-api";
 import { createTechStack, deleteTechStack, getTechStacks, updateTechStack } from "@/lib/agent-api";
 import { mutateCache, useQuery } from "@/lib/query-cache";
+import { byNewestFirst } from "@/lib/utils";
 
 type Form = { language: string; name: string; description: string; stack: StackEntry[]; templateGithubUrl: string };
 
@@ -105,7 +106,7 @@ export default function TechStacksPage() {
 					</div>
 				) : (
 					<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-						{stacks.map((techStack) => (
+						{[...stacks].sort(byNewestFirst).map((techStack) => (
 							<div
 								key={techStack.id}
 								className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3 hover:border-gray-300 transition-colors"

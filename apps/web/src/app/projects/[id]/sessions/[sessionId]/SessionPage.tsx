@@ -1,4 +1,4 @@
-import { ArrowDownToLine, ArrowLeft, Pause, RefreshCw, RotateCcw, Send, Square } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft, Menu, Pause, RefreshCw, RotateCcw, Send, Square, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -50,6 +50,9 @@ export default function SessionPage() {
 	const [viewport, setViewport] = useState<HTMLElement | null>(null);
 	const [isAtBottom, setIsAtBottom] = useState(true);
 	const [timelineTab, setTimelineTab] = useState("current");
+	// Right panel collapses to a hamburger-toggled drawer below the `lg` breakpoint;
+	// stays permanently inline (this state ignored) at `lg` and up.
+	const [panelOpen, setPanelOpen] = useState(false);
 
 	const scrollAreaRef = useCallback((node: HTMLDivElement | null) => {
 		setViewport(node?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]") ?? null);
@@ -68,6 +71,16 @@ export default function SessionPage() {
 		const newHeight = Math.min(textarea.scrollHeight, 120);
 		textarea.style.height = `${newHeight}px`;
 	}, [chatInput]);
+
+	// Close the mobile drawer on Escape.
+	useEffect(() => {
+		if (!panelOpen) return;
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setPanelOpen(false);
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [panelOpen]);
 
 	useEffect(() => {
 		if (!viewport) return;
@@ -172,7 +185,8 @@ export default function SessionPage() {
 			sublabel: undefined,
 			messages: messages.filter((message) => message.createdAt >= sorted[sorted.length - 1].createdAt),
 		};
-		return [current, ...closed];
+		// Most-recent-first: "Current" leftmost, then closed segments newest → oldest.
+		return [current, ...closed.reverse()];
 	}, [messages, compactions]);
 
 	// Auto-switch to the "Current" segment when a new compaction arrives
@@ -336,13 +350,7 @@ export default function SessionPage() {
 	// the status flips back to "running" (driven over SSE).
 	const isCompacting = session.status === "compacting";
 
-	// Estimate system prompt + tool definition tokens from the first message that
-	// reads the cache: its cacheReadTokens is the constant system prompt + tool
-	// definitions that get replayed (as cache reads) on every subsequent turn.
-	const firstCacheRead = messages.find(
-		(message) => (message.role === "assistant" || message.role === "system") && (message.cacheReadTokens ?? 0) > 0
-	);
-	const systemPromptTokens = firstCacheRead?.cacheReadTokens ?? 0;
+	const pendingToolCount = toolCalls.filter((tc) => tc.status === "pending").length;
 
 	return (
 		<div className="h-full flex flex-col  overflow-x-hidden">
@@ -399,12 +407,27 @@ export default function SessionPage() {
 								{stopping ? "Stopping..." : "Stop"}
 							</Button>
 						)}
+						{/* Toggles the right panel drawer; hidden once it's permanently inline at `lg`+ */}
+						<Button
+							variant="secondary"
+							size="icon"
+							onClick={() => setPanelOpen((open) => !open)}
+							title={panelOpen ? "Close panel" : "Open panel"}
+							className="relative shrink-0 lg:hidden"
+						>
+							{panelOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+							{!panelOpen && pendingToolCount > 0 && (
+								<span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-yellow-500 text-white text-[10px] flex items-center justify-center">
+									{pendingToolCount}
+								</span>
+							)}
+						</Button>
 					</div>
 				</div>
 			</div>
 
 			{/* Main layout */}
-			<div className={cn("flex h-[calc(100vh-72px)]", containerClassName)}>
+			<div className={cn("flex min-w-0 flex-1 min-h-0", containerClassName)}>
 				{/* Left: message feed + chat input */}
 				<div className="flex-1 flex flex-col overflow-hidden border-r">
 					{tasks.length > 0 && (
@@ -440,7 +463,6 @@ export default function SessionPage() {
 							messages={messageSegments.find((segment) => segment.key === timelineTab)?.messages ?? messages}
 							toolCalls={toolCalls}
 							sessionStatus={session.status}
-							pendingToolCalls={toolCalls.filter((tc) => tc.status === "pending").length}
 							streamingText={streamingText}
 							streamingThinking={streamingThinking}
 							streamingToolcall={streamingToolcall}
@@ -464,7 +486,7 @@ export default function SessionPage() {
 						)}
 						<textarea
 							ref={chatRef}
-							className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring min-h-[38px] max-h-[120px] overflow-y-auto"
+							className="flex-1 min-w-0 resize-none rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring min-h-[38px] max-h-[120px] overflow-y-auto"
 							rows={1}
 							placeholder={
 								!running
@@ -496,8 +518,29 @@ export default function SessionPage() {
 					</div>
 				</div>
 
-				{/* Right: sidebar */}
-				<div className="w-[448px] shrink-0 flex flex-col overflow-hidden">
+				{/* Backdrop — only below `lg`, only while the drawer is open. Starts at
+				    `left-16` so the app rail stays visible and clickable. */}
+				{panelOpen && (
+					<button
+						type="button"
+						aria-label="Close panel"
+						onClick={() => setPanelOpen(false)}
+						className="fixed left-16 right-0 top-[72px] bottom-0 z-40 bg-black/40 lg:hidden"
+					/>
+				)}
+
+				{/* Right: sidebar. Inline at `lg`+, a slide-in drawer below it. */}
+				<div
+					className={cn(
+						"w-[448px] shrink-0 flex flex-col overflow-hidden bg-background",
+						// Drawer behaviour below `lg`
+						"fixed right-0 top-[72px] bottom-0 z-50 max-w-[calc(100vw-4rem)] border-l shadow-xl",
+						"transition-transform duration-300 ease-in-out",
+						panelOpen ? "translate-x-0" : "translate-x-full",
+						// Reset to a static in-flow column at `lg`+
+						"lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:border-l-0 lg:shadow-none lg:transition-none"
+					)}
+				>
 					<Tabs defaultValue="summary" className="flex flex-col flex-1 overflow-hidden">
 						<TabsList className="m-3 shrink-0">
 							<TabsTrigger value="summary" className="flex-1">
@@ -505,9 +548,9 @@ export default function SessionPage() {
 							</TabsTrigger>
 							<TabsTrigger value="tools" className="flex-1">
 								Tools
-								{toolCalls.filter((tc) => tc.status === "pending").length > 0 && (
+								{pendingToolCount > 0 && (
 									<span className="ml-1.5 h-4 w-4 rounded-full bg-yellow-500 text-white text-[10px] flex items-center justify-center">
-										{toolCalls.filter((tc) => tc.status === "pending").length}
+										{pendingToolCount}
 									</span>
 								)}
 							</TabsTrigger>
@@ -544,6 +587,31 @@ export default function SessionPage() {
 								</Card>
 								<Card>
 									<CardContent className="pt-4 pb-3">
+										<div className="flex items-baseline justify-between">
+											<p className="text-sm text-muted-foreground">Context size</p>
+											<p className="text-sm font-mono">
+												{formatTokens(session.contextTokens)}
+												{session.compactThresholdTokens > 0 && <> / {formatTokens(session.compactThresholdTokens)}</>}
+											</p>
+										</div>
+										{session.compactThresholdTokens > 0 && (
+											<div className="mt-2 h-1.5 w-full rounded-full bg-muted">
+												<div
+													className="h-1.5 rounded-full bg-orange-500"
+													style={{
+														width: `${Math.min(100, (session.contextTokens / session.compactThresholdTokens) * 100)}%`,
+													}}
+												/>
+											</div>
+										)}
+										<p className="text-[10px] text-muted-foreground mt-1">
+											Live context from the last model call — auto-compaction triggers when this reaches the threshold. Input +
+											output since the last compaction approximately compose it; cache rows are cumulative API billing.
+										</p>
+									</CardContent>
+								</Card>
+								<Card>
+									<CardContent className="pt-4 pb-3">
 										<table className="w-full text-sm">
 											<thead>
 												<tr className="border-b">
@@ -555,54 +623,28 @@ export default function SessionPage() {
 											<tbody>
 												<tr className="border-b">
 													<td className="py-2 text-muted-foreground">Input tokens</td>
-													<td className="py-2 text-right font-mono">
-														{formatTokens(compactions.length > 0 ? session.tokensInputSinceCompaction : session.totalInputTokens)}
-													</td>
+													<td className="py-2 text-right font-mono">{formatTokens(session.tokensInputSinceCompaction)}</td>
 													<td className="py-2 text-right font-mono">{formatTokens(session.totalInputTokens)}</td>
 												</tr>
 												<tr className="border-b">
 													<td className="py-2 text-muted-foreground">Output tokens</td>
-													<td className="py-2 text-right font-mono">
-														{formatTokens(
-															compactions.length > 0 ? session.tokensOutputSinceCompaction : session.totalOutputTokens
-														)}
-													</td>
+													<td className="py-2 text-right font-mono">{formatTokens(session.tokensOutputSinceCompaction)}</td>
 													<td className="py-2 text-right font-mono">{formatTokens(session.totalOutputTokens)}</td>
 												</tr>
 												<tr className="border-b">
 													<td className="py-2 text-muted-foreground">Cache read tokens</td>
-													<td className="py-2 text-right font-mono">
-														{formatTokens(
-															compactions.length > 0 ? session.tokensCacheReadSinceCompaction : session.totalCacheReadTokens
-														)}
-													</td>
+													<td className="py-2 text-right font-mono">{formatTokens(session.tokensCacheReadSinceCompaction)}</td>
 													<td className="py-2 text-right font-mono">{formatTokens(session.totalCacheReadTokens)}</td>
 												</tr>
 												<tr>
 													<td className="py-2 text-muted-foreground">Cache write tokens</td>
-													<td className="py-2 text-right font-mono">
-														{formatTokens(
-															compactions.length > 0 ? session.tokensCacheWriteSinceCompaction : session.totalCacheWriteTokens
-														)}
-													</td>
+													<td className="py-2 text-right font-mono">{formatTokens(session.tokensCacheWriteSinceCompaction)}</td>
 													<td className="py-2 text-right font-mono">{formatTokens(session.totalCacheWriteTokens)}</td>
 												</tr>
 											</tbody>
 										</table>
 									</CardContent>
 								</Card>
-								{systemPromptTokens > 0 && (
-									<Card>
-										<CardContent className="pt-4 pb-3">
-											<p className="text-xs text-muted-foreground">System prompt + tools</p>
-											<p className="text-xl font-bold text-orange-500">{formatTokens(systemPromptTokens)}</p>
-											<p className="text-[10px] text-muted-foreground mt-1">
-												Replayed as cache read every turn · {formatTokens(systemPromptTokens)} of each turn's cache read is this
-												constant overhead
-											</p>
-										</CardContent>
-									</Card>
-								)}
 								<Card>
 									<CardHeader className="pb-2 pt-4">
 										<CardTitle className="text-sm">Token usage over time</CardTitle>

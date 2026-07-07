@@ -21,7 +21,18 @@ function OutputView({ output }: { output: string }) {
 
 export function ToolCallCard({ tc }: { tc: ToolCall }) {
 	const [open, setOpen] = useState(false);
-	const input = JSON.parse(tc.input || "{}");
+	// tc.input is persisted text and isn't guaranteed to be valid JSON; a parse
+	// throw here would crash the whole Tools tab (no error boundary). Fall back
+	// to showing the raw string.
+	let input: unknown;
+	try {
+		input = JSON.parse(tc.input || "{}");
+	} catch {
+		input = tc.input;
+	}
+	// Narrow just the two preview fields read in the header; JsonView takes the
+	// whole value regardless of shape.
+	const preview = (input && typeof input === "object" ? input : {}) as { command?: unknown; path?: unknown };
 	const statusIcon =
 		tc.status === "success" ? (
 			<CheckCircle2 className="h-3 w-3 text-green-500" />
@@ -46,8 +57,8 @@ export function ToolCallCard({ tc }: { tc: ToolCall }) {
 				<div className="shrink-0">{statusIcon}</div>
 				<ToolIconBox name={tc.toolName} className="h-5 w-5 shrink-0" />
 				<span className="font-semibold text-foreground">{tc.toolName}</span>
-				{input.command && <span className="truncate text-muted-foreground">{String(input.command).slice(0, 50)}</span>}
-				{input.path && !input.command && <span className="truncate text-muted-foreground">{String(input.path)}</span>}
+				{preview.command ? <span className="truncate text-muted-foreground">{String(preview.command).slice(0, 50)}</span> : null}
+				{preview.path && !preview.command ? <span className="truncate text-muted-foreground">{String(preview.path)}</span> : null}
 				<span className="ml-auto text-muted-foreground shrink-0">{formatRelativeTime(tc.createdAt)}</span>
 			</button>
 			{open && (

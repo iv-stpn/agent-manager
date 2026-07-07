@@ -82,10 +82,25 @@ export class ProjectDatabase {
 		}
 	}
 
+	/**
+	 * A project whose agent has never run has no `agent.db` yet — `open()` throws
+	 * "database not found" for that, which is the expected empty state, not a
+	 * failure. Any other throw (corruption, a failed migration, a locked file) is
+	 * a real error that the bare `catch {}` used to hide behind an empty list /
+	 * null — making the UI show "no data" for a broken DB. Distinguish them so
+	 * real failures at least get logged.
+	 */
+	private isMissingDb(err: unknown): boolean {
+		return err instanceof Error && err.message.includes("database not found");
+	}
+
 	private safeList<T>(projectId: string, fn: (db: ProjectDb) => T[]): T[] {
 		try {
 			return this.withDb(projectId, fn);
-		} catch {
+		} catch (err) {
+			if (!this.isMissingDb(err)) {
+				console.error(`[ProjectDatabase] read failed for project "${projectId}":`, err);
+			}
 			return [];
 		}
 	}
@@ -102,7 +117,10 @@ export class ProjectDatabase {
 					.all();
 				return { sessions: s, messages: m, reports: r, lastActivity: last };
 			});
-		} catch {
+		} catch (err) {
+			if (!this.isMissingDb(err)) {
+				console.error(`[ProjectDatabase] stats read failed for project "${projectId}":`, err);
+			}
 			return { sessions: 0, messages: 0, lastActivity: null, reports: 0 };
 		}
 	}
@@ -136,7 +154,10 @@ export class ProjectDatabase {
 	async getSession(projectId: string, sessionId: string): Promise<SessionRecord | null> {
 		try {
 			return this.withDb(projectId, (db) => db.select().from(sessions).where(eq(sessions.id, sessionId)).get()) ?? null;
-		} catch {
+		} catch (err) {
+			if (!this.isMissingDb(err)) {
+				console.error(`[ProjectDatabase] getSession failed for project "${projectId}" session "${sessionId}":`, err);
+			}
 			return null;
 		}
 	}

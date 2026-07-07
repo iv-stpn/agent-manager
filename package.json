@@ -6,10 +6,15 @@
 		"packages/*",
 		"project-template"
 	],
+	"packageManager": "bun@1.3.14",
+	"engines": {
+		"bun": ">=1.3.0"
+	},
 	"scripts": {
 		"clean": "find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +",
 		"dev": "scripts/dev.sh",
 		"db:reset:seed": "bun run scripts/reset-seed-db.ts",
+		"db:studio": "bun run scripts/db-studio.ts",
 		"gen:db-md": "bun run scripts/gen-db-md.ts",
 		"gen:tools-md": "bun run scripts/gen-tools-md.ts",
 		"gen:docs": "bun run gen:db-md && bun run gen:tools-md",
@@ -20,6 +25,8 @@
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"format": "biome format --write .",
+		"test": "bun test",
+		"test:watch": "bun test --watch",
 		"projects": "bun run apps/cli/projects.ts",
 		"stop-all": "bun run scripts/stop-all-projects.ts",
 		"typecheck": "bun run --cwd apps/api build:types && bun run --cwd project-template build:types && (cd apps/api && tsc --noEmit) && (cd apps/web && tsc --noEmit) && (cd project-template && tsc --noEmit) && tsc -p packages/db/tsconfig.json --noEmit && tsc -p packages/projects/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit",
@@ -27,7 +34,9 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.4.16",
+		"@libsql/client": "^0.17.4",
 		"bun-types": "^1.2.17",
+		"drizzle-kit": "^0.31.10",
 		"drizzle-orm": "0.45.2",
 		"husky": "^9.1.7",
 		"knip": "^6.23.0",

@@ -106,21 +106,26 @@ async function detectQualityCommands(workspace: string): Promise<string[]> {
 export async function commitChanges(workspace: string, message: string, runQualityChecks: boolean): Promise<CommitResult> {
 	const output: string[] = [];
 
-	const runCmd = async (cmd: string): Promise<{ ok: boolean; out: string }> => {
-		const proc = Bun.spawn(["bash", "-c", cmd], {
-			cwd: workspace,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-		// Read streams concurrently with the exit wait (pipe-buffer deadlock otherwise)
+	const drain = async (proc: ReturnType<typeof Bun.spawn>): Promise<{ ok: boolean; out: string }> => {
+		// With `stdout`/`stderr: "pipe"` these are ReadableStreams, but the generic
+		// spawn return type widens them to a union — narrow it back for Response.
 		const [stdout, stderr, exitCode] = await Promise.all([
-			new Response(proc.stdout).text(),
-			new Response(proc.stderr).text(),
+			new Response(proc.stdout as ReadableStream).text(),
+			new Response(proc.stderr as ReadableStream).text(),
 			proc.exited,
 		]);
 		const combined = [stdout, stderr].filter(Boolean).join("\n").trim();
 		return { ok: exitCode === 0, out: combined };
 	};
+
+	const runCmd = (cmd: string): Promise<{ ok: boolean; out: string }> =>
+		drain(Bun.spawn(["bash", "-c", cmd], { cwd: workspace, stdout: "pipe", stderr: "pipe" }));
+
+	// Run an explicit argv with no shell, so user-controlled values (the commit
+	// message) can never be interpreted as shell syntax — `bash -c` + JSON.stringify
+	// still leaves `$(...)` and backticks live inside double quotes.
+	const runArgv = (argv: string[]): Promise<{ ok: boolean; out: string }> =>
+		drain(Bun.spawn(argv, { cwd: workspace, stdout: "pipe", stderr: "pipe" }));
 
 	// Run quality checks before commit
 	if (runQualityChecks) {
@@ -149,10 +154,17 @@ export async function commitChanges(workspace: string, message: string, runQuali
 		return { success: false, output: "Nothing to commit — working tree clean.", commit: null };
 	}
 
-	// Commit
-	const { ok: commitOk, out: commitOut } = await runCmd(
-		`git -c user.name="${GIT_AUTHOR_NAME}" -c user.email="${GIT_AUTHOR_EMAIL}" commit -m ${JSON.stringify(message)}`
-	);
+	// Commit — argv form so the message (user/agent-controlled) is never shell-parsed.
+	const { ok: commitOk, out: commitOut } = await runArgv([
+		"git",
+		"-c",
+		`user.name=${GIT_AUTHOR_NAME}`,
+		"-c",
+		`user.email=${GIT_AUTHOR_EMAIL}`,
+		"commit",
+		"-m",
+		message,
+	]);
 	output.push(`$ git commit\n${commitOut}`);
 
 	if (!commitOk) {

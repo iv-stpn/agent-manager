@@ -1,8 +1,10 @@
+import { withAuthToken } from "@/lib/auth";
+
 export function createHostStream<T = unknown>(
 	onEvent: (type: string, payload: { projectId: string; data: unknown }) => void,
 	onSnapshot: (projects: T[]) => void
 ): EventSource {
-	const eventSource = new EventSource("/api/projects/events");
+	const eventSource = new EventSource(withAuthToken("/api/projects/events"));
 
 	eventSource.addEventListener("projects", (event) => {
 		if (!(event instanceof MessageEvent)) return;

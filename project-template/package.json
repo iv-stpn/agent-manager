@@ -10,7 +10,7 @@
 	"dependencies": {
 		"@agent-manager/db": "workspace:*",
 		"@agent-manager/utils": "workspace:*",
-		"@anthropic-ai/sdk": "^0.54.0",
+		"@anthropic-ai/sdk": "0.54.0",
 		"drizzle-orm": "0.45.2",
 		"hono": "4.12.14",
 		"nanoid": "^5.1.5",

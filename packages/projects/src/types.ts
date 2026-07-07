@@ -21,6 +21,26 @@ export const AgentConfigSchema = z.object({
 
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 
+/** Accept only https:// or scp-like git@host:path remotes for github templates. */
+export function isValidGitRemote(source: string): boolean {
+	if (/^https:\/\/[^\s]+$/.test(source)) {
+		try {
+			// Reject embedded credentials / non-http(s) tricks smuggled past the regex.
+			const url = new URL(source);
+			return url.protocol === "https:" && !url.username && !url.password;
+		} catch {
+			return false;
+		}
+	}
+	// scp-like syntax: git@github.com:owner/repo.git
+	return /^git@[a-zA-Z0-9._-]+:[a-zA-Z0-9._/-]+$/.test(source);
+}
+
+/** A single, safe path segment — no separators, no traversal, no leading dot. */
+export function isSafePathSegment(source: string): boolean {
+	return source.length > 0 && !source.includes("/") && !source.includes("\\") && source !== ".." && source !== ".";
+}
+
 export const ProjectConfigSchema = z.object({
 	id: z.string(),
 	name: z.string(),
@@ -103,11 +123,32 @@ export const CreateProjectSchema = z.object({
 	agent: AgentConfigSchema.optional(),
 	templates: z
 		.array(
-			z.object({
-				type: z.enum(["local", "github"]),
-				source: z.string(), // For local: template name, for github: repo URL
-				subdirectory: z.string().optional(), // For multiple templates: subdirectory name under workspace
-			})
+			z
+				.object({
+					type: z.enum(["local", "github"]),
+					source: z.string(), // For local: template name, for github: repo URL
+					subdirectory: z.string().optional(), // For multiple templates: subdirectory name under workspace
+				})
+				// `source` is later fed to `git clone` (github) or joined onto the
+				// templates dir (local). Constrain it per-type so it can never carry
+				// shell/URL tricks or a path-traversal segment.
+				.superRefine((tpl, ctx) => {
+					if (tpl.type === "github") {
+						if (!isValidGitRemote(tpl.source)) {
+							ctx.addIssue({
+								code: z.ZodIssueCode.custom,
+								path: ["source"],
+								message: "github source must be an https:// or git@ repository URL",
+							});
+						}
+					} else if (!isSafePathSegment(tpl.source)) {
+						ctx.addIssue({
+							code: z.ZodIssueCode.custom,
+							path: ["source"],
+							message: "local source must be a single path segment (no '/', '\\', or '..')",
+						});
+					}
+				})
 		)
 		.optional(),
 	binaries: z.array(z.enum(["python3", "workerd", "cargo"])).optional(),

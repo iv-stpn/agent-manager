@@ -8,6 +8,7 @@ import {
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { z } from "zod";
 import { deleteProjectCategory } from "../discord/channels";
 import { env } from "../env";
 import { getErrorMessage } from "../lib/errors";
@@ -15,8 +16,36 @@ import type { HonoOrchestratorEnv } from "../types";
 
 export type WorkspaceFolderStatus = "not_found" | "empty" | "not_empty" | "not_directory" | "protected";
 
+// Cap on how long the orchestrator waits for a project's agent container to
+// respond to a proxied request. Without it, an unreachable or hung container
+// (network wedged, process deadlocked) leaves the orchestrator request open
+// indefinitely, tying up a connection per stuck call. These are all short
+// request/response calls (tasks, session control) — never SSE, which the web
+// client opens straight to the container — so a bounded timeout is safe.
+const AGENT_PROXY_TIMEOUT_MS = 15_000;
+
+// Body schema for the path-inspection / path-clearing routes. These take a
+// host filesystem path (an external workspace the operator chose), so the value
+// is validated as a non-empty string here and the resolved path is additionally
+// gated by isProtectedDirectory + an is-directory check at each call site.
+const PathBodySchema = z.object({ path: z.string().min(1, "path is required") });
+
 function lanceTableName(projectId: string): string {
 	return `project_${projectId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
+
+/**
+ * Set the CORS origin header for a streamed (SSE) response, but ONLY echo the
+ * request's Origin when it matches the configured web origin. Reflecting an
+ * arbitrary Origin (the previous behaviour) let any page the operator visited
+ * drive these endpoints — several of which mutate state — defeating the
+ * allowlist the global `cors()` middleware sets for normal responses.
+ */
+function applyCorsOrigin(c: Context<HonoOrchestratorEnv>): void {
+	const origin = c.req.header("Origin");
+	if (origin && origin === env.ORCHESTRATOR_WEB_URL) {
+		c.header("Access-Control-Allow-Origin", origin);
+	}
 }
 
 async function dropLanceTable(projectId: string): Promise<void> {
@@ -58,7 +87,12 @@ async function proxyToAgent(c: Context<HonoOrchestratorEnv>, projectId: string, 
 	const body = method === "GET" || method === "HEAD" ? undefined : await c.req.text();
 
 	try {
-		const upstream = await fetch(url, { method, headers, ...(body !== undefined && { body }) });
+		const upstream = await fetch(url, {
+			method,
+			headers,
+			...(body !== undefined && { body }),
+			signal: AbortSignal.timeout(AGENT_PROXY_TIMEOUT_MS),
+		});
 		const responseHeaders = new Headers();
 		for (const key of ["content-type", "cache-control", "connection", "x-accel-buffering"]) {
 			const value = upstream.headers.get(key);
@@ -121,8 +155,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 	// Main event stream — one connection drives the whole project list without
 	// polling. Registered before "/:projectId" so the static path wins.
 	.get("/events", (c) => {
-		const origin = c.req.header("Origin");
-		if (origin) c.header("Access-Control-Allow-Origin", origin);
+		applyCorsOrigin(c);
 
 		return streamSSE(c, async (stream) => {
 			const { manager, hub } = c.var;
@@ -212,11 +245,12 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 	// Clear workspace path (for template initialization)
 	.post("/clear-path", async (c) => {
 		try {
-			const { path: targetPath } = await c.req.json<{ path: string }>();
-			if (!targetPath) return c.json({ error: "path is required" }, 400);
+			const parsed = PathBodySchema.safeParse(await c.req.json().catch(() => ({})));
+			if (!parsed.success) return c.json({ error: "path is required" }, 400);
+			const targetPath = parsed.data.path;
 
 			const { resolve, join } = await import("node:path");
-			const { rm, readdir } = await import("node:fs/promises");
+			const { rm, readdir, stat } = await import("node:fs/promises");
 			const { homedir } = await import("node:os");
 
 			const expanded = targetPath.startsWith("~/") || targetPath === "~" ? targetPath.replace("~", homedir()) : targetPath;
@@ -226,6 +260,11 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 			if (isProtectedDirectory(resolved)) {
 				return c.json({ error: "Cannot clear a protected system directory" }, 403);
 			}
+
+			// Only ever clear an actual directory — never follow the path to a file
+			// (or a symlink target) and recursively remove it.
+			const s = await stat(resolved);
+			if (!s.isDirectory()) return c.json({ error: "Path is not a directory" }, 400);
 
 			// Remove all contents but keep the directory
 			const entries = await readdir(resolved);
@@ -261,8 +300,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 	// clone/copy, dependency install). POST (not GET+EventSource) because the
 	// body can carry an LLM API key — that shouldn't go in a URL/query string.
 	.post("/create-stream", (c) => {
-		const origin = c.req.header("Origin");
-		if (origin) c.header("Access-Control-Allow-Origin", origin);
+		applyCorsOrigin(c);
 
 		return streamSSE(c, async (stream) => {
 			// Writes must reach the client in the same order they were produced —
@@ -356,8 +394,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 	// Delete project with SSE progress stream
 	.get("/:projectId/delete-stream", (c) => {
 		const projectId = c.req.param("projectId");
-		const origin = c.req.header("Origin");
-		if (origin) c.header("Access-Control-Allow-Origin", origin);
+		applyCorsOrigin(c);
 
 		return streamSSE(c, async (stream) => {
 			const { docker, manager, hub } = c.var;
@@ -423,8 +460,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 	// Start project with SSE progress stream
 	.get("/:projectId/start-stream", (c) => {
 		const projectId = c.req.param("projectId");
-		const origin = c.req.header("Origin");
-		if (origin) c.header("Access-Control-Allow-Origin", origin);
+		applyCorsOrigin(c);
 
 		return streamSSE(c, async (stream) => {
 			const { docker, hub } = c.var;
@@ -483,8 +519,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 	// Stop project with SSE progress stream
 	.get("/:projectId/stop-stream", (c) => {
 		const projectId = c.req.param("projectId");
-		const origin = c.req.header("Origin");
-		if (origin) c.header("Access-Control-Allow-Origin", origin);
+		applyCorsOrigin(c);
 
 		return streamSSE(c, async (stream) => {
 			const { docker, hub } = c.var;
@@ -511,8 +546,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 	// Restart project with SSE progress stream
 	.get("/:projectId/restart-stream", (c) => {
 		const projectId = c.req.param("projectId");
-		const origin = c.req.header("Origin");
-		if (origin) c.header("Access-Control-Allow-Origin", origin);
+		applyCorsOrigin(c);
 
 		return streamSSE(c, async (stream) => {
 			const { docker, hub } = c.var;
@@ -599,8 +633,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 	// Rebuild project image (no-cache) then restart containers, with SSE progress stream
 	.get("/:projectId/build-stream", (c) => {
 		const projectId = c.req.param("projectId");
-		const origin = c.req.header("Origin");
-		if (origin) c.header("Access-Control-Allow-Origin", origin);
+		applyCorsOrigin(c);
 
 		return streamSSE(c, async (stream) => {
 			const { docker, hub } = c.var;
@@ -814,7 +847,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 		if (ct) headers.set("content-type", ct);
 
 		try {
-			const upstream = await fetch(url, { method: "POST", headers, body });
+			const upstream = await fetch(url, { method: "POST", headers, body, signal: AbortSignal.timeout(AGENT_PROXY_TIMEOUT_MS) });
 			const data: SessionRecord = await upstream.json();
 			return c.json(data, 201);
 		} catch (error) {
