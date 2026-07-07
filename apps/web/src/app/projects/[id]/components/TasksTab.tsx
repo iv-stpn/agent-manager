@@ -135,11 +135,17 @@ function TaskRow({ projectId, task, editable }: TaskRowProps) {
 			<div className="flex items-center gap-3 shrink-0">
 				<span className="text-xs text-gray-400">{formatRelativeTime(task.updatedAt)}</span>
 				{!task.archived && (
-					<Button variant="ghost" size="icon" onClick={startEdit} title="Edit task" disabled={!editable}>
+					<Button variant="ghost" size="icon" onClick={startEdit} title="Edit task" aria-label="Edit task" disabled={!editable}>
 						<Pencil className="w-4 h-4" />
 					</Button>
 				)}
-				<Button variant="ghost" size="icon" onClick={toggleArchive} title={task.archived ? "Restore task" : "Archive task"}>
+				<Button
+					variant="ghost"
+					size="icon"
+					onClick={toggleArchive}
+					title={task.archived ? "Restore task" : "Archive task"}
+					aria-label={task.archived ? "Restore task" : "Archive task"}
+				>
 					{task.archived ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
 				</Button>
 				<Button
@@ -147,6 +153,7 @@ function TaskRow({ projectId, task, editable }: TaskRowProps) {
 					size="icon"
 					onClick={remove}
 					title="Delete task"
+					aria-label="Delete task"
 					disabled={!editable}
 					className="text-red-600 hover:text-red-700"
 				>
@@ -230,7 +237,7 @@ export function TasksTab({ projectId, running }: TasksTabProps) {
 							Archive finished
 						</Button>
 					)}
-					<Button variant="secondary" size="icon" onClick={fetchTasks} title="Refresh tasks">
+					<Button variant="secondary" size="icon" onClick={fetchTasks} title="Refresh tasks" aria-label="Refresh tasks">
 						<RefreshCw className="w-4 h-4" />
 					</Button>
 				</div>

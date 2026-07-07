@@ -119,7 +119,7 @@ export function SessionsTab({ projectId, running, dialogOpen, setDialogOpen }: S
 							Archive finished
 						</Button>
 					)}
-					<Button variant="secondary" size="icon" onClick={fetchSessions} title="Refresh sessions">
+					<Button variant="secondary" size="icon" onClick={fetchSessions} title="Refresh sessions" aria-label="Refresh sessions">
 						<RefreshCw className="w-4 h-4" />
 					</Button>
 					<button

@@ -1,6 +1,7 @@
 import { replaceOrPrependById } from "@agent-manager/utils";
 import { Edit2, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { StackEntry, TechStack } from "@/lib/agent-api";
 import { createTechStack, deleteTechStack, getTechStacks, updateTechStack } from "@/lib/agent-api";
 import { mutateCache, useQuery } from "@/lib/query-cache";
@@ -129,6 +130,7 @@ export default function TechStacksPage() {
 											onClick={() => openEdit(techStack)}
 											className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
 											title="Edit"
+											aria-label={`Edit tech stack ${techStack.name}`}
 										>
 											<Edit2 className="w-3.5 h-3.5" />
 										</button>
@@ -137,6 +139,7 @@ export default function TechStacksPage() {
 											onClick={() => remove(techStack.id)}
 											className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
 											title="Delete"
+											aria-label={`Delete tech stack ${techStack.name}`}
 										>
 											<Trash2 className="w-3.5 h-3.5" />
 										</button>
@@ -207,22 +210,13 @@ type DialogProps = {
 
 function StackDialog({ editing, form, setForm, patchEntry, addEntry, removeEntry, save, close }: DialogProps) {
 	return (
-		<div
-			className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-			onClick={(event) => event.target === event.currentTarget && close()}
-			onKeyDown={(event) => event.key === "Escape" && close()}
-			role="dialog"
-			aria-modal="true"
-		>
-			<div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
-				<div className="flex items-center justify-between px-6 py-4 border-b">
-					<h2 className="text-base font-semibold text-gray-900">{editing ? "Edit Tech Stack" : "New Tech Stack"}</h2>
-					<button type="button" onClick={close} className="text-gray-400 hover:text-gray-600">
-						<X className="w-4 h-4" />
-					</button>
-				</div>
+		<Dialog open onOpenChange={(open) => !open && close()}>
+			<DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+				<DialogHeader>
+					<DialogTitle>{editing ? "Edit Tech Stack" : "New Tech Stack"}</DialogTitle>
+				</DialogHeader>
 
-				<div className="p-6 space-y-4 overflow-y-auto flex-1">
+				<div className="space-y-4">
 					<div className="grid grid-cols-2 gap-4">
 						<div className="space-y-1.5">
 							<label className="text-sm font-medium text-gray-700" htmlFor="ts-language">
@@ -230,8 +224,6 @@ function StackDialog({ editing, form, setForm, patchEntry, addEntry, removeEntry
 							</label>
 							<input
 								id="ts-language"
-								// biome-ignore lint/a11y/noAutofocus: intentional focus for modal
-								autoFocus
 								type="text"
 								value={form.language}
 								onChange={(event) => setForm((form) => ({ ...form, language: event.target.value }))}
@@ -312,7 +304,7 @@ function StackDialog({ editing, form, setForm, patchEntry, addEntry, removeEntry
 					</div>
 				</div>
 
-				<div className="flex gap-2 px-6 py-4 border-t">
+				<DialogFooter>
 					<button
 						type="button"
 						onClick={save}
@@ -328,9 +320,9 @@ function StackDialog({ editing, form, setForm, patchEntry, addEntry, removeEntry
 					>
 						Cancel
 					</button>
-				</div>
-			</div>
-		</div>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
 	);
 }
 
@@ -370,6 +362,7 @@ function StackEntryEditor({
 					onClick={onRemove}
 					className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md"
 					title="Remove group"
+					aria-label="Remove group"
 				>
 					<Trash2 className="w-3.5 h-3.5" />
 				</button>
@@ -408,6 +401,7 @@ function StackEntryEditor({
 							onClick={() => onChange({ libraries: entry.libraries.filter((_, idx) => idx !== i) })}
 							className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md"
 							title="Remove library"
+							aria-label="Remove library"
 						>
 							<X className="w-3.5 h-3.5" />
 						</button>

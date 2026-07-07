@@ -1,6 +1,7 @@
 import { replaceOrPrependById } from "@agent-manager/utils";
-import { Edit2, Plus, Trash2, X } from "lucide-react";
+import { Edit2, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { Guideline, GuidelineCategory } from "@/lib/agent-api";
 import { createGuideline, deleteGuideline, getGuidelineCategories, getGuidelines, updateGuideline } from "@/lib/agent-api";
 import { mutateCache, useQuery } from "@/lib/query-cache";
@@ -162,6 +163,7 @@ export default function GuidelinesPage() {
 											onClick={() => openEdit(guideline)}
 											className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
 											title="Edit"
+											aria-label={`Edit guideline ${guideline.name}`}
 										>
 											<Edit2 className="w-3.5 h-3.5" />
 										</button>
@@ -170,6 +172,7 @@ export default function GuidelinesPage() {
 											onClick={() => remove(guideline.id)}
 											className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
 											title="Delete"
+											aria-label={`Delete guideline ${guideline.name}`}
 										>
 											<Trash2 className="w-3.5 h-3.5" />
 										</button>
@@ -186,117 +189,104 @@ export default function GuidelinesPage() {
 				)}
 			</main>
 
-			{dialogOpen && (
-				<div
-					className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-					onClick={(event) => event.target === event.currentTarget && closeDialog()}
-					onKeyDown={(event) => event.key === "Escape" && closeDialog()}
-					role="dialog"
-					aria-modal="true"
-				>
-					<div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
-						<div className="flex items-center justify-between px-6 py-4 border-b">
-							<h2 className="text-base font-semibold text-gray-900">{editing ? "Edit Guideline" : "New Guideline"}</h2>
-							<button type="button" onClick={closeDialog} className="text-gray-400 hover:text-gray-600">
-								<X className="w-4 h-4" />
-							</button>
+			<Dialog open={dialogOpen} onOpenChange={(open) => !open && closeDialog()}>
+				<DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+					<DialogHeader>
+						<DialogTitle>{editing ? "Edit Guideline" : "New Guideline"}</DialogTitle>
+					</DialogHeader>
+					<div className="space-y-4">
+						<div className="space-y-1.5">
+							<label className="text-sm font-medium text-gray-700" htmlFor="gl-name">
+								Name *
+							</label>
+							<input
+								id="gl-name"
+								type="text"
+								value={form.name}
+								onChange={(event) => setForm({ ...form, name: event.target.value })}
+								className={inputClassName}
+								placeholder="Guideline name"
+							/>
 						</div>
-						<div className="p-6 space-y-4 overflow-y-auto flex-1">
-							<div className="space-y-1.5">
-								<label className="text-sm font-medium text-gray-700" htmlFor="gl-name">
-									Name *
-								</label>
-								<input
-									id="gl-name"
-									// biome-ignore lint/a11y/noAutofocus: intentional focus for modal
-									autoFocus
-									type="text"
-									value={form.name}
-									onChange={(event) => setForm({ ...form, name: event.target.value })}
-									className={inputClassName}
-									placeholder="Guideline name"
-								/>
-							</div>
-							<div className="space-y-1.5">
-								<label className="text-sm font-medium text-gray-700" htmlFor="gl-desc">
-									Description
-								</label>
-								<input
-									id="gl-desc"
-									type="text"
-									value={form.description}
-									onChange={(event) => setForm({ ...form, description: event.target.value })}
-									className={inputClassName}
-									placeholder="Short description"
-								/>
-							</div>
-							<div className="space-y-1.5">
-								<label className="text-sm font-medium text-gray-700" htmlFor="gl-cat">
-									Category
-								</label>
-								<select
-									id="gl-cat"
-									value={form.categoryId ?? ""}
-									onChange={(event) => setForm({ ...form, categoryId: event.target.value || null })}
-									className={inputClassName}
-								>
-									<option value="" disabled>
-										Select a category
+						<div className="space-y-1.5">
+							<label className="text-sm font-medium text-gray-700" htmlFor="gl-desc">
+								Description
+							</label>
+							<input
+								id="gl-desc"
+								type="text"
+								value={form.description}
+								onChange={(event) => setForm({ ...form, description: event.target.value })}
+								className={inputClassName}
+								placeholder="Short description"
+							/>
+						</div>
+						<div className="space-y-1.5">
+							<label className="text-sm font-medium text-gray-700" htmlFor="gl-cat">
+								Category
+							</label>
+							<select
+								id="gl-cat"
+								value={form.categoryId ?? ""}
+								onChange={(event) => setForm({ ...form, categoryId: event.target.value || null })}
+								className={inputClassName}
+							>
+								<option value="" disabled>
+									Select a category
+								</option>
+								{categories.map((category) => (
+									<option key={category.id} value={category.id}>
+										{category.name}
 									</option>
-									{categories.map((category) => (
-										<option key={category.id} value={category.id}>
-											{category.name}
-										</option>
-									))}
-								</select>
-							</div>
-							<div className="space-y-1.5">
-								<label className="text-sm font-medium text-gray-700" htmlFor="gl-lang">
-									Language <span className="text-gray-400 font-normal">(optional)</span>
-								</label>
-								<input
-									id="gl-lang"
-									type="text"
-									value={form.language ?? ""}
-									onChange={(event) => setForm({ ...form, language: event.target.value || null })}
-									className={inputClassName}
-									placeholder="e.g. TypeScript, Python, Rust…"
-								/>
-							</div>
-							<div className="space-y-1.5">
-								<label className="text-sm font-medium text-gray-700" htmlFor="gl-content">
-									Content
-								</label>
-								<textarea
-									id="gl-content"
-									value={form.content}
-									onChange={(event) => setForm({ ...form, content: event.target.value })}
-									rows={8}
-									className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-									placeholder="Guideline content — the instructions injected into a project"
-								/>
-							</div>
+								))}
+							</select>
 						</div>
-						<div className="flex gap-2 px-6 py-4 border-t">
-							<button
-								type="button"
-								onClick={save}
-								disabled={!form.name.trim()}
-								className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-							>
-								{editing ? "Save changes" : "Create"}
-							</button>
-							<button
-								type="button"
-								onClick={closeDialog}
-								className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200"
-							>
-								Cancel
-							</button>
+						<div className="space-y-1.5">
+							<label className="text-sm font-medium text-gray-700" htmlFor="gl-lang">
+								Language <span className="text-gray-400 font-normal">(optional)</span>
+							</label>
+							<input
+								id="gl-lang"
+								type="text"
+								value={form.language ?? ""}
+								onChange={(event) => setForm({ ...form, language: event.target.value || null })}
+								className={inputClassName}
+								placeholder="e.g. TypeScript, Python, Rust…"
+							/>
+						</div>
+						<div className="space-y-1.5">
+							<label className="text-sm font-medium text-gray-700" htmlFor="gl-content">
+								Content
+							</label>
+							<textarea
+								id="gl-content"
+								value={form.content}
+								onChange={(event) => setForm({ ...form, content: event.target.value })}
+								rows={8}
+								className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+								placeholder="Guideline content — the instructions injected into a project"
+							/>
 						</div>
 					</div>
-				</div>
-			)}
+					<DialogFooter>
+						<button
+							type="button"
+							onClick={save}
+							disabled={!form.name.trim()}
+							className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+						>
+							{editing ? "Save changes" : "Create"}
+						</button>
+						<button
+							type="button"
+							onClick={closeDialog}
+							className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200"
+						>
+							Cancel
+						</button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

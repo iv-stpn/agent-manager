@@ -128,7 +128,7 @@ export function ReportsTab({ projectId }: ReportsTabProps) {
 							Archive finished
 						</Button>
 					)}
-					<Button variant="secondary" size="icon" onClick={fetchReports} title="Refresh reports">
+					<Button variant="secondary" size="icon" onClick={fetchReports} title="Refresh reports" aria-label="Refresh reports">
 						<RefreshCw className="w-4 h-4" />
 					</Button>
 				</div>
@@ -174,6 +174,7 @@ export function ReportsTab({ projectId }: ReportsTabProps) {
 									size="icon"
 									onClick={() => toggleArchive(report)}
 									title={report.archived ? "Restore report" : "Archive report"}
+									aria-label={report.archived ? "Restore report" : "Archive report"}
 									className="absolute bottom-2 right-2 h-7 w-7 bg-white/70 hover:bg-white"
 								>
 									{report.archived ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}

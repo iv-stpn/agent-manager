@@ -12,6 +12,11 @@ export const env = {
 	// Interface the API binds to. Defaults to loopback so the Docker-controlling,
 	// secret-holding API is never exposed on the LAN unless explicitly opened.
 	ORCHESTRATOR_HOST: process.env.ORCHESTRATOR_HOST ?? "127.0.0.1",
+	// When true, a graceful shutdown (SIGINT/SIGTERM) also stops every running
+	// project container. Off by default: under `bun --watch` every code reload
+	// sends SIGTERM, so a naive stop-all would kill all containers on each edit.
+	// Turn on for a real deployment where the orchestrator owns the containers.
+	ORCHESTRATOR_STOP_CONTAINERS_ON_SHUTDOWN: process.env.ORCHESTRATOR_STOP_CONTAINERS_ON_SHUTDOWN === "true",
 	DISCORD_WEBHOOK_URL: process.env.DISCORD_WEBHOOK_URL,
 	DISCORD_TOKEN: process.env.DISCORD_TOKEN,
 	DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,

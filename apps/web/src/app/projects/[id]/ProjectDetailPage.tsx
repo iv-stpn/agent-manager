@@ -227,7 +227,7 @@ function ProjectDetailContent() {
 								<Hammer className="w-4 h-4" />
 								Rebuild
 							</button>
-							<Button variant="secondary" size="icon" onClick={fetchProject} title="Refresh">
+							<Button variant="secondary" size="icon" onClick={fetchProject} title="Refresh" aria-label="Refresh project">
 								<RefreshCw className="w-4 h-4" />
 							</Button>
 							<Button
@@ -235,6 +235,7 @@ function ProjectDetailContent() {
 								size="icon"
 								onClick={deleteProject}
 								title="Delete project"
+								aria-label="Delete project"
 								className="text-red-600 hover:text-red-700 hover:bg-red-50"
 							>
 								<Trash2 className="w-4 h-4" />

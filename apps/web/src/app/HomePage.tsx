@@ -86,6 +86,7 @@ export default function HomePage() {
 								onClick={() => fetchProjects()}
 								className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100"
 								title="Refresh"
+								aria-label="Refresh projects"
 							>
 								<RefreshCw className="w-4 h-4" />
 							</button>

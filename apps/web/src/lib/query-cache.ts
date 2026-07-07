@@ -42,8 +42,47 @@ function getEntry<T>(key: string): Entry<T> {
 			listeners: new Set(),
 		};
 		store.set(key, entry);
+		ensureCacheGc();
 	}
 	return entry;
+}
+
+// ── Eviction ────────────────────────────────────────────────────────────────
+// Without this the store only ever grows: every distinct key (every session,
+// task list, log tail the user visits) leaves an entry behind forever. A
+// periodic sweep reclaims entries that (a) no component is subscribed to and
+// (b) haven't been touched in a while, so navigating away from a page
+// eventually frees its cache while a mounted view is never evicted from under
+// it. Back-navigation within the TTL still hits a warm cache.
+
+const GC_TTL_MS = 5 * 60_000;
+const GC_INTERVAL_MS = 60_000;
+
+/**
+ * Evict cache entries that have no subscribers and have gone untouched for
+ * longer than `ttlMs`. An entry is kept while any component is subscribed
+ * (`listeners.size > 0`) or a fetch is in flight, so this never drops data a
+ * mounted view is showing. Returns the number of entries evicted. Exported for
+ * tests; the interval below drives it in the browser.
+ */
+export function sweepCache(now: number = Date.now(), ttlMs: number = GC_TTL_MS): number {
+	let evicted = 0;
+	for (const [key, entry] of store) {
+		if (entry.listeners.size > 0 || entry.promise) continue;
+		if (now - entry.updatedAt < ttlMs) continue;
+		store.delete(key);
+		evicted++;
+	}
+	return evicted;
+}
+
+let gcTimer: ReturnType<typeof setInterval> | undefined;
+
+function ensureCacheGc(): void {
+	if (gcTimer || typeof setInterval !== "function") return;
+	gcTimer = setInterval(() => sweepCache(), GC_INTERVAL_MS);
+	// Don't let the sweep timer keep a process alive (SSR/test runners).
+	(gcTimer as unknown as { unref?: () => void }).unref?.();
 }
 
 function commit<T>(entry: Entry<T>, snapshot: Snapshot<T>) {

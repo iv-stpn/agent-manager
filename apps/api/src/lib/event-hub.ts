@@ -131,4 +131,15 @@ export class EventHub {
 			signal
 		);
 	}
+
+	/**
+	 * Tear down every upstream connection and drop all listeners. Called during
+	 * graceful shutdown so the pump loops stop retrying and the process can exit.
+	 */
+	close(): void {
+		for (const controller of this.upstreams.values()) controller.abort();
+		this.upstreams.clear();
+		this.emitter.removeAllListeners();
+		this.started = false;
+	}
 }

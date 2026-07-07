@@ -386,7 +386,7 @@ export default function SessionPage() {
 								{Math.round((tokenWarning.estimatedTokens / tokenWarning.contextWindow) * 100)}% context
 							</Badge>
 						)}
-						<Button variant="secondary" size="icon" onClick={refreshAll} title="Refresh">
+						<Button variant="secondary" size="icon" onClick={refreshAll} title="Refresh" aria-label="Refresh session">
 							<RefreshCw className="h-4 w-4" />
 						</Button>
 						{isActive && (
@@ -413,6 +413,7 @@ export default function SessionPage() {
 							size="icon"
 							onClick={() => setPanelOpen((open) => !open)}
 							title={panelOpen ? "Close panel" : "Open panel"}
+							aria-label={panelOpen ? "Close panel" : "Open panel"}
 							className="relative shrink-0 lg:hidden"
 						>
 							{panelOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
@@ -479,6 +480,7 @@ export default function SessionPage() {
 								size="icon"
 								onClick={scrollToBottom}
 								title="Scroll to bottom"
+								aria-label="Scroll to bottom"
 								className="absolute -top-12 right-6 shadow-md"
 							>
 								<ArrowDownToLine className="h-4 w-4" />

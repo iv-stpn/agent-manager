@@ -45,6 +45,7 @@ export function SessionCard({
 									size="icon"
 									onClick={handleArchive}
 									title={session.archived ? "Restore session" : "Archive session"}
+									aria-label={session.archived ? "Restore session" : "Archive session"}
 								>
 									{session.archived ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
 								</Button>

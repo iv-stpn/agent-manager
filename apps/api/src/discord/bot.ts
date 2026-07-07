@@ -54,6 +54,18 @@ export async function startDiscordBot(token: string, guild: string, clientId: st
 	return client;
 }
 
+export async function destroyDiscordBot(): Promise<void> {
+	if (!client) return;
+	try {
+		await client.destroy();
+	} catch (err) {
+		console.error("[Discord] Error during shutdown:", err);
+	} finally {
+		client = null;
+		guildId = null;
+	}
+}
+
 export async function getChannel(channelId: string): Promise<TextChannel | null> {
 	if (!client) return null;
 	try {

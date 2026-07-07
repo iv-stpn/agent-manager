@@ -91,6 +91,7 @@ export default function LlmClientsPage() {
 											onClick={() => setEditing(client)}
 											className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
 											title="Edit"
+											aria-label="Edit client"
 										>
 											<Edit2 className="w-3.5 h-3.5" />
 										</button>
@@ -99,6 +100,7 @@ export default function LlmClientsPage() {
 											onClick={() => remove(client.id)}
 											className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
 											title="Delete"
+											aria-label="Delete client"
 										>
 											<Trash2 className="w-3.5 h-3.5" />
 										</button>

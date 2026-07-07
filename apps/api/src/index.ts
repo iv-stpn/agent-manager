@@ -3,7 +3,7 @@ import { ProjectDocker, ProjectManager, resolveWorkspaceRoot } from "@agent-mana
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { OrchestratorDatabase, ProjectDatabase } from "./db";
-import { startDiscordBot } from "./discord/bot";
+import { destroyDiscordBot, startDiscordBot } from "./discord/bot";
 import {
 	archiveSessionChannel,
 	type ChannelStore,
@@ -199,6 +199,54 @@ if (discordToken && discordClientId && discordGuildId) {
 } else {
 	logger.warn("[Discord] DISCORD_TOKEN, DISCORD_CLIENT_ID, or DISCORD_GUILD_ID not set — bot disabled");
 }
+
+// ── Graceful shutdown ─────────────────────────────────────────────────────────
+// Close the DB, tear down EventHub upstreams, and destroy the Discord client on
+// SIGINT/SIGTERM so the process exits cleanly instead of leaking sockets/handles.
+//
+// Container stop is gated behind ORCHESTRATOR_STOP_CONTAINERS_ON_SHUTDOWN (default
+// off): with `bun --watch` in dev, every file save restarts the process, and a
+// naive stopAllProjects() would kill every running project container on each
+// reload. The DB/EventHub/Discord cleanup is always safe, so it runs regardless.
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+	if (shuttingDown) return;
+	shuttingDown = true;
+	logger.info(`Received ${signal} — shutting down`);
+
+	if (env.ORCHESTRATOR_STOP_CONTAINERS_ON_SHUTDOWN) {
+		try {
+			const stopped = await docker.stopAllProjects();
+			if (stopped.length > 0) logger.info(`Stopped ${stopped.length} project container(s)`);
+		} catch (err) {
+			logger.error(`Error stopping project containers: ${err}`);
+		}
+	}
+
+	try {
+		hub.close();
+	} catch (err) {
+		logger.error(`Error closing EventHub: ${err}`);
+	}
+
+	try {
+		await destroyDiscordBot();
+	} catch (err) {
+		logger.error(`Error destroying Discord client: ${err}`);
+	}
+
+	try {
+		orchestratorDb.close();
+	} catch (err) {
+		logger.error(`Error closing orchestrator DB: ${err}`);
+	}
+
+	logger.info("Shutdown complete");
+	process.exit(0);
+}
+
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
 // Only the type travels to orchestrator web — no server code is bundled.
 export type AppType = typeof app;
