@@ -230,6 +230,11 @@ const acquireSessionStream = connectionManager((_key: string, sessionId: string,
 		sessionId,
 		(event) => {
 			if (event.type === "turn_start") {
+				// Clear all live-streaming buffers, not just thinking/toolcall. The
+				// max_tokens escalation re-emits turn_start before re-streaming the
+				// whole response at the higher limit; without resetting streamText the
+				// truncated first attempt's text would be duplicated ahead of the retry.
+				updateCache(cacheKeys.streamText(sessionId), () => "");
 				updateCache(cacheKeys.streamThinking(sessionId), () => "");
 				updateCache<StreamingToolcall | null>(cacheKeys.streamToolcall(sessionId), () => null);
 			} else if (event.type === "text_delta") {

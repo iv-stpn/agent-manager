@@ -69,6 +69,30 @@ export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Mes
 		console.log(
 			`[Agent ${agent.sessionId}] Response truncated at ${BASE_MAX_TOKENS} tokens, retrying with ${ESCALATED_MAX_TOKENS}`
 		);
+
+		// The truncated first attempt was still billed by the API. Record its usage
+		// against the session totals before discarding its content — otherwise every
+		// escalation silently drops a full BASE_MAX_TOKENS worth of billed output
+		// (and its input) from the accounting. Only billing totals are affected here;
+		// the loop derives its live context estimate from the returned (escalated)
+		// response's usage via recordApiTokens.
+		const firstUsage = response.usage;
+		addTokens(
+			agent.db,
+			agent.sessionId,
+			firstUsage.input_tokens,
+			firstUsage.output_tokens,
+			firstUsage.cache_read_input_tokens ?? 0,
+			firstUsage.cache_creation_input_tokens ?? 0
+		);
+
+		// The truncated attempt already streamed its partial text/thinking/tool-call
+		// deltas to the client. Reset the live streaming buffers (via turn_start)
+		// before re-streaming so the escalated response replaces the partial output
+		// rather than appending to it — without this the UI shows the truncated text
+		// followed by the full text, concatenated.
+		sessionEmitter.emit(agent.sessionId, { type: "turn_start", data: { turnNumber: agent.turnNumber } });
+
 		return withRetry(() => makeRequest(ESCALATED_MAX_TOKENS), {
 			...LLM_CALL_RETRY,
 			signal: agent.abortController.signal,

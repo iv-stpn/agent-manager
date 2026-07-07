@@ -94,8 +94,29 @@ export function calculateTokenWarningState(estimatedTokens: number): TokenWarnin
 
 const MAX_CONSECUTIVE_FAILURES = 3;
 
+/**
+ * How long the breaker stays fully open after tripping before it allows a
+ * single probe attempt (half-open). Without this, three transient compaction
+ * failures latched the breaker open forever: `shouldAutoCompact` returned false
+ * on every future turn, so `doCompaction` never ran, `recordSuccess` never
+ * fired, and context grew unbounded until a fatal context-overflow 400 killed
+ * the session. The cooldown lets the breaker retry once the transient cause
+ * (e.g. a briefly-down summary backend) has likely cleared.
+ */
+const CIRCUIT_COOLDOWN_MS = 60_000;
+
 export class CompactionCircuitBreaker {
 	private consecutiveFailures = 0;
+	private lastFailureAt = 0;
+
+	// Injectable clock so the cooldown is testable without wall-clock waits.
+	constructor(private readonly now: () => number = Date.now) {}
+
+	/** True while the breaker is tripped AND still inside its cooldown window. */
+	private isCoolingDown(): boolean {
+		if (this.consecutiveFailures < MAX_CONSECUTIVE_FAILURES) return false;
+		return this.now() - this.lastFailureAt < CIRCUIT_COOLDOWN_MS;
+	}
 
 	/**
 	 * Decide whether to auto-compact. `configuredThreshold` is the per-session
@@ -103,31 +124,49 @@ export class CompactionCircuitBreaker {
 	 * prompt). It drives the decision, but is clamped to the window-safe ceiling
 	 * (`getAutoCompactThreshold()`) so a too-high configured value can never push
 	 * compaction past the point where the request would overflow the context window.
+	 *
+	 * Once the breaker has tripped it stays open only for `CIRCUIT_COOLDOWN_MS`;
+	 * after that it allows a single probe (half-open) so a transient failure can
+	 * never disable auto-compaction permanently.
 	 */
 	shouldAutoCompact(estimatedTokens: number, configuredThreshold?: number, isCompactionCall = false): boolean {
 		// Escape condition: don't compact during a compaction call
 		if (isCompactionCall) return false;
-		// Circuit open
-		if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) return false;
+		// Circuit open and still cooling down — skip this turn.
+		if (this.isCoolingDown()) return false;
 		const ceiling = getAutoCompactThreshold();
 		const threshold = configuredThreshold && configuredThreshold > 0 ? Math.min(configuredThreshold, ceiling) : ceiling;
 		return estimatedTokens >= threshold;
 	}
 
+	/**
+	 * Compaction is unavoidable this turn: the estimate is at/over the blocking
+	 * limit, so the next API call would overflow the context window and fail
+	 * fatally. Attempting compaction — even against an open breaker — is strictly
+	 * better than a guaranteed 400, so this ignores the cooldown entirely.
+	 */
+	mustCompact(estimatedTokens: number): boolean {
+		return estimatedTokens >= getBlockingLimit();
+	}
+
 	recordSuccess(): void {
 		this.consecutiveFailures = 0;
+		this.lastFailureAt = 0;
 	}
 
 	recordFailure(): void {
 		this.consecutiveFailures++;
+		this.lastFailureAt = this.now();
 	}
 
 	reset(): void {
 		this.consecutiveFailures = 0;
+		this.lastFailureAt = 0;
 	}
 
+	/** True while the breaker is tripped and within its cooldown (compaction paused). */
 	get isOpen(): boolean {
-		return this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES;
+		return this.isCoolingDown();
 	}
 
 	get failures(): number {
