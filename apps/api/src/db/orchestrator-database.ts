@@ -1,7 +1,8 @@
 import Database from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { desc, eq, sql } from "drizzle-orm";
+import { migrateSchema } from "@agent-manager/db/ddl";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import type {
 	ArchivedProject,
@@ -153,6 +154,12 @@ export class OrchestratorDatabase {
 				updated_at INTEGER NOT NULL
 			);
 		`);
+
+		// `CREATE TABLE IF NOT EXISTS` above never adds columns to an already-existing
+		// orchestrator.db, so any column introduced after this DB was first created is
+		// silently absent. Backfill from the Drizzle schema before any read/insert
+		// (e.g. the statistics seed below) touches a would-be-missing column.
+		migrateSchema(this.sqlite, schema);
 
 		this.db
 			.insert(statistics)
@@ -646,7 +653,7 @@ export class OrchestratorDatabase {
 			this.db
 				.select()
 				.from(discordChannels)
-				.where(eq(discordChannels.projectId, projectId) && eq(discordChannels.type, type))
+				.where(and(eq(discordChannels.projectId, projectId), eq(discordChannels.type, type)))
 				.get() ?? undefined
 		);
 	}
