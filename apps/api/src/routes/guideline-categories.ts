@@ -15,7 +15,7 @@ const CreateCategorySchema = z.object({
 // leaves the ZodDefault wrapper in place, so an update payload that omits one
 // of those keys still gets it defaulted and silently wipes the existing value
 // in the DB. See the identical bug fixed in llm-clients.ts.
-const UpdateCategorySchema = z.object({
+export const UpdateCategorySchema = z.object({
 	name: z.string().min(1).optional(),
 	description: z.string().optional(),
 	color: z.string().optional(),
