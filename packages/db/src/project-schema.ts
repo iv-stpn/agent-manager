@@ -65,6 +65,10 @@ export const sessions = sqliteTable("sessions", {
 	// Discord
 	discordChannelId: text("discord_channel_id"), // Discord channel mirroring this session, if any.
 
+	// UI-only flag: hide the session from the default list into an "Archived" tab.
+	// Never read by the agent — purely for organizing finished/abandoned sessions.
+	archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+
 	createdAt: integer("created_at").notNull().default(sql`(unixepoch() * 1000)`), // Creation time (epoch ms).
 	updatedAt: integer("updated_at").notNull().default(sql`(unixepoch() * 1000)`), // Last update time (epoch ms).
 });
@@ -125,6 +129,9 @@ export const checkins = sqliteTable("checkins", {
 	status: text("status", { enum: ["pending", "answered", "skipped", "timeout"] })
 		.notNull()
 		.default("pending"), // Resolution state of the check-in.
+	// UI-only flag: hide the check-in from the default Reports list into an
+	// "Archived" tab. Never read by the agent.
+	archived: integer("archived", { mode: "boolean" }).notNull().default(false),
 	createdAt: integer("created_at").notNull().default(sql`(unixepoch() * 1000)`), // Creation time (epoch ms).
 	completedAt: integer("completed_at"), // When resolved (epoch ms), if done.
 });
@@ -190,6 +197,9 @@ export const tasks = sqliteTable("tasks", {
 		.notNull()
 		.default("pending"), // Progress state of the task.
 	metadata: text("metadata"), // JSON: { dependsOn?: string[] } plus arbitrary fields. Null when empty.
+	// UI-only flag: hide the task from the default Tasks list into an "Archived"
+	// tab. Never read by the agent.
+	archived: integer("archived", { mode: "boolean" }).notNull().default(false),
 	createdAt: integer("created_at").notNull().default(sql`(unixepoch() * 1000)`), // Creation time (epoch ms).
 	updatedAt: integer("updated_at").notNull().default(sql`(unixepoch() * 1000)`), // Last update time (epoch ms).
 });

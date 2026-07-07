@@ -21,6 +21,10 @@ const ADDED_COLUMNS: Record<string, Array<{ name: string; ddl: string }>> = {
 		// Default 0 so existing rows read as "still active".
 		{ name: "compacted_out", ddl: "ALTER TABLE messages ADD COLUMN compacted_out INTEGER NOT NULL DEFAULT 0" },
 	],
+	// UI-only "archived" flags — hide a row into an "Archived" tab. Default 0 so
+	// existing rows stay visible in the default list.
+	tasks: [{ name: "archived", ddl: "ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0" }],
+	checkins: [{ name: "archived", ddl: "ALTER TABLE checkins ADD COLUMN archived INTEGER NOT NULL DEFAULT 0" }],
 	sessions: [
 		// Per-compaction-cycle token tracking. Default 0 on old rows.
 		{
@@ -44,6 +48,8 @@ const ADDED_COLUMNS: Record<string, Array<{ name: string; ddl: string }>> = {
 			name: "context_tokens",
 			ddl: "ALTER TABLE sessions ADD COLUMN context_tokens INTEGER NOT NULL DEFAULT 0",
 		},
+		// UI-only "archived" flag — hide a session into an "Archived" tab. Default 0.
+		{ name: "archived", ddl: "ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0" },
 	],
 };
 
