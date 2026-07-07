@@ -155,6 +155,26 @@ function parseBlocks(src: string): Block[] {
 // Matches the next inline token: **bold**, *italic*, `code`, or [text](url).
 const INLINE = /(\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\))/;
 
+// Only allow links whose protocol is safe to make clickable. Agent messages,
+// tool results and reports flow through this renderer and can contain arbitrary
+// (untrusted) text, so a `javascript:`/`data:`/`vbscript:` href must never
+// become a live link. Relative and anchor links are allowed; everything with a
+// disallowed scheme is rejected (the caller renders the link text as plain text).
+const SAFE_URL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+function safeUrl(raw: string): string | null {
+	const trimmed = raw.trim();
+	// Relative / same-page links have no scheme — allow them.
+	if (trimmed.startsWith("/") || trimmed.startsWith("#") || trimmed.startsWith("./") || trimmed.startsWith("../")) {
+		return trimmed;
+	}
+	try {
+		const url = new URL(trimmed, window.location.origin);
+		return SAFE_URL_PROTOCOLS.has(url.protocol) ? trimmed : null;
+	} catch {
+		return null;
+	}
+}
+
 function renderInline(text: string): ReactNode[] {
 	const nodes: ReactNode[] = [];
 	let remaining = text;
@@ -184,17 +204,23 @@ function renderInline(text: string): ReactNode[] {
 				</code>
 			);
 		} else if (linkText && linkUrl) {
-			nodes.push(
-				<a
-					key={key++}
-					href={linkUrl}
-					target="_blank"
-					rel="noreferrer"
-					className="text-blue-600 hover:underline dark:text-blue-400"
-				>
-					{linkText}
-				</a>
-			);
+			const href = safeUrl(linkUrl);
+			if (href) {
+				nodes.push(
+					<a
+						key={key++}
+						href={href}
+						target="_blank"
+						rel="noreferrer"
+						className="text-blue-600 hover:underline dark:text-blue-400"
+					>
+						{linkText}
+					</a>
+				);
+			} else {
+				// Disallowed protocol (e.g. javascript:) — show the link text, not a live link.
+				nodes.push(<Fragment key={key++}>{linkText}</Fragment>);
+			}
 		}
 		remaining = remaining.slice(m.index + full.length);
 	}
