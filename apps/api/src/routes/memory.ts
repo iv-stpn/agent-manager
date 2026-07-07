@@ -2,10 +2,10 @@ import { Hono } from "hono";
 import z from "zod";
 import { env } from "../env";
 import type { HonoOrchestratorEnv } from "../types";
+import { assertSafeId, parseLimit, tableName } from "./memory-guards";
 
-function tableName(projectId: string): string {
-	return `project_${projectId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-}
+const ENTRY_TYPES = ["decision", "todo", "plan", "question", "memory", "report", "context"] as const;
+const typeSchema = z.enum(ENTRY_TYPES);
 
 async function lanceRequest(path: string, opts: RequestInit = {}) {
 	const res = await fetch(`${env.LANCEDB_URL}${path}`, {
@@ -23,7 +23,7 @@ async function lanceRequest(path: string, opts: RequestInit = {}) {
 
 const createSchema = z.object({
 	id: z.string().optional(),
-	type: z.enum(["decision", "todo", "plan", "question", "memory", "report", "context"]),
+	type: typeSchema,
 	title: z.string(),
 	content: z.string(),
 	metadata: z.record(z.string(), z.any()).optional(),
@@ -32,7 +32,7 @@ const createSchema = z.object({
 const updateSchema = z.object({
 	title: z.string().optional(),
 	content: z.string().optional(),
-	type: z.enum(["decision", "todo", "plan", "question", "memory", "report", "context"]).optional(),
+	type: typeSchema.optional(),
 	metadata: z.record(z.string(), z.any()).optional(),
 });
 
@@ -43,8 +43,12 @@ export const memoryRouter = new Hono<HonoOrchestratorEnv>()
 	// List entries (filterable by type)
 	.get("/:projectId", async (c) => {
 		const projectId = c.req.param("projectId");
-		const type = c.req.query("type");
-		const limit = parseInt(c.req.query("limit") ?? "100", 10);
+		const rawType = c.req.query("type");
+		const limit = parseLimit(c.req.query("limit"), 100);
+
+		const typeResult = rawType === undefined ? undefined : typeSchema.safeParse(rawType);
+		if (typeResult && !typeResult.success) return c.json({ error: "invalid type" }, 400);
+		const type = typeResult?.data;
 
 		const filter = type ? `type = '${type}' AND id != '__init__'` : "id != '__init__'";
 
@@ -58,8 +62,12 @@ export const memoryRouter = new Hono<HonoOrchestratorEnv>()
 		const query = c.req.query("q");
 		if (!query) return c.json({ error: "Missing ?q= parameter" }, 400);
 
-		const type = c.req.query("type");
-		const limit = parseInt(c.req.query("limit") ?? "10", 10);
+		const rawType = c.req.query("type");
+		const limit = parseLimit(c.req.query("limit"), 10);
+
+		const typeResult = rawType === undefined ? undefined : typeSchema.safeParse(rawType);
+		if (typeResult && !typeResult.success) return c.json({ error: "invalid type" }, 400);
+		const type = typeResult?.data;
 
 		const filter = type ? `type = '${type}' AND id != '__init__'` : "id != '__init__'";
 
@@ -73,7 +81,7 @@ export const memoryRouter = new Hono<HonoOrchestratorEnv>()
 	// Get single entry
 	.get("/:projectId/:entryId", async (c) => {
 		const projectId = c.req.param("projectId");
-		const entryId = c.req.param("entryId");
+		const entryId = assertSafeId(c.req.param("entryId"));
 
 		const data = await lanceRequest(
 			`/tables/${tableName(projectId)}/query?filter=${encodeURIComponent(`id = '${entryId}'`)}&limit=1`
@@ -88,7 +96,7 @@ export const memoryRouter = new Hono<HonoOrchestratorEnv>()
 		const projectId = c.req.param("projectId");
 		const body = createSchema.parse(await c.req.json());
 
-		const id = body.id ?? `${body.type}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+		const id = body.id ? assertSafeId(body.id) : `${body.type}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 		const doc = {
 			id,
 			type: body.type,
@@ -109,7 +117,7 @@ export const memoryRouter = new Hono<HonoOrchestratorEnv>()
 	// Update entry
 	.put("/:projectId/:entryId", async (c) => {
 		const projectId = c.req.param("projectId");
-		const entryId = c.req.param("entryId");
+		const entryId = assertSafeId(c.req.param("entryId"));
 		const body = updateSchema.parse(await c.req.json());
 
 		const updates: Record<string, string> = {};
@@ -129,7 +137,7 @@ export const memoryRouter = new Hono<HonoOrchestratorEnv>()
 	// Delete entry
 	.delete("/:projectId/:entryId", async (c) => {
 		const projectId = c.req.param("projectId");
-		const entryId = c.req.param("entryId");
+		const entryId = assertSafeId(c.req.param("entryId"));
 
 		await lanceRequest(`/tables/${tableName(projectId)}/delete`, {
 			method: "POST",
@@ -138,3 +146,13 @@ export const memoryRouter = new Hono<HonoOrchestratorEnv>()
 
 		return c.json({ deleted: true });
 	});
+
+// Validation failures (bad id / bad body) surface as 400 rather than a generic
+// 500; upstream LanceDB failures stay 500 but are logged with context.
+memoryRouter.onError((err, c) => {
+	if (err instanceof z.ZodError || err.message === "invalid entry id") {
+		return c.json({ error: err.message }, 400);
+	}
+	console.error(`[memory] ${c.req.method} ${c.req.path} failed: ${err}`);
+	return c.json({ error: "memory backend error" }, 500);
+});

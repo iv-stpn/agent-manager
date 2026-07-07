@@ -16,6 +16,36 @@ const reset = "\x1b[0m";
 const specialKeywords = new Set(["cf", "id", "ip", "url", "ua"]);
 const redactedQueryKeys = new Set(["access_token", "token", "refresh_token"]);
 
+// Body keys whose values are secrets and must never reach the logs. Create/
+// update-project payloads carry `anthropicApiKey`, the LLM-client routes carry
+// `apiKey`, Discord config carries `token`, etc. Matched case-insensitively.
+const redactedBodyKeys = new Set([
+	"apikey",
+	"anthropicapikey",
+	"token",
+	"discordtoken",
+	"authorization",
+	"password",
+	"secret",
+	"refresh_token",
+	"access_token",
+]);
+
+/**
+ * Recursively clone a parsed JSON body, replacing the values of any secret-
+ * looking keys with `[REDACTED]`. Depth-bounded so a hostile/cyclic payload
+ * can't blow the stack.
+ */
+function redactSecrets(value: unknown, depth = 0): unknown {
+	if (depth > 8 || value === null || typeof value !== "object") return value;
+	if (Array.isArray(value)) return value.map((item) => redactSecrets(item, depth + 1));
+	const out: Record<string, unknown> = {};
+	for (const [key, val] of Object.entries(value)) {
+		out[key] = redactedBodyKeys.has(key.toLowerCase()) ? "[REDACTED]" : redactSecrets(val, depth + 1);
+	}
+	return out;
+}
+
 type HeaderMap = Record<string, string | string[]>;
 type LogBody = { body: string; data?: unknown };
 
@@ -95,9 +125,9 @@ function processBody(body: string | undefined, contentType: string | null): LogB
 
 	if (contentType.includes("application/json")) {
 		try {
-			return { body: "json", data: JSON.parse(body) };
+			return { body: "json", data: redactSecrets(JSON.parse(body)) };
 		} catch {
-			return { body: "json (invalid)", data: body };
+			return { body: "json (invalid)", data: "[unparseable]" };
 		}
 	}
 

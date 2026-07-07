@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
+import z from "zod";
 import { getErrorMessage } from "../lib/errors";
 import type { HonoOrchestratorEnv } from "../types";
 
@@ -8,6 +9,12 @@ export interface TemplateMetadata {
 	description?: string;
 	techStackIds?: string[];
 }
+
+const TemplateMetadataSchema = z.object({
+	name: z.string().optional(),
+	description: z.string().optional(),
+	techStackIds: z.array(z.string()).optional(),
+});
 
 interface LocalTemplate {
 	name: string;
@@ -80,11 +87,17 @@ export const templatesRouter = new Hono<HonoOrchestratorEnv>()
 	.put("/:templateName", async (c: Context<HonoOrchestratorEnv>) => {
 		try {
 			const templateName = c.req.param("templateName");
-			if (!templateName) {
-				return c.json({ error: "Template name is required" }, 400);
+			// templateName is joined onto the templates dir below, so a value like
+			// `../../etc` would escape it and let this route write a `.template.json`
+			// (with arbitrary JSON) anywhere on disk. Require a single safe segment.
+			if (!templateName || !/^[a-zA-Z0-9._-]+$/.test(templateName) || templateName === "." || templateName === "..") {
+				return c.json({ error: "Invalid template name" }, 400);
 			}
 
-			const updates = await c.req.json<Partial<TemplateMetadata>>();
+			// Validate the body instead of writing whatever JSON the caller sends.
+			const parsed = TemplateMetadataSchema.safeParse(await c.req.json().catch(() => ({})));
+			if (!parsed.success) return c.json({ error: "Invalid template metadata" }, 400);
+			const updates = parsed.data;
 
 			const { join } = await import("node:path");
 			const { existsSync, writeFileSync, readFileSync } = await import("node:fs");
@@ -109,8 +122,12 @@ export const templatesRouter = new Hono<HonoOrchestratorEnv>()
 				}
 			}
 
-			// Merge updates
-			metadata = { ...metadata, ...updates };
+			// Merge only the keys the caller actually sent (zod .optional() infers
+			// `key?: T | undefined`, which would otherwise clobber existing values
+			// with undefined and trip exactOptionalPropertyTypes).
+			for (const [key, value] of Object.entries(updates)) {
+				if (value !== undefined) (metadata as Record<string, unknown>)[key] = value;
+			}
 
 			// Write back
 			writeFileSync(metaPath, JSON.stringify(metadata, null, 2));
