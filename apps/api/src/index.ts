@@ -16,6 +16,7 @@ import { setProjectResolver } from "./discord/commands";
 import { env } from "./env";
 import { EventHub } from "./lib/event-hub";
 import { createLogger } from "./lib/logger";
+import { authGuard } from "./middleware/auth";
 import { requestLogger, responseLogger } from "./middleware/logging";
 import { checkChromium } from "./render/chromium";
 import { discordRouter, setDiscordRouteChannelStore } from "./routes/discord";
@@ -71,6 +72,7 @@ const app = new Hono<HonoOrchestratorEnv>()
 	)
 	.use("*", requestLogger)
 	.use("*", responseLogger)
+	.use("/api/*", authGuard)
 	.use("*", (c, next) => {
 		c.set("manager", manager);
 		c.set("docker", docker);
@@ -111,6 +113,16 @@ if (lanceReady) {
 	logger.warn(
 		"LanceDB container not reachable — /api/memory will fail. " +
 			"Start shared services: docker compose -f docker-compose.yml up -d"
+	);
+}
+
+if (env.ORCHESTRATOR_API_TOKEN) {
+	logger.info("API auth enabled — /api/* requires a bearer token");
+} else {
+	logger.warn(
+		"ORCHESTRATOR_API_TOKEN is not set — the API is UNAUTHENTICATED. Anyone who can reach " +
+			`port ${env.ORCHESTRATOR_PORT} can create/delete projects, read API keys and clear host paths. ` +
+			"Set ORCHESTRATOR_API_TOKEN and bind to loopback unless this is a deliberate trusted-network setup."
 	);
 }
 

@@ -6,6 +6,9 @@ export const env = {
 	PORT: Number(process.env.PORT ?? 3010),
 	DATABASE_PATH: process.env.DATABASE_PATH ?? "../data/agent.db",
 	ORCHESTRATOR_API_URL: process.env.ORCHESTRATOR_API_URL ?? "http://host.docker.internal:3100",
+	// When the orchestrator enforces auth, requests back to it must carry this
+	// bearer token. Empty = orchestrator is running in loopback-trust mode.
+	ORCHESTRATOR_API_TOKEN: process.env.ORCHESTRATOR_API_TOKEN ?? "",
 	PROJECT_ID: process.env.PROJECT_ID ?? "",
 	PROJECT_NAME: process.env.PROJECT_NAME ?? "Unknown Project",
 	ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
