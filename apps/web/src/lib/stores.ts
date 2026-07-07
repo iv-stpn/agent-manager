@@ -165,6 +165,10 @@ const acquireProjectStream = connectionManager((_key: string, projectId: string,
 				summary: data.summary ?? "",
 				discordMessageId: data.discordMessageId ?? null,
 				status: confirmed ? "answered" : "pending",
+				// Preserve a locally-archived flag: a user may have archived this report
+				// from the UI, so a later check-in event for the same id must not
+				// silently un-archive it.
+				archived: (getCache<Report[]>(reportKey) ?? []).find((r) => r.id === data.id)?.archived ?? data.archived ?? false,
 				createdAt: data.createdAt,
 				completedAt: confirmed ? Date.now() : null,
 				sessionName: session?.name ?? null,

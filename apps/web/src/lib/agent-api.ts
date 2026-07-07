@@ -202,6 +202,7 @@ export interface Task {
 	text: string;
 	status: "pending" | "in_progress" | "done" | "cancelled";
 	metadata: string | null;
+	archived: boolean;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -233,6 +234,52 @@ export async function deleteTask(projectId: string, taskId: string): Promise<voi
 		headers: authHeaders(),
 	});
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+}
+
+// ── Archive toggles ───────────────────────────────────────────────────────────
+// Flip the UI-only `archived` flag on a task / session / report. Written straight
+// to the project DB by the orchestrator, so they work whether or not the container
+// is running.
+
+async function postArchive(path: string, archived: boolean): Promise<void> {
+	const res = await fetch(`${API_URL}${path}`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json", ...authHeaders() },
+		body: JSON.stringify({ archived }),
+	});
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+}
+
+export function archiveTask(projectId: string, taskId: string, archived: boolean): Promise<void> {
+	return postArchive(`/api/projects/${projectId}/tasks/${taskId}/archive`, archived);
+}
+
+export function archiveSession(projectId: string, sessionId: string, archived: boolean): Promise<void> {
+	return postArchive(`/api/projects/${projectId}/sessions/${sessionId}/archive`, archived);
+}
+
+export function archiveReport(projectId: string, reportId: string, archived: boolean): Promise<void> {
+	return postArchive(`/api/projects/${projectId}/reports/${reportId}/archive`, archived);
+}
+
+// Bulk "archive finished" actions. Each archives every finished-but-not-yet-archived
+// row in one server-side DB write and returns how many were archived.
+async function postArchiveFinished(path: string): Promise<number> {
+	const res = await fetch(`${API_URL}${path}`, { method: "POST", headers: authHeaders() });
+	if (!res.ok) throw new Error(`API responded with ${res.status}`);
+	return ((await res.json()) as { count: number }).count;
+}
+
+export function archiveFinishedTasks(projectId: string): Promise<number> {
+	return postArchiveFinished(`/api/projects/${projectId}/tasks/archive-finished`);
+}
+
+export function archiveFinishedSessions(projectId: string): Promise<number> {
+	return postArchiveFinished(`/api/projects/${projectId}/sessions/archive-finished`);
+}
+
+export function archiveFinishedSessionReports(projectId: string): Promise<number> {
+	return postArchiveFinished(`/api/projects/${projectId}/reports/archive-finished`);
 }
 
 export async function createSession(
