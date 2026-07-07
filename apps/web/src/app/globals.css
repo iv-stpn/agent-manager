@@ -56,6 +56,19 @@
 	body {
 		@apply bg-background text-foreground;
 	}
+	/* Radix ScrollArea renders its content inside a `display: table; min-width: 100%`
+	 * wrapper. An auto-width table sizes to its content's natural width and can grow
+	 * past its containing block, so long lines (code, JSON, tool output, URLs) never
+	 * wrap to the panel — they overflow it. Force that wrapper to a block box so it
+	 * takes the viewport width and its children wrap/clip within it instead.
+	 * `!important` is required: Radix sets `display: table` as an inline style,
+	 * which no plain selector can override. */
+	[data-radix-scroll-area-viewport] > div {
+		/* biome-ignore lint/complexity/noImportantStyles: overrides Radix inline `display: table` */
+		display: block !important;
+		/* biome-ignore lint/complexity/noImportantStyles: overrides Radix inline `min-width` */
+		min-width: 0 !important;
+	}
 }
 
 @layer utilities {

@@ -140,7 +140,7 @@ function MessageBubble({
 	return (
 		<div
 			className={cn(
-				"flex gap-3 group",
+				"flex gap-3 group min-w-0",
 				isNew && "animate-msg-in",
 				isSystem ? "flex-row" : isAssistant ? "flex-row" : "flex-row-reverse"
 			)}
@@ -158,7 +158,10 @@ function MessageBubble({
 				{isSystem ? <Settings className="h-4 w-4" /> : isAssistant ? <Bot className="h-4 w-4" /> : <User className="h-4 w-4" />}
 			</div>
 			<div
-				className={cn("flex flex-col gap-2 max-w-[85%]", isSystem ? "items-start" : isAssistant ? "items-start" : "items-end")}
+				className={cn(
+					"flex flex-col gap-2 min-w-0 max-w-[85%] [overflow-wrap:anywhere]",
+					isSystem ? "items-start" : isAssistant ? "items-start" : "items-end"
+				)}
 			>
 				{blocks.map((block, index) => {
 					if (block.type === "text" && block.text) {
@@ -472,11 +475,11 @@ export function MessageFeed({
 			<div className={cn("flex flex-col gap-4", messages.length > 0 && "mt-4")}>
 				{/* Live streaming text from the assistant */}
 				{isRunning && streamingText && (
-					<div className="flex gap-3 group">
+					<div className="flex gap-3 group min-w-0">
 						<div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-violet-500/20 text-violet-600 dark:text-violet-400 mt-1">
 							<Bot className="h-4 w-4" />
 						</div>
-						<div className="bg-muted rounded-lg px-3 py-2 text-sm leading-relaxed max-w-[85%] streaming-cursor">
+						<div className="bg-muted rounded-lg px-3 py-2 text-sm leading-relaxed min-w-0 max-w-[85%] [overflow-wrap:anywhere] streaming-cursor">
 							<Markdown>{streamingText}</Markdown>
 						</div>
 					</div>
