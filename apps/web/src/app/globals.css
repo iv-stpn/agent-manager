@@ -56,6 +56,14 @@
 	body {
 		@apply bg-background text-foreground;
 	}
+	/* Off-canvas drawers (e.g. the session-page right panel below `lg`) park
+	 * themselves past the right edge with `fixed` + `translate-x-full`. Clip the
+	 * document's horizontal overflow so that parked width never adds a phantom
+	 * scrollbar / min-width floor. `clip` (not `hidden`) avoids creating a scroll
+	 * container, so `position: sticky` on the app rail keeps working. */
+	html {
+		overflow-x: clip;
+	}
 	/* Radix ScrollArea renders its content inside a `display: table; min-width: 100%`
 	 * wrapper. An auto-width table sizes to its content's natural width and can grow
 	 * past its containing block, so long lines (code, JSON, tool output, URLs) never

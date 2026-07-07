@@ -1,4 +1,4 @@
-import { ArrowDownToLine, ArrowLeft, Pause, RefreshCw, RotateCcw, Send, Square } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft, Menu, Pause, RefreshCw, RotateCcw, Send, Square, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -50,6 +50,9 @@ export default function SessionPage() {
 	const [viewport, setViewport] = useState<HTMLElement | null>(null);
 	const [isAtBottom, setIsAtBottom] = useState(true);
 	const [timelineTab, setTimelineTab] = useState("current");
+	// Right panel collapses to a hamburger-toggled drawer below the `lg` breakpoint;
+	// stays permanently inline (this state ignored) at `lg` and up.
+	const [panelOpen, setPanelOpen] = useState(false);
 
 	const scrollAreaRef = useCallback((node: HTMLDivElement | null) => {
 		setViewport(node?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]") ?? null);
@@ -68,6 +71,16 @@ export default function SessionPage() {
 		const newHeight = Math.min(textarea.scrollHeight, 120);
 		textarea.style.height = `${newHeight}px`;
 	}, [chatInput]);
+
+	// Close the mobile drawer on Escape.
+	useEffect(() => {
+		if (!panelOpen) return;
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setPanelOpen(false);
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [panelOpen]);
 
 	useEffect(() => {
 		if (!viewport) return;
@@ -337,6 +350,8 @@ export default function SessionPage() {
 	// the status flips back to "running" (driven over SSE).
 	const isCompacting = session.status === "compacting";
 
+	const pendingToolCount = toolCalls.filter((tc) => tc.status === "pending").length;
+
 	return (
 		<div className="h-full flex flex-col  overflow-x-hidden">
 			{/* Top bar */}
@@ -392,12 +407,27 @@ export default function SessionPage() {
 								{stopping ? "Stopping..." : "Stop"}
 							</Button>
 						)}
+						{/* Toggles the right panel drawer; hidden once it's permanently inline at `lg`+ */}
+						<Button
+							variant="secondary"
+							size="icon"
+							onClick={() => setPanelOpen((open) => !open)}
+							title={panelOpen ? "Close panel" : "Open panel"}
+							className="relative shrink-0 lg:hidden"
+						>
+							{panelOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+							{!panelOpen && pendingToolCount > 0 && (
+								<span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-yellow-500 text-white text-[10px] flex items-center justify-center">
+									{pendingToolCount}
+								</span>
+							)}
+						</Button>
 					</div>
 				</div>
 			</div>
 
 			{/* Main layout */}
-			<div className={cn("flex h-[calc(100vh-72px)]", containerClassName)}>
+			<div className={cn("flex min-w-0 flex-1 min-h-0", containerClassName)}>
 				{/* Left: message feed + chat input */}
 				<div className="flex-1 flex flex-col overflow-hidden border-r">
 					{tasks.length > 0 && (
@@ -456,7 +486,7 @@ export default function SessionPage() {
 						)}
 						<textarea
 							ref={chatRef}
-							className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring min-h-[38px] max-h-[120px] overflow-y-auto"
+							className="flex-1 min-w-0 resize-none rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring min-h-[38px] max-h-[120px] overflow-y-auto"
 							rows={1}
 							placeholder={
 								!running
@@ -488,8 +518,29 @@ export default function SessionPage() {
 					</div>
 				</div>
 
-				{/* Right: sidebar */}
-				<div className="w-[448px] shrink-0 flex flex-col overflow-hidden">
+				{/* Backdrop — only below `lg`, only while the drawer is open. Starts at
+				    `left-16` so the app rail stays visible and clickable. */}
+				{panelOpen && (
+					<button
+						type="button"
+						aria-label="Close panel"
+						onClick={() => setPanelOpen(false)}
+						className="fixed left-16 right-0 top-[72px] bottom-0 z-40 bg-black/40 lg:hidden"
+					/>
+				)}
+
+				{/* Right: sidebar. Inline at `lg`+, a slide-in drawer below it. */}
+				<div
+					className={cn(
+						"w-[448px] shrink-0 flex flex-col overflow-hidden bg-background",
+						// Drawer behaviour below `lg`
+						"fixed right-0 top-[72px] bottom-0 z-50 max-w-[calc(100vw-4rem)] border-l shadow-xl",
+						"transition-transform duration-300 ease-in-out",
+						panelOpen ? "translate-x-0" : "translate-x-full",
+						// Reset to a static in-flow column at `lg`+
+						"lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:border-l-0 lg:shadow-none lg:transition-none"
+					)}
+				>
 					<Tabs defaultValue="summary" className="flex flex-col flex-1 overflow-hidden">
 						<TabsList className="m-3 shrink-0">
 							<TabsTrigger value="summary" className="flex-1">
@@ -497,9 +548,9 @@ export default function SessionPage() {
 							</TabsTrigger>
 							<TabsTrigger value="tools" className="flex-1">
 								Tools
-								{toolCalls.filter((tc) => tc.status === "pending").length > 0 && (
+								{pendingToolCount > 0 && (
 									<span className="ml-1.5 h-4 w-4 rounded-full bg-yellow-500 text-white text-[10px] flex items-center justify-center">
-										{toolCalls.filter((tc) => tc.status === "pending").length}
+										{pendingToolCount}
 									</span>
 								)}
 							</TabsTrigger>

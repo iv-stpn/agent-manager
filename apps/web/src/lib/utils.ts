@@ -50,4 +50,4 @@ export function statusBg(status: string): string {
 	}
 }
 
-export const containerClassName = "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8";
+export const containerClassName = "lg:max-w-7xl lg:mx-auto px-4 sm:px-6 lg:px-8";
