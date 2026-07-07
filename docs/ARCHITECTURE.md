@@ -158,7 +158,7 @@ Each project owns one SQLite database at `.projects/<project-id>/data/agent.db`
 (mounted into the container at `/data/agent.db`, set via `DATABASE_PATH`). It
 uses WAL journaling with foreign keys enabled. The schema is defined with
 Drizzle in
-[project-template/src/db/schema.ts](../project-template/src/db/schema.ts) and is
+[packages/db/src/project-schema.ts](../packages/db/src/project-schema.ts) and is
 the single source of truth. All timestamps are integer Unix epoch
 **milliseconds** (`unixepoch() * 1000`); IDs are application-generated text. The
 orchestrator reads this DB readonly; the agent container is the only writer.
