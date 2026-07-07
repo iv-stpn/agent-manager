@@ -29,7 +29,7 @@ export function Sidebar() {
 
 	return (
 		<>
-			<aside className="fixed left-0 top-0 h-screen w-16 bg-gray-950 flex flex-col items-center py-3 z-30 border-r border-gray-800">
+			<aside className="h-full w-16 shrink-0 bg-gray-950 flex flex-col items-center py-3 z-30 border-r border-gray-800">
 				{/* Logo */}
 				<Link
 					to="/"
