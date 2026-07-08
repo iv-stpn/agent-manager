@@ -3,7 +3,7 @@ import { describe, expect, it, spyOn } from "bun:test";
 import Anthropic from "@anthropic-ai/sdk";
 import { type AgentError, classifyApiError, LLM_CALL_RETRY, SERVER_CRASH_RETRY, withRetry } from "./errors";
 
-// The 3-min crash waits (and the exponential blip backoff) would make these
+// The 5-min crash waits (and the exponential blip backoff) would make these
 // tests take minutes. Fire every scheduled timeout immediately so we exercise
 // the retry *counting/classification* logic without the wall-clock waits. Each
 // test restores its own spy via `timers.mockRestore()`.

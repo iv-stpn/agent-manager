@@ -168,15 +168,15 @@ export interface RetryOptions {
 /**
  * Retry budget for a crashed backend (ServerCrashError). A crashed LLM server
  * takes far longer to come back than a transient blip, so this waits a fixed
- * 3 minutes between attempts (no exponential ramp — the wait is dominated by
+ * 5 minutes between attempts (no exponential ramp — the wait is dominated by
  * the reboot, not by backing off a busy server) and gives up after 4 retries
- * (≈12 min total) rather than the ~2-min exponential budget of LLM_CALL_RETRY.
+ * (≈20 min total) rather than the ~2-min exponential budget of LLM_CALL_RETRY.
  * Tracked on a counter separate from the normal-retry counter in withRetry so
  * a crash never eats the ordinary-blip budget and vice versa.
  */
 export const SERVER_CRASH_RETRY = {
 	maxRetries: 4,
-	delayMs: 180_000,
+	delayMs: 300_000,
 } as const;
 
 /**
