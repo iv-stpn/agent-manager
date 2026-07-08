@@ -55,7 +55,12 @@ function renderStartingPoint(templates?: TemplateRef[]): string | null {
 	if (!templates?.length) return null;
 
 	const lines = templates.map((template) => {
-		const origin = template.type === "github" ? `GitHub repo ${template.source}` : `Local template "${template.source}"`;
+		const origin =
+			template.type === "github"
+				? `GitHub repo ${template.source}`
+				: template.type === "bun-create"
+					? `\`bun create ${template.source}\` scaffold`
+					: `Local template "${template.source}"`;
 		return `- ${origin}${template.subdirectory ? ` → ./${template.subdirectory}` : ""}`;
 	});
 

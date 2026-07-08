@@ -39,9 +39,10 @@ interface Guideline {
 }
 
 export interface TemplateRef {
-	type: "local" | "github";
+	type: "local" | "github" | "bun-create";
 	source: string;
 	subdirectory?: string;
+	flags?: string;
 }
 
 export interface ResolvedProjectContext {
