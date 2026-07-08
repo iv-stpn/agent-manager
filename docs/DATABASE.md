@@ -209,7 +209,7 @@ A unit of work the agent coordinates. Tasks are project-wide (not bound to a sin
 | `text` | `text` | not null | The task description. |
 | `status` | `text` | not null, default `pending` | Progress state of the task. One of: `pending`, `in_progress`, `done`, `cancelled` |
 | `metadata` | `text` | — | JSON: { dependsOn?: string[] } plus arbitrary fields. Null when empty. |
-| `archived` | `integer` | not null, default `false` | tab. Never read by the agent. |
+| `archived` | `integer` | not null, default `false` | its dependents. |
 | `created_at` | `integer` | not null, default `expression` | Creation time (epoch ms). |
 | `updated_at` | `integer` | not null, default `expression` | Last update time (epoch ms). |
 
