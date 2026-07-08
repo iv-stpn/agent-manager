@@ -6,7 +6,30 @@ import { BASE_MAX_TOKENS, ESCALATED_MAX_TOKENS } from "../token-budget";
 import { AGENT_TOOLS } from "../tools/definitions";
 import type { AgentState } from "../types";
 import { type AgentError, LLM_CALL_RETRY, withRetry } from "../utils/errors";
-import { emitMessage } from "./status";
+import { emitMessage, recordRetryNotice } from "./status";
+
+/**
+ * Fire the SSE `error_recovered` event AND persist a `system` timeline message
+ * for one retry attempt. Shared by both makeRequest passes (base + escalated
+ * max_tokens) so every LLM retry — network blip or crashed-backend reboot — is
+ * visible live (toast) and durably in the transcript (survives reload).
+ */
+function reportRetry(agent: AgentState, err: AgentError, attempt: number, nextDelayMs: number, maxAttempts: number): void {
+	const waitSec = Math.round(nextDelayMs / 1000);
+	const waitLabel = waitSec >= 60 ? `${Math.round(waitSec / 60)}m` : `${waitSec}s`;
+	const reason =
+		err.category === "server_crash" ? "LLM server connection lost (socket closed)" : `LLM call failed (${err.category})`;
+	console.log(
+		`[Agent ${agent.sessionId}] API retry #${attempt}/${maxAttempts}: ${err.category} — waiting ${Math.round(nextDelayMs)}ms`
+	);
+
+	recordRetryNotice(agent, `⚠️ ${reason}. Retrying (attempt ${attempt} of ${maxAttempts}) in ${waitLabel}…\n${err.message}`);
+
+	sessionEmitter.emit(agent.sessionId, {
+		type: "error_recovered",
+		data: { attempt, error: err.message, nextRetryMs: Math.round(nextDelayMs), category: err.category, maxAttempts },
+	});
+}
 
 export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Messages.Message> {
 	const makeRequest = async (maxTokens: number): Promise<Anthropic.Messages.Message> => {
@@ -53,15 +76,7 @@ export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Mes
 	const response = await withRetry(() => makeRequest(BASE_MAX_TOKENS), {
 		...LLM_CALL_RETRY,
 		signal: agent.abortController.signal,
-		onRetry: (err: AgentError, attempt: number, nextDelayMs: number, maxAttempts: number) => {
-			console.log(
-				`[Agent ${agent.sessionId}] API retry #${attempt}/${maxAttempts}: ${err.category} — waiting ${Math.round(nextDelayMs)}ms`
-			);
-			sessionEmitter.emit(agent.sessionId, {
-				type: "error_recovered",
-				data: { attempt, error: err.message, nextRetryMs: Math.round(nextDelayMs), category: err.category, maxAttempts },
-			});
-		},
+		onRetry: (err, attempt, nextDelayMs, maxAttempts) => reportRetry(agent, err, attempt, nextDelayMs, maxAttempts),
 	});
 
 	// Output token tier escalation: if truncated, retry with higher limit
@@ -96,6 +111,7 @@ export async function callAnthropicApi(agent: AgentState): Promise<Anthropic.Mes
 		return withRetry(() => makeRequest(ESCALATED_MAX_TOKENS), {
 			...LLM_CALL_RETRY,
 			signal: agent.abortController.signal,
+			onRetry: (err, attempt, nextDelayMs, maxAttempts) => reportRetry(agent, err, attempt, nextDelayMs, maxAttempts),
 		});
 	}
 
