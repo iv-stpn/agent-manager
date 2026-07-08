@@ -4,36 +4,12 @@ import { join } from "node:path";
 import { migrateSchema } from "@agent-manager/db/ddl";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import type {
-	ArchivedProject,
-	ArchivedSession,
-	DiscordChannel,
-	GlobalStats,
-	Guideline,
-	GuidelineCategory,
-	LlmClient,
-	LooseOptional,
-	TechStack,
-	Template,
-} from "./schema";
+import type { DiscordChannel, Guideline, GuidelineCategory, LlmClient, LooseOptional, TechStack, Template } from "./schema";
 import * as schema from "./schema";
-import {
-	archivedProjects,
-	archivedSessions,
-	discordChannels,
-	guidelineCategories,
-	guidelines,
-	llmClients,
-	statistics,
-	techStacks,
-	templates,
-} from "./schema";
+import { discordChannels, guidelineCategories, guidelines, llmClients, techStacks, templates } from "./schema";
 
 export type {
-	ArchivedProject,
-	ArchivedSession,
 	DiscordChannel,
-	GlobalStats,
 	Guideline,
 	GuidelineCategory,
 	LlmClient,
@@ -97,44 +73,6 @@ export class OrchestratorDatabase {
 				updated_at INTEGER NOT NULL,
 				FOREIGN KEY (category_id) REFERENCES guideline_categories(id) ON DELETE SET NULL
 			);
-			CREATE TABLE IF NOT EXISTS archived_projects (
-				id TEXT PRIMARY KEY,
-				name TEXT NOT NULL,
-				description TEXT,
-				created_at TEXT NOT NULL,
-				archived_at TEXT NOT NULL,
-				total_sessions INTEGER NOT NULL DEFAULT 0,
-				total_messages INTEGER NOT NULL DEFAULT 0,
-				total_input_tokens INTEGER NOT NULL DEFAULT 0,
-				total_output_tokens INTEGER NOT NULL DEFAULT 0,
-				total_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-				total_cache_write_tokens INTEGER NOT NULL DEFAULT 0
-			);
-			CREATE TABLE IF NOT EXISTS archived_sessions (
-				id TEXT PRIMARY KEY,
-				project_id TEXT NOT NULL,
-				name TEXT,
-				task TEXT NOT NULL DEFAULT '',
-				status TEXT NOT NULL DEFAULT 'stopped',
-				total_input_tokens INTEGER NOT NULL DEFAULT 0,
-				total_output_tokens INTEGER NOT NULL DEFAULT 0,
-				total_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-				total_cache_write_tokens INTEGER NOT NULL DEFAULT 0,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL,
-				FOREIGN KEY (project_id) REFERENCES archived_projects(id) ON DELETE CASCADE
-			);
-			CREATE TABLE IF NOT EXISTS statistics (
-				id TEXT PRIMARY KEY DEFAULT 'global',
-				total_projects_created INTEGER NOT NULL DEFAULT 0,
-				total_sessions_started INTEGER NOT NULL DEFAULT 0,
-				total_messages_sent INTEGER NOT NULL DEFAULT 0,
-				total_input_tokens INTEGER NOT NULL DEFAULT 0,
-				total_output_tokens INTEGER NOT NULL DEFAULT 0,
-				total_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-				total_cache_write_tokens INTEGER NOT NULL DEFAULT 0,
-				updated_at INTEGER NOT NULL
-			);
 			CREATE TABLE IF NOT EXISTS discord_channels (
 				id TEXT PRIMARY KEY,
 				project_id TEXT NOT NULL,
@@ -158,24 +96,8 @@ export class OrchestratorDatabase {
 		// `CREATE TABLE IF NOT EXISTS` above never adds columns to an already-existing
 		// orchestrator.db, so any column introduced after this DB was first created is
 		// silently absent. Backfill from the Drizzle schema before any read/insert
-		// (e.g. the statistics seed below) touches a would-be-missing column.
+		// touches a would-be-missing column.
 		migrateSchema(this.sqlite, schema);
-
-		this.db
-			.insert(statistics)
-			.values({
-				id: "global",
-				totalProjectsCreated: 0,
-				totalSessionsStarted: 0,
-				totalMessagesSent: 0,
-				totalInputTokens: 0,
-				totalOutputTokens: 0,
-				totalCacheReadTokens: 0,
-				totalCacheWriteTokens: 0,
-				updatedAt: Date.now(),
-			})
-			.onConflictDoNothing()
-			.run();
 
 		this.seedDefaults();
 	}
@@ -557,89 +479,6 @@ export class OrchestratorDatabase {
 
 	deleteLlmClient(id: string) {
 		this.db.delete(llmClients).where(eq(llmClients.id, id)).run();
-	}
-
-	// ── Archive ───────────────────────────────────────────────────────────────
-
-	archiveProject(project: Omit<ArchivedProject, "archivedAt">, sessions: Omit<ArchivedSession, "projectId">[] = []) {
-		this.db.transaction((tx) => {
-			tx.insert(archivedProjects)
-				.values({ ...project, archivedAt: new Date().toISOString() })
-				.onConflictDoUpdate({ target: archivedProjects.id, set: { ...project, archivedAt: new Date().toISOString() } })
-				.run();
-			for (const session of sessions) {
-				tx.insert(archivedSessions)
-					.values({ ...session, projectId: project.id })
-					.onConflictDoUpdate({ target: archivedSessions.id, set: { ...session, projectId: project.id } })
-					.run();
-			}
-		});
-	}
-
-	listArchivedProjects(): ArchivedProject[] {
-		return this.db.select().from(archivedProjects).orderBy(desc(archivedProjects.archivedAt)).all();
-	}
-
-	getArchivedProject(id: string): ArchivedProject | undefined {
-		return this.db.select().from(archivedProjects).where(eq(archivedProjects.id, id)).get() ?? undefined;
-	}
-
-	getArchivedSessions(projectId: string): ArchivedSession[] {
-		return this.db
-			.select()
-			.from(archivedSessions)
-			.where(eq(archivedSessions.projectId, projectId))
-			.orderBy(desc(archivedSessions.createdAt))
-			.all();
-	}
-
-	deleteArchivedProject(id: string) {
-		this.db.delete(archivedSessions).where(eq(archivedSessions.projectId, id)).run();
-		this.db.delete(archivedProjects).where(eq(archivedProjects.id, id)).run();
-	}
-
-	// ── Statistics ────────────────────────────────────────────────────────────
-
-	getStats(): GlobalStats {
-		const [row] = this.db
-			.select({
-				totalProjects: statistics.totalProjectsCreated,
-				totalArchivedProjects: sql<number>`(SELECT COUNT(*) FROM archived_projects)`,
-				totalSessions: statistics.totalSessionsStarted,
-				totalMessages: statistics.totalMessagesSent,
-				totalInputTokens: statistics.totalInputTokens,
-				totalOutputTokens: statistics.totalOutputTokens,
-				totalCacheReadTokens: statistics.totalCacheReadTokens,
-				totalCacheWriteTokens: statistics.totalCacheWriteTokens,
-			})
-			.from(statistics)
-			.where(eq(statistics.id, "global"))
-			.all();
-		return row;
-	}
-
-	incrementStats(
-		deltas: Partial<
-			Record<
-				"projects" | "sessions" | "messages" | "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens",
-				number
-			>
-		>
-	) {
-		this.db
-			.update(statistics)
-			.set({
-				totalProjectsCreated: sql`${statistics.totalProjectsCreated} + ${deltas.projects ?? 0}`,
-				totalSessionsStarted: sql`${statistics.totalSessionsStarted} + ${deltas.sessions ?? 0}`,
-				totalMessagesSent: sql`${statistics.totalMessagesSent} + ${deltas.messages ?? 0}`,
-				totalInputTokens: sql`${statistics.totalInputTokens} + ${deltas.inputTokens ?? 0}`,
-				totalOutputTokens: sql`${statistics.totalOutputTokens} + ${deltas.outputTokens ?? 0}`,
-				totalCacheReadTokens: sql`${statistics.totalCacheReadTokens} + ${deltas.cacheReadTokens ?? 0}`,
-				totalCacheWriteTokens: sql`${statistics.totalCacheWriteTokens} + ${deltas.cacheWriteTokens ?? 0}`,
-				updatedAt: Date.now(),
-			})
-			.where(eq(statistics.id, "global"))
-			.run();
 	}
 
 	// ── Discord channels ──────────────────────────────────────────────────────

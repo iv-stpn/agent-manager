@@ -86,46 +86,6 @@ export const guidelines = sqliteTable("guidelines", {
 	updatedAt: integer("updated_at").notNull(),
 });
 
-export const archivedProjects = sqliteTable("archived_projects", {
-	id: text("id").primaryKey(),
-	name: text("name").notNull(),
-	description: text("description"),
-	createdAt: text("created_at").notNull(),
-	archivedAt: text("archived_at").notNull(),
-	totalSessions: integer("total_sessions").notNull().default(0),
-	totalMessages: integer("total_messages").notNull().default(0),
-	totalInputTokens: integer("total_input_tokens").notNull().default(0),
-	totalOutputTokens: integer("total_output_tokens").notNull().default(0),
-	totalCacheReadTokens: integer("total_cache_read_tokens").notNull().default(0),
-	totalCacheWriteTokens: integer("total_cache_write_tokens").notNull().default(0),
-});
-
-export const archivedSessions = sqliteTable("archived_sessions", {
-	id: text("id").primaryKey(),
-	projectId: text("project_id").notNull(),
-	name: text("name"),
-	task: text("task").notNull().default(""),
-	status: text("status").notNull().default("stopped"),
-	totalInputTokens: integer("total_input_tokens").notNull().default(0),
-	totalOutputTokens: integer("total_output_tokens").notNull().default(0),
-	totalCacheReadTokens: integer("total_cache_read_tokens").notNull().default(0),
-	totalCacheWriteTokens: integer("total_cache_write_tokens").notNull().default(0),
-	createdAt: integer("created_at").notNull(),
-	updatedAt: integer("updated_at").notNull(),
-});
-
-export const statistics = sqliteTable("statistics", {
-	id: text("id").primaryKey().default("global"),
-	totalProjectsCreated: integer("total_projects_created").notNull().default(0),
-	totalSessionsStarted: integer("total_sessions_started").notNull().default(0),
-	totalMessagesSent: integer("total_messages_sent").notNull().default(0),
-	totalInputTokens: integer("total_input_tokens").notNull().default(0),
-	totalOutputTokens: integer("total_output_tokens").notNull().default(0),
-	totalCacheReadTokens: integer("total_cache_read_tokens").notNull().default(0),
-	totalCacheWriteTokens: integer("total_cache_write_tokens").notNull().default(0),
-	updatedAt: integer("updated_at").notNull(),
-});
-
 export const llmClients = sqliteTable("llm_clients", {
 	id: text("id").primaryKey(),
 	name: text("name").notNull(),
@@ -153,19 +113,6 @@ export type Template = typeof templates.$inferSelect;
 export type TechStack = typeof techStacks.$inferSelect;
 export type GuidelineCategory = typeof guidelineCategories.$inferSelect;
 export type Guideline = typeof guidelines.$inferSelect;
-export type ArchivedProject = typeof archivedProjects.$inferSelect;
-export type ArchivedSession = typeof archivedSessions.$inferSelect;
 export type LlmClient = typeof llmClients.$inferSelect;
 export type LlmProvider = LlmClient["provider"];
 export type DiscordChannel = typeof discordChannels.$inferSelect;
-
-export interface GlobalStats {
-	totalProjects: number;
-	totalArchivedProjects: number;
-	totalSessions: number;
-	totalMessages: number;
-	totalInputTokens: number;
-	totalOutputTokens: number;
-	totalCacheReadTokens: number;
-	totalCacheWriteTokens: number;
-}

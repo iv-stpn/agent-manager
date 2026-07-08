@@ -1,7 +1,5 @@
 export type {
-	ArchivedProject,
-	ArchivedSession,
-	GlobalStats,
+	DiscordChannel,
 	Guideline,
 	GuidelineCategory,
 	LlmClient,

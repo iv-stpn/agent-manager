@@ -13,6 +13,8 @@ import { deleteProjectCategory } from "../discord/channels";
 import { env } from "../env";
 import { getErrorMessage } from "../lib/errors";
 import type { HonoOrchestratorEnv } from "../types";
+import { resolveAgentLlmClient } from "./llm-client-resolve";
+import { createProgressEmitter } from "./progress-stream";
 
 export type WorkspaceFolderStatus = "not_found" | "empty" | "not_empty" | "not_directory" | "protected";
 
@@ -287,14 +289,8 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 			const body = await c.req.json();
 			const input = CreateProjectSchema.parse(body);
 
-			// Resolve LLM client if specified
-			if (input.agent?.clientId) {
-				const client = c.var.orchestratorDb.getLlmClient(input.agent.clientId);
-				if (!client) return c.json({ error: "LLM client not found" }, 400);
-				input.agent.anthropicApiKey = input.agent.anthropicApiKey || client.apiKey;
-				input.agent.anthropicBaseUrl = input.agent.anthropicBaseUrl || client.baseUrl;
-				input.agent.model = input.agent.model || client.model;
-			}
+			// Backfill Anthropic config from the selected LLM client (throws → 400 below).
+			resolveAgentLlmClient(input.agent, (id) => c.var.orchestratorDb.getLlmClient(id));
 
 			const project = await c.var.manager.createProject(input);
 			return c.json({ project }, 201);
@@ -309,51 +305,27 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 		applyCorsOrigin(c);
 
 		return streamSSE(c, async (stream) => {
-			// Writes must reach the client in the same order they were produced —
-			// onStep/onLine fire synchronously from createProject's sequential
-			// awaits and from process stdout/stderr 'data' events, neither of
-			// which wait for the write to actually complete. Chaining every write
-			// onto one shared promise serializes them without needing the manager
-			// layer to await anything.
-			let queue: Promise<void> = Promise.resolve();
-			const enqueue = (write: () => Promise<void>) => {
-				queue = queue.then(write, write);
-				return queue;
-			};
-			const send = (step: string, status: "running" | "done" | "error", log?: string) =>
-				enqueue(async () => {
-					await stream.writeSSE({ event: "progress", data: JSON.stringify({ step, status, log }) });
-					await stream.sleep(0);
-				});
-			const delta = (step: string, line: string) =>
-				enqueue(async () => {
-					await stream.writeSSE({ event: "delta", data: JSON.stringify({ step, line }) });
-					await stream.sleep(0);
-				});
+			// The emitter serializes every write onto one queue so frames reach the
+			// client in order — onStep/onLine fire synchronously from createProject's
+			// sequential awaits and from process stdout/stderr 'data' events, neither
+			// of which wait for the write to flush.
+			const { send, delta, complete } = createProgressEmitter(stream);
 
 			try {
 				const body = await c.req.json();
 				const input = CreateProjectSchema.parse(body);
-
-				if (input.agent?.clientId) {
-					const client = c.var.orchestratorDb.getLlmClient(input.agent.clientId);
-					if (!client) throw new Error("LLM client not found");
-					input.agent.anthropicApiKey = input.agent.anthropicApiKey || client.apiKey;
-					input.agent.anthropicBaseUrl = input.agent.anthropicBaseUrl || client.baseUrl;
-					input.agent.model = input.agent.model || client.model;
-				}
+				resolveAgentLlmClient(input.agent, (id) => c.var.orchestratorDb.getLlmClient(id));
 
 				const project = await c.var.manager.createProject(input, {
 					onStep: (step, status, detail) => void send(step, status, detail),
 					onLine: (step, l) => void delta(step, l),
 				});
 
-				await queue;
-				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: true, project }) });
+				// `complete` is enqueued too, so it lands after every buffered progress
+				// frame — no need to drain the queue first.
+				await complete({ success: true, project });
 			} catch (error) {
-				const msg = getErrorMessage(error);
-				await queue;
-				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
+				await complete({ success: false, error: getErrorMessage(error) });
 			}
 		});
 	})
@@ -404,10 +376,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 
 		return streamSSE(c, async (stream) => {
 			const { docker, manager, hub } = c.var;
-			const send = (step: string, status: "running" | "done" | "error", log?: string) =>
-				stream.writeSSE({ event: "progress", data: JSON.stringify({ step, status, log }) }).then(() => stream.sleep(0));
-			const delta = (step: string, line: string) =>
-				stream.writeSSE({ event: "delta", data: JSON.stringify({ step, line }) }).then(() => stream.sleep(0));
+			const { send, delta, complete } = createProgressEmitter(stream);
 
 			try {
 				// Stop containers first if the project is currently running
@@ -442,11 +411,11 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 				hub.projectStopped(projectId);
 				await send("delete-project", "done", "Project deleted");
 
-				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: true }) });
+				await complete({ success: true });
 			} catch (error) {
 				const msg = getErrorMessage(error);
 				await send("delete-project", "error", msg);
-				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
+				await complete({ success: false, error: msg });
 			}
 		});
 	})
@@ -470,10 +439,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 
 		return streamSSE(c, async (stream) => {
 			const { docker, hub } = c.var;
-			const send = (step: string, status: "running" | "done" | "error", log?: string) =>
-				stream.writeSSE({ event: "progress", data: JSON.stringify({ step, status, log }) }).then(() => stream.sleep(0));
-			const delta = (step: string, line: string) =>
-				stream.writeSSE({ event: "delta", data: JSON.stringify({ step, line }) }).then(() => stream.sleep(0));
+			const { send, delta, complete } = createProgressEmitter(stream);
 
 			let tail: { kill: () => void } | null = null;
 			try {
@@ -496,17 +462,17 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 				if (healthy) {
 					hub.projectStarted(projectId);
 					await send("health", "done", "Project is running");
-					await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: true }) });
+					await complete({ success: true });
 				} else {
 					const logs = await docker.getProjectLogs(projectId, "agent").catch(() => "");
 					await send("health", "error", `Project did not become healthy:\n${logs.slice(-2000)}`);
-					await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false }) });
+					await complete({ success: false });
 				}
 			} catch (error) {
 				tail?.kill();
 				const msg = getErrorMessage(error);
 				await send("start", "error", msg);
-				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
+				await complete({ success: false, error: msg });
 			}
 		});
 	})
@@ -529,10 +495,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 
 		return streamSSE(c, async (stream) => {
 			const { docker, hub } = c.var;
-			const send = (step: string, status: "running" | "done" | "error", log?: string) =>
-				stream.writeSSE({ event: "progress", data: JSON.stringify({ step, status, log }) }).then(() => stream.sleep(0));
-			const delta = (step: string, line: string) =>
-				stream.writeSSE({ event: "delta", data: JSON.stringify({ step, line }) }).then(() => stream.sleep(0));
+			const { send, delta, complete } = createProgressEmitter(stream);
 
 			try {
 				await send("stop", "running", "Stopping containers...");
@@ -541,11 +504,11 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 				});
 				hub.projectStopped(projectId);
 				await send("stop", "done", "Containers stopped");
-				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: true }) });
+				await complete({ success: true });
 			} catch (error) {
 				const msg = getErrorMessage(error);
 				await send("stop", "error", msg);
-				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
+				await complete({ success: false, error: msg });
 			}
 		});
 	})
@@ -556,10 +519,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 
 		return streamSSE(c, async (stream) => {
 			const { docker, hub } = c.var;
-			const send = (step: string, status: "running" | "done" | "error", log?: string) =>
-				stream.writeSSE({ event: "progress", data: JSON.stringify({ step, status, log }) }).then(() => stream.sleep(0));
-			const delta = (step: string, line: string) =>
-				stream.writeSSE({ event: "delta", data: JSON.stringify({ step, line }) }).then(() => stream.sleep(0));
+			const { send, delta, complete } = createProgressEmitter(stream);
 
 			let tail: { kill: () => void } | null = null;
 			try {
@@ -588,17 +548,17 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 				if (healthy) {
 					hub.projectRestarted(projectId);
 					await send("health", "done", "Project is running");
-					await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: true }) });
+					await complete({ success: true });
 				} else {
 					const logs = await docker.getProjectLogs(projectId, "agent").catch(() => "");
 					await send("health", "error", `Project did not become healthy:\n${logs.slice(-2000)}`);
-					await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false }) });
+					await complete({ success: false });
 				}
 			} catch (error) {
 				tail?.kill();
 				const msg = getErrorMessage(error);
 				await send("stop", "error", msg);
-				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
+				await complete({ success: false, error: msg });
 			}
 		});
 	})
@@ -643,10 +603,7 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 
 		return streamSSE(c, async (stream) => {
 			const { docker, hub } = c.var;
-			const send = (step: string, status: "running" | "done" | "error", log?: string) =>
-				stream.writeSSE({ event: "progress", data: JSON.stringify({ step, status, log }) }).then(() => stream.sleep(0));
-			const delta = (step: string, line: string) =>
-				stream.writeSSE({ event: "delta", data: JSON.stringify({ step, line }) }).then(() => stream.sleep(0));
+			const { send, delta, complete } = createProgressEmitter(stream);
 
 			let tail: { kill: () => void } | null = null;
 			try {
@@ -685,17 +642,17 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 				if (healthy) {
 					hub.projectRestarted(projectId);
 					await send("health", "done", "Project is running");
-					await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: true }) });
+					await complete({ success: true });
 				} else {
 					const logs = await docker.getProjectLogs(projectId, "agent").catch(() => "");
 					await send("health", "error", `Project did not become healthy:\n${logs.slice(-2000)}`);
-					await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false }) });
+					await complete({ success: false });
 				}
 			} catch (error) {
 				tail?.kill();
 				const msg = getErrorMessage(error);
 				await send("build", "error", msg);
-				await stream.writeSSE({ event: "complete", data: JSON.stringify({ success: false, error: msg }) });
+				await complete({ success: false, error: msg });
 			}
 		});
 	})
@@ -729,14 +686,8 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 			const projectId = c.req.param("projectId");
 			const { ports, ...rest } = UpdateSettingsSchema.parse(await c.req.json());
 
-			// Resolve LLM client if specified
-			if (rest.agent?.clientId) {
-				const client = c.var.orchestratorDb.getLlmClient(rest.agent.clientId);
-				if (!client) return c.json({ error: "LLM client not found" }, 400);
-				rest.agent.anthropicApiKey = rest.agent.anthropicApiKey || client.apiKey;
-				rest.agent.anthropicBaseUrl = rest.agent.anthropicBaseUrl || client.baseUrl;
-				rest.agent.model = rest.agent.model || client.model;
-			}
+			// Resolve LLM client if specified (throws → 400 via the outer catch)
+			resolveAgentLlmClient(rest.agent, (id) => c.var.orchestratorDb.getLlmClient(id));
 
 			const updates: Parameters<typeof c.var.manager.updateProject>[1] = {
 				...rest,

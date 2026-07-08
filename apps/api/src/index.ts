@@ -31,9 +31,6 @@ import { templatesRouter } from "./routes/templates";
 import type { HonoOrchestratorEnv } from "./types";
 
 export type {
-	ArchivedProject,
-	ArchivedSession,
-	GlobalStats,
 	Guideline,
 	GuidelineCategory,
 	LlmClient,

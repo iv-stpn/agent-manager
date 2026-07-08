@@ -147,28 +147,6 @@ export class ProjectDatabase {
 		}
 	}
 
-	// biome-ignore lint/suspicious/noExplicitAny: raw SQL query returns untyped rows
-	async getProjectSessions(projectId: string, limit = 10): Promise<any[]> {
-		return this.safeList(projectId, (db) =>
-			db
-				.select({ id: sessions.id, title: sessions.name, created_at: sessions.createdAt, updated_at: sessions.updatedAt })
-				.from(sessions)
-				.orderBy(desc(sessions.updatedAt))
-				.limit(limit)
-				.all()
-		);
-	}
-
-	// biome-ignore lint/suspicious/noExplicitAny: raw SQL pass-through requires dynamic typing
-	async queryProject(projectId: string, rawSql: string, params: any[] = []): Promise<any[]> {
-		const { sqlite } = this.open(projectId);
-		try {
-			return sqlite.query(rawSql).all(...params);
-		} finally {
-			sqlite.close();
-		}
-	}
-
 	async getSessions(projectId: string): Promise<SessionRecord[]> {
 		return this.safeList(projectId, (db) => db.select().from(sessions).all());
 	}

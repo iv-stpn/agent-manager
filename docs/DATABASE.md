@@ -5,39 +5,7 @@
 
 ## Orchestrator
 
-The orchestrator's own database (`orchestrator.db`): templates, archived projects/sessions, and global statistics. Defined in `apps/api/src/db/orchestrator-database.ts`.
-
-### `archived_projects`
-
-| Column | Type | Constraints | Description |
-| --- | --- | --- | --- |
-| `id` | `TEXT` | PK | — |
-| `name` | `TEXT` | not null | — |
-| `description` | `TEXT` | — | — |
-| `created_at` | `TEXT` | not null | — |
-| `archived_at` | `TEXT` | not null | — |
-| `total_sessions` | `INTEGER` | not null, default `0` | — |
-| `total_messages` | `INTEGER` | not null, default `0` | — |
-| `total_input_tokens` | `INTEGER` | not null, default `0` | — |
-| `total_output_tokens` | `INTEGER` | not null, default `0` | — |
-| `total_cache_read_tokens` | `INTEGER` | not null, default `0` | — |
-| `total_cache_write_tokens` | `INTEGER` | not null, default `0` | — |
-
-### `archived_sessions`
-
-| Column | Type | Constraints | Description |
-| --- | --- | --- | --- |
-| `id` | `TEXT` | PK | — |
-| `project_id` | `TEXT` | not null, → `archived_projects.id` | — |
-| `name` | `TEXT` | — | — |
-| `task` | `TEXT` | not null, default `''` | — |
-| `status` | `TEXT` | not null, default `'stopped'` | — |
-| `total_input_tokens` | `INTEGER` | not null, default `0` | — |
-| `total_output_tokens` | `INTEGER` | not null, default `0` | — |
-| `total_cache_read_tokens` | `INTEGER` | not null, default `0` | — |
-| `total_cache_write_tokens` | `INTEGER` | not null, default `0` | — |
-| `created_at` | `INTEGER` | not null | — |
-| `updated_at` | `INTEGER` | not null | — |
+The orchestrator's own database (`orchestrator.db`): templates, tech stacks, guidelines, LLM clients, and Discord channels. Defined in `apps/api/src/db/orchestrator-database.ts`.
 
 ### `discord_channels`
 
@@ -85,20 +53,6 @@ The orchestrator's own database (`orchestrator.db`): templates, archived project
 | `model` | `TEXT` | not null, default `''` | — |
 | `small_model` | `TEXT` | not null, default `''` | — |
 | `created_at` | `INTEGER` | not null | — |
-| `updated_at` | `INTEGER` | not null | — |
-
-### `statistics`
-
-| Column | Type | Constraints | Description |
-| --- | --- | --- | --- |
-| `id` | `TEXT` | PK, default `'global'` | — |
-| `total_projects_created` | `INTEGER` | not null, default `0` | — |
-| `total_sessions_started` | `INTEGER` | not null, default `0` | — |
-| `total_messages_sent` | `INTEGER` | not null, default `0` | — |
-| `total_input_tokens` | `INTEGER` | not null, default `0` | — |
-| `total_output_tokens` | `INTEGER` | not null, default `0` | — |
-| `total_cache_read_tokens` | `INTEGER` | not null, default `0` | — |
-| `total_cache_write_tokens` | `INTEGER` | not null, default `0` | — |
 | `updated_at` | `INTEGER` | not null | — |
 
 ### `tech_stacks`

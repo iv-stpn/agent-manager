@@ -376,7 +376,7 @@ const orchestratorTables = buildOrchestratorTables();
 const seededTables = parseSeededTables();
 
 const orchestratorIntro =
-	"The orchestrator's own database (`orchestrator.db`): templates, archived projects/sessions, and global statistics. " +
+	"The orchestrator's own database (`orchestrator.db`): templates, tech stacks, guidelines, LLM clients, and Discord channels. " +
 	"Defined in `apps/api/src/db/orchestrator-database.ts`." +
 	(seededTables.length
 		? ` On first open, the constructor runs \`seedDefaults()\`, which populates default rows for ${seededTables
