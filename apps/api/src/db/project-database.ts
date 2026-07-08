@@ -297,8 +297,10 @@ export class ProjectDatabase {
 	}
 
 	// Reports (check-ins) belonging to a finished session. Resolves the finished
-	// session ids first, then archives their un-archived check-ins.
-	async archiveReportsOfFinishedSessions(projectId: string): Promise<number> {
+	// session ids first, then archives their un-archived check-ins. Returns the
+	// archived check-in ids so the caller can cascade to each one's linked vector
+	// memory entry (report_<checkinId>) — the count is `ids.length`.
+	async archiveReportsOfFinishedSessions(projectId: string): Promise<string[]> {
 		return this.withWritableDb(projectId, (db) => {
 			const finished = db
 				.select({ id: sessions.id })
@@ -306,14 +308,14 @@ export class ProjectDatabase {
 				.where(inArray(sessions.status, ["completed", "aborted", "error"]))
 				.all()
 				.map((row) => row.id);
-			if (finished.length === 0) return 0;
+			if (finished.length === 0) return [];
 			const updated = db
 				.update(checkins)
 				.set({ archived: true })
 				.where(and(eq(checkins.archived, false), inArray(checkins.sessionId, finished)))
 				.returning({ id: checkins.id })
 				.all();
-			return updated.length;
+			return updated.map((row) => row.id);
 		});
 	}
 }

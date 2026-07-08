@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import z from "zod";
 import { env } from "../env";
 import type { HonoOrchestratorEnv } from "../types";
-import { assertSafeId, parseLimit, tableName } from "./memory-guards";
+import { assertSafeId, buildMemoryFilter, parseLimit, tableName } from "./memory-guards";
 
 const ENTRY_TYPES = ["decision", "todo", "plan", "question", "memory", "report", "context"] as const;
 const typeSchema = z.enum(ENTRY_TYPES);
@@ -40,23 +40,26 @@ const updateSchema = z.object({
 
 export const memoryRouter = new Hono<HonoOrchestratorEnv>()
 
-	// List entries (filterable by type)
+	// List entries (filterable by type). Archived entries are hidden by default —
+	// pass ?includeArchived=true to include them (e.g. an "Archived" memory view).
 	.get("/:projectId", async (c) => {
 		const projectId = c.req.param("projectId");
 		const rawType = c.req.query("type");
 		const limit = parseLimit(c.req.query("limit"), 100);
+		const includeArchived = c.req.query("includeArchived") === "true";
 
 		const typeResult = rawType === undefined ? undefined : typeSchema.safeParse(rawType);
 		if (typeResult && !typeResult.success) return c.json({ error: "invalid type" }, 400);
 		const type = typeResult?.data;
 
-		const filter = type ? `type = '${type}' AND id != '__init__'` : "id != '__init__'";
+		const filter = buildMemoryFilter(type, includeArchived);
 
 		const data = await lanceRequest(`/tables/${tableName(projectId)}/query?filter=${encodeURIComponent(filter)}&limit=${limit}`);
 		return c.json(data);
 	})
 
-	// Semantic search
+	// Semantic search — always excludes archived entries. This is the agent's
+	// `recall` path, and an archived memory is by definition out of its working set.
 	.get("/:projectId/search", async (c) => {
 		const projectId = c.req.param("projectId");
 		const query = c.req.query("q");
@@ -69,7 +72,7 @@ export const memoryRouter = new Hono<HonoOrchestratorEnv>()
 		if (typeResult && !typeResult.success) return c.json({ error: "invalid type" }, 400);
 		const type = typeResult?.data;
 
-		const filter = type ? `type = '${type}' AND id != '__init__'` : "id != '__init__'";
+		const filter = buildMemoryFilter(type, false);
 
 		const data = await lanceRequest(`/tables/${tableName(projectId)}/search`, {
 			method: "POST",
@@ -156,3 +159,42 @@ memoryRouter.onError((err, c) => {
 	console.error(`[memory] ${c.req.method} ${c.req.path} failed: ${err}`);
 	return c.json({ error: "memory backend error" }, 500);
 });
+
+/**
+ * Mark a memory entry archived / restored by merging an `archived` flag into its
+ * metadata JSON. Used by the report-archive routes to cascade the UI's archive
+ * action onto the report's linked `report_<checkinId>` memory entry, so an
+ * archived report also drops out of the agent's `recall` / `list` results
+ * (buildMemoryFilter excludes `"archived":true`).
+ *
+ * Only metadata changes (never title/content), so the LanceDB update path keeps
+ * the existing embedding rather than re-embedding. Returns false when no entry
+ * with that id exists — e.g. a report predating the auto-link, or one whose
+ * memory write failed — which the caller treats as a non-fatal miss.
+ */
+export async function setMemoryArchived(projectId: string, entryId: string, archived: boolean): Promise<boolean> {
+	const safeId = assertSafeId(entryId);
+	const existing = await lanceRequest(
+		`/tables/${tableName(projectId)}/query?filter=${encodeURIComponent(`id = '${safeId}'`)}&limit=1`
+	);
+	const entry = (existing.results as Array<{ metadata?: unknown }> | undefined)?.[0];
+	if (!entry) return false;
+
+	let metadata: Record<string, unknown> = {};
+	if (typeof entry.metadata === "string") {
+		try {
+			metadata = JSON.parse(entry.metadata) as Record<string, unknown>;
+		} catch {
+			metadata = {};
+		}
+	} else if (entry.metadata && typeof entry.metadata === "object") {
+		metadata = entry.metadata as Record<string, unknown>;
+	}
+	metadata.archived = archived;
+
+	await lanceRequest(`/tables/${tableName(projectId)}/update`, {
+		method: "PUT",
+		body: JSON.stringify({ id: safeId, updates: { metadata: JSON.stringify(metadata) } }),
+	});
+	return true;
+}

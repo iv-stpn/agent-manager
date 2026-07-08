@@ -14,6 +14,7 @@ import { env } from "../env";
 import { getErrorMessage } from "../lib/errors";
 import type { HonoOrchestratorEnv } from "../types";
 import { resolveAgentLlmClient } from "./llm-client-resolve";
+import { setMemoryArchived } from "./memory";
 import { createProgressEmitter } from "./progress-stream";
 
 export type WorkspaceFolderStatus = "not_found" | "empty" | "not_empty" | "not_directory" | "protected";
@@ -909,6 +910,13 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 		try {
 			const ok = await c.var.projectDatabaseManager.setReportArchived(projectId, reportId, parsed.data.archived);
 			if (!ok) return c.json({ error: "Not found" }, 404);
+			// Cascade to the report's linked vector-memory entry (report_<checkinId>)
+			// so an archived report also leaves the agent's recall set. Best-effort:
+			// the report row is already flipped; a memory-service hiccup or a report
+			// with no memory entry (pre-dates the link) must not fail the request.
+			await setMemoryArchived(projectId, `report_${reportId}`, parsed.data.archived).catch((err) =>
+				console.error(`[projects] report memory archive cascade failed for ${reportId}:`, getErrorMessage(err))
+			);
 			return c.json({ success: true, archived: parsed.data.archived });
 		} catch (error) {
 			return c.json({ error: getErrorMessage(error) }, 500);
@@ -939,8 +947,12 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 	.post("/:projectId/reports/archive-finished", async (c) => {
 		const { projectId } = c.req.param();
 		try {
-			const count = await c.var.projectDatabaseManager.archiveReportsOfFinishedSessions(projectId);
-			return c.json({ success: true, count });
+			const archivedIds = await c.var.projectDatabaseManager.archiveReportsOfFinishedSessions(projectId);
+			// Cascade each archived check-in to its linked memory entry. Best-effort
+			// and parallel — a memory miss for any single report must not fail the
+			// batch, and the DB rows are already flipped.
+			await Promise.allSettled(archivedIds.map((id) => setMemoryArchived(projectId, `report_${id}`, true)));
+			return c.json({ success: true, count: archivedIds.length });
 		} catch (error) {
 			return c.json({ error: getErrorMessage(error) }, 500);
 		}
