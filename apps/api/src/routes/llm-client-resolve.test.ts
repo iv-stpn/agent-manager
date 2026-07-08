@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { LlmClient } from "../db";
-import { resolveAgentLlmClient, type ResolvableAgent } from "./llm-client-resolve";
+import { type ResolvableAgent, resolveAgentLlmClient } from "./llm-client-resolve";
 
 const CLIENT: LlmClient = {
 	id: "c1",
