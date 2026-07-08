@@ -4,6 +4,7 @@ import { getSession, insertCheckin, insertReport, updateCheckin } from "../../db
 import { sessionEmitter } from "../../emitter";
 import type { ReportData } from "../../external/discord";
 import { sendReport } from "../../external/discord";
+import { remember } from "../tools/implementations/memory";
 import type { AgentState } from "../types";
 import { requestSummary } from "./api";
 import { setStatus } from "./status";
@@ -17,13 +18,19 @@ export function shouldAwait(agent: AgentState, awaitOverride?: "await" | "contin
 	return true; // custom: agent passes await_override; default await if not specified
 }
 
+export interface ReportOutcome {
+	delivered: boolean; // Reached the user (Discord). False when delivery threw or there was no channel.
+	confirmed: boolean; // The user acknowledged (only possible when awaiting).
+	awaiting: boolean; // Whether this report blocked for acknowledgment.
+}
+
 export async function triggerReport(
 	agent: AgentState,
 	report: ReportData,
 	trigger: string,
 	forceAwait = false,
 	awaitOverride?: "await" | "continue"
-): Promise<void> {
+): Promise<ReportOutcome> {
 	console.log("[Report]", trigger, JSON.stringify(report, null, 2));
 
 	const awaiting = forceAwait || shouldAwait(agent, awaitOverride);
@@ -37,7 +44,12 @@ export async function triggerReport(
 			? trigger
 			: "manual";
 
-	const summary = report.sections.map((section) => `**${section.title}**\n${section.content}`).join("\n\n");
+	// A section title is optional (manual send_report allows title-less sections),
+	// so only prepend the bold heading when one is present — otherwise a missing
+	// title would render as the literal "**undefined**".
+	const summary = report.sections
+		.map((section) => (section.title ? `**${section.title}**\n${section.content}` : section.content))
+		.join("\n\n");
 
 	// Record the check-in BEFORE any Discord round-trip so the timeline
 	// reflects the event even when there is no channel (e.g. token budget
@@ -47,6 +59,12 @@ export async function triggerReport(
 
 	insertCheckin(agent.db, { id: checkinId, sessionId, trigger: checkinTrigger, summary, status: "pending", createdAt });
 
+	// Mirror the report into vector memory under a deterministic id tied to the
+	// check-in, so recall can surface past reports AND archiving the check-in in
+	// the UI can cascade to its memory entry (see the reports/archive routes).
+	// Fire-and-forget: a memory-service blip must not fail the report.
+	remember("report", report.title, summary, undefined, `report_${checkinId}`).catch(() => {});
+
 	sessionEmitter.emit(sessionId, {
 		type: "checkin_started",
 		data: { id: checkinId, sessionId, trigger: checkinTrigger, summary, status: "pending", createdAt },
@@ -55,6 +73,7 @@ export async function triggerReport(
 	setStatus(agent, "paused");
 
 	let confirmed = false;
+	let delivered = true;
 	try {
 		// Persist the immutable report record regardless of Discord delivery.
 		insertReport(agent.db, { id: nanoid(), sessionId, trigger, title: report.title, content: JSON.stringify(report) });
@@ -64,6 +83,9 @@ export async function triggerReport(
 			confirmed = true;
 		}
 	} catch (err) {
+		// Delivery failure (e.g. no Discord channel, a 404) must not fail the
+		// report: the check-in, report row and memory entry are already persisted.
+		delivered = false;
 		console.error(
 			`[Agent ${sessionId}] Discord report delivery failed (trigger=${trigger}):`,
 			err instanceof Error ? err.message : err
@@ -78,6 +100,8 @@ export async function triggerReport(
 
 		setStatus(agent, "running");
 	}
+
+	return { delivered, awaiting, confirmed };
 }
 
 export async function triggerAutoReport(agent: AgentState): Promise<void> {

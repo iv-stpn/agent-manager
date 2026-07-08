@@ -1,14 +1,13 @@
 import { nanoid } from "nanoid";
 import type { Db } from "../../db";
-import { answerQuestion, insertQuestion, insertReport } from "../../db";
+import { answerQuestion, insertQuestion } from "../../db";
 import type { ReportData } from "../../external/discord";
-import { sendQuestions, sendReport } from "../../external/discord";
+import { sendQuestions } from "../../external/discord";
 import { steerAgent } from "../definition";
 import { recall, remember, updateMemory } from "../tools/implementations/memory";
 import type { AskUserQuestionInput, SendReportInput } from "../tools/validators";
 import type { AgentState } from "../types";
-import { shouldAwait } from "./reports";
-import { setStatus } from "./status";
+import { triggerReport } from "./reports";
 
 /**
  * Record an answer for a question in the database and update its vector memory
@@ -107,38 +106,16 @@ export async function handleSendReport(agent: AgentState, input: SendReportInput
 		...(input.mermaid_diagrams !== undefined && { mermaid_diagrams: input.mermaid_diagrams }),
 	};
 
-	const awaiting = shouldAwait(agent, input.await_override);
-
-	setStatus(agent, "paused");
-
-	// Persist the immutable report record and memory entry BEFORE the Discord
-	// round-trip (same ordering as triggerReport) so the report survives even
-	// when delivery fails or there is no channel.
-	insertReport(agent.db, {
-		id: nanoid(),
-		sessionId: agent.sessionId,
-		trigger: "manual",
-		title: report.title,
-		content: JSON.stringify(report),
-	});
-	remember(
-		"report",
-		report.title,
-		report.sections.map((section) => `${section.title ?? ""}\n${section.content}`).join("\n\n")
-	).catch(() => {});
-
-	let delivered = true;
-	try {
-		await sendReport(agent.sessionId, report, "manual", awaiting, agent.abortController.signal);
-	} catch (err) {
-		// Delivery failure (e.g. Discord 404) must not fail the tool call — the
-		// report is already persisted; tell the agent and keep working.
-		delivered = false;
-		console.error(`[Agent ${agent.sessionId}] Report delivery failed:`, err instanceof Error ? err.message : err);
-	} finally {
-		setStatus(agent, "running");
-	}
+	// Route through triggerReport so a manual report follows the exact same path
+	// as every automatic one: it records a check-in (so it shows in the Reports
+	// tab and can be archived from the UI) and writes a `report_<checkinId>`
+	// memory entry (so recall surfaces it and archiving cascades to it). Before
+	// this, manual reports created only a stray memory with a random id and no
+	// check-in, so they never appeared in the UI and could never be archived.
+	const { delivered, awaiting, confirmed } = await triggerReport(agent, report, "manual", false, input.await_override);
 
 	if (!delivered) return "Report saved, but delivery to the user failed (messaging unavailable). Continuing.";
-	return awaiting ? "Report sent and user acknowledged." : "Report sent (continuing).";
+	if (awaiting)
+		return confirmed ? "Report sent and user acknowledged." : "Report sent, but no acknowledgment received. Continuing.";
+	return "Report sent (continuing).";
 }

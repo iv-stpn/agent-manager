@@ -30,16 +30,25 @@ export interface MemoryEntry {
 	metadata?: Record<string, unknown>;
 }
 
-/** Store a new memory entry. Returns the generated ID. */
+/**
+ * Store a new memory entry. Returns the generated ID.
+ *
+ * Pass `id` to control the entry's id instead of letting the backend generate
+ * one. Used to give a report memory a deterministic `report_<checkinId>` id so
+ * the UI's archive action (which archives the check-in row) can cascade to the
+ * matching memory entry. Re-using an existing id upserts it (LanceDB overwrites
+ * by id), so callers must ensure the id is unique when a fresh entry is intended.
+ */
 export async function remember(
 	type: MemoryType,
 	title: string,
 	content: string,
-	metadata?: Record<string, unknown>
+	metadata?: Record<string, unknown>,
+	id?: string
 ): Promise<string> {
 	const data = await memoryRequest("", {
 		method: "POST",
-		body: JSON.stringify({ type, title, content, metadata }),
+		body: JSON.stringify({ type, title, content, metadata, ...(id !== undefined && { id }) }),
 	});
 	return data.id as string;
 }
