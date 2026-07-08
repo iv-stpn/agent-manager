@@ -43,9 +43,10 @@ type PathWarning = { status: "not_found" | "not_empty" | "not_directory" | "prot
 type Step = "basic" | "templates" | "context";
 
 interface TemplateSelection {
-	type: "local" | "github";
+	type: "local" | "github" | "bun-create";
 	source: string;
 	subdirectory?: string;
+	flags?: string;
 }
 
 interface ProgressStep {
@@ -71,6 +72,13 @@ function stepLabel(key: string): string {
 		default:
 			return key;
 	}
+}
+
+/** Derive a readable subdirectory name from a bun create source (e.g. package or repo name). */
+function defaultBunCreateSubdir(source: string): string {
+	const last = source.trim().split("/").filter(Boolean).pop() || "";
+	// Strip any @version suffix (but keep a leading @ of a bare scoped name).
+	return last.replace(/(.)@.*$/, "$1").replace(/[^a-zA-Z0-9._-]/g, "-");
 }
 
 /** Derive a readable subdirectory name from a GitHub URL (e.g. repo name). */
@@ -129,6 +137,9 @@ function NewProjectForm({ loading, onLoadingChange, onSuccess, onCancel }: NewPr
 	const [templates, setTemplates] = useState<LocalTemplate[]>([]);
 	const [selectedTemplates, setSelectedTemplates] = useState<string[]>([]);
 	const [githubTemplates, setGithubTemplates] = useState<Array<{ id: string; url: string; subdirectory: string }>>([]);
+	const [bunCreateTemplates, setBunCreateTemplates] = useState<
+		Array<{ id: string; template: string; flags: string; subdirectory: string }>
+	>([]);
 	const [templateSubdirs, setTemplateSubdirs] = useState<Record<string, string>>({});
 	const [templatesLoading, setTemplatesLoading] = useState(false);
 
@@ -188,6 +199,18 @@ function NewProjectForm({ loading, onLoadingChange, onSuccess, onCancel }: NewPr
 		setGithubTemplates((previous) => previous.filter((githubTemplate) => githubTemplate.id !== id));
 	}
 
+	function addBunCreateTemplate() {
+		setBunCreateTemplates((previous) => [...previous, { id: crypto.randomUUID(), template: "", flags: "", subdirectory: "" }]);
+	}
+	function updateBunCreateTemplate(id: string, field: "template" | "flags" | "subdirectory", value: string) {
+		setBunCreateTemplates((previous) =>
+			previous.map((bunTemplate) => (bunTemplate.id === id ? { ...bunTemplate, [field]: value } : bunTemplate))
+		);
+	}
+	function removeBunCreateTemplate(id: string) {
+		setBunCreateTemplates((previous) => previous.filter((bunTemplate) => bunTemplate.id !== id));
+	}
+
 	async function handleSubmit(skipPathCheck = false) {
 		if (!form.name.trim() || !form.clientId) return;
 
@@ -222,15 +245,30 @@ function NewProjectForm({ loading, onLoadingChange, onSuccess, onCancel }: NewPr
 				const subdir = githubTemplate.subdirectory.trim();
 				rawTemplates.push({ type: "github", source: url, ...(subdir && { subdirectory: subdir }) });
 			}
+			for (const bunTemplate of bunCreateTemplates) {
+				const source = bunTemplate.template.trim();
+				if (!source) continue;
+				const subdir = bunTemplate.subdirectory.trim();
+				const flags = bunTemplate.flags.trim();
+				rawTemplates.push({
+					type: "bun-create",
+					source,
+					...(subdir && { subdirectory: subdir }),
+					...(flags && { flags }),
+				});
+			}
 
-			// When multiple templates are selected, give each GitHub template a
-			// readable subdirectory name (derived from the repo) if the user left
-			// it blank, so the created subfolders aren't slugified URLs.
+			// When multiple templates are selected, give each GitHub / bun-create
+			// template a readable subdirectory name (derived from the repo or
+			// package) if the user left it blank, so the created subfolders aren't
+			// slugified URLs.
 			const multipleTemplates = rawTemplates.length > 1;
 			const templatesList: TemplateSelection[] = multipleTemplates
 				? rawTemplates.map((template) => {
-						if (template.subdirectory || template.type !== "github") return template;
-						return { ...template, subdirectory: defaultGithubSubdir(template.source) };
+						if (template.subdirectory || template.type === "local") return template;
+						const subdirectory =
+							template.type === "github" ? defaultGithubSubdir(template.source) : defaultBunCreateSubdir(template.source);
+						return { ...template, subdirectory };
 					})
 				: rawTemplates;
 
@@ -291,6 +329,7 @@ function NewProjectForm({ loading, onLoadingChange, onSuccess, onCancel }: NewPr
 			setSelectedGuidelines([]);
 			setSelectedTemplates([]);
 			setGithubTemplates([]);
+			setBunCreateTemplates([]);
 			setTemplateSubdirs({});
 			setProgressSteps([]);
 			setProgressLines({});
@@ -448,9 +487,13 @@ function NewProjectForm({ loading, onLoadingChange, onSuccess, onCancel }: NewPr
 						)}
 					>
 						Templates
-						{(selectedTemplates.length > 0 || githubTemplates.some((githubTemplate) => githubTemplate.url.trim())) && (
+						{(selectedTemplates.length > 0 ||
+							githubTemplates.some((githubTemplate) => githubTemplate.url.trim()) ||
+							bunCreateTemplates.some((bunTemplate) => bunTemplate.template.trim())) && (
 							<span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 text-[10px] font-semibold rounded-full bg-blue-100 text-blue-700">
-								{selectedTemplates.length + githubTemplates.filter((githubTemplate) => githubTemplate.url.trim()).length}
+								{selectedTemplates.length +
+									githubTemplates.filter((githubTemplate) => githubTemplate.url.trim()).length +
+									bunCreateTemplates.filter((bunTemplate) => bunTemplate.template.trim()).length}
 							</span>
 						)}
 					</button>
@@ -666,6 +709,55 @@ function NewProjectForm({ loading, onLoadingChange, onSuccess, onCancel }: NewPr
 									</Button>
 									<p className="text-xs text-gray-500">
 										Clone one or more public GitHub repositories. Multiple templates are placed in separate subfolders.
+									</p>
+								</div>
+
+								{/* bun create templates */}
+								<div className="space-y-2">
+									<Label className="text-sm font-medium">bun create Templates</Label>
+									{bunCreateTemplates.length === 0 && (
+										<p className="text-xs italic text-gray-400">No bun create templates added yet.</p>
+									)}
+									<div className="space-y-2">
+										{bunCreateTemplates.map((bunTemplate) => (
+											<div key={bunTemplate.id} className="flex gap-2 items-center">
+												<Input
+													value={bunTemplate.template}
+													onChange={(event) => updateBunCreateTemplate(bunTemplate.id, "template", event.target.value)}
+													placeholder="vite, next-app, @scope/pkg, owner/repo"
+													className="flex-1"
+												/>
+												<Input
+													value={bunTemplate.flags}
+													onChange={(event) => updateBunCreateTemplate(bunTemplate.id, "flags", event.target.value)}
+													placeholder="flags · --template react-ts"
+													className="w-52"
+												/>
+												<Input
+													value={bunTemplate.subdirectory}
+													onChange={(event) => updateBunCreateTemplate(bunTemplate.id, "subdirectory", event.target.value)}
+													placeholder={`subdir · ${bunTemplate.template ? defaultBunCreateSubdir(bunTemplate.template) || "auto" : "auto"}`}
+													className="w-44"
+												/>
+												<Button
+													type="button"
+													variant="ghost"
+													size="sm"
+													onClick={() => removeBunCreateTemplate(bunTemplate.id)}
+													className="text-gray-400 hover:text-destructive px-2"
+												>
+													✕
+												</Button>
+											</div>
+										))}
+									</div>
+									<Button type="button" variant="outline" size="sm" onClick={() => addBunCreateTemplate()}>
+										+ Add bun create template
+									</Button>
+									<p className="text-xs text-gray-500">
+										Scaffold with <code>bun create &lt;template&gt;</code> — an npm <code>create-*</code> package (e.g.{" "}
+										<code>vite</code>) or a GitHub <code>owner/repo</code> shorthand. Optional flags are passed to the create
+										command.
 									</p>
 								</div>
 
