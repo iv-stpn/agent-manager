@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseComposeEnvironment, yamlScalar } from "./compose-format";
 import type { CreateProjectInput, LooseOptional, ProjectConfig, ProjectContext } from "./types";
-import { ProjectContextSchema } from "./types";
+import { isValidBunCreateSource, ProjectContextSchema, parseBunCreateFlags } from "./types";
 
 const PROJECTS_DIR = ".projects";
 const BASE_SERVER_PORT = 4000;
@@ -157,6 +157,32 @@ async function cloneGitHubRepo(repoUrl: string, dest: string, onLine?: (line: st
 	});
 
 	// Remove .git directory to make it a fresh project
+	const gitDir = join(dest, ".git");
+	if (existsSync(gitDir)) {
+		await rm(gitDir, { recursive: true, force: true });
+	}
+}
+
+/**
+ * Seed a directory by running `bun create <source> <dest> [flags…]` — covers
+ * create-* npm scaffolds (e.g. `vite`, `next-app`) and GitHub owner/repo
+ * shorthands. Scaffolds are often prompt-driven; CI=true nudges them toward
+ * non-interactive defaults, and the hard timeout fails loudly if one insists
+ * on input anyway (exec's stdin pipe never answers, mirroring the git-clone
+ * rationale above). `source` and `flags` reach the child as separate argv
+ * entries — never a shell string — and are pre-validated by
+ * isValidBunCreateSource / parseBunCreateFlags. The generous timeout is
+ * because many scaffolds install their own dependencies as part of creation.
+ */
+async function runBunCreate(source: string, flags: string[], dest: string, onLine?: (line: string) => void): Promise<void> {
+	await execWithTimeout(["bun", "create", source, dest, ...flags], {
+		env: { ...process.env, CI: "true" },
+		timeoutMs: 600_000,
+		onLine,
+	});
+
+	// Like cloneGitHubRepo: the scaffold's git history (bun create and many
+	// create-* CLIs init a repo) isn't wanted in a fresh project workspace.
 	const gitDir = join(dest, ".git");
 	if (existsSync(gitDir)) {
 		await rm(gitDir, { recursive: true, force: true });
@@ -476,6 +502,19 @@ export class ProjectManager {
 						// Clone from GitHub
 						await mkdir(targetPath, { recursive: true });
 						await cloneGitHubRepo(template.source, targetPath, (l) => line(seedStep, l));
+					} else if (template.type === "bun-create") {
+						// Re-validate here (not just in the API schema) since createProject
+						// is also callable programmatically; both values become argv of the
+						// spawned command.
+						if (!isValidBunCreateSource(template.source)) {
+							throw new Error(`Invalid bun create template "${template.source}"`);
+						}
+						const flags = parseBunCreateFlags(template.flags ?? "");
+						if (flags === null) {
+							throw new Error(`Invalid flags for bun create template "${template.source}"`);
+						}
+						step(seedStep, "running", `Running bun create ${template.source}...`);
+						await runBunCreate(template.source, flags, targetPath, (l) => line(seedStep, l));
 					}
 					step(seedStep, "done");
 				} catch (error) {

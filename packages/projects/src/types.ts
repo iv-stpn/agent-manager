@@ -41,6 +41,33 @@ export function isSafePathSegment(source: string): boolean {
 	return source.length > 0 && !source.includes("/") && !source.includes("\\") && source !== ".." && source !== ".";
 }
 
+/**
+ * Accept only shapes `bun create` understands for bun-create templates: an npm
+ * package name (optionally scoped, optionally `@version`-suffixed) or a GitHub
+ * `owner/repo` shorthand. Every segment must start with an alphanumeric, so a
+ * source can never smuggle a leading `-` (flag injection into the spawned
+ * command), a `..`/absolute path segment, or whitespace.
+ */
+export function isValidBunCreateSource(source: string): boolean {
+	const seg = "[a-zA-Z0-9][a-zA-Z0-9._-]*";
+	return new RegExp(`^(?:@${seg}/${seg}|${seg}(?:/${seg})?)(?:@[a-zA-Z0-9._-]+)?$`).test(source);
+}
+
+/**
+ * Split a bun-create `flags` string into argv tokens for the spawned
+ * `bun create` command. Returns null if any token falls outside a conservative
+ * character set or contains `..` — the tokens become process arguments (never
+ * a shell string), so this only needs to block path traversal and control
+ * characters, not shell metacharacters.
+ */
+export function parseBunCreateFlags(flags: string): string[] | null {
+	const tokens = flags.trim().split(/\s+/).filter(Boolean);
+	for (const token of tokens) {
+		if (!/^[a-zA-Z0-9@._/:=-]+$/.test(token) || token.includes("..")) return null;
+	}
+	return tokens;
+}
+
 export const ProjectConfigSchema = z.object({
 	id: z.string(),
 	name: z.string(),
@@ -67,9 +94,10 @@ export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
  * system prompt can tell the agent its workspace started from a template.
  */
 const TemplateRefSchema = z.object({
-	type: z.enum(["local", "github"]),
-	source: z.string(), // For local: template name, for github: repo URL
+	type: z.enum(["local", "github", "bun-create"]),
+	source: z.string(), // For local: template name, for github: repo URL, for bun-create: npm package or owner/repo
 	subdirectory: z.string().optional(), // Subdirectory under the workspace, if any
+	flags: z.string().optional(), // For bun-create: extra CLI flags passed to `bun create`
 });
 
 /**
@@ -125,13 +153,15 @@ export const CreateProjectSchema = z.object({
 		.array(
 			z
 				.object({
-					type: z.enum(["local", "github"]),
-					source: z.string(), // For local: template name, for github: repo URL
+					type: z.enum(["local", "github", "bun-create"]),
+					source: z.string(), // For local: template name, for github: repo URL, for bun-create: npm package or owner/repo
 					subdirectory: z.string().optional(), // For multiple templates: subdirectory name under workspace
+					flags: z.string().optional(), // For bun-create: extra CLI flags passed to `bun create`
 				})
-				// `source` is later fed to `git clone` (github) or joined onto the
-				// templates dir (local). Constrain it per-type so it can never carry
-				// shell/URL tricks or a path-traversal segment.
+				// `source` is later fed to `git clone` (github), `bun create`
+				// (bun-create), or joined onto the templates dir (local). Constrain it
+				// per-type so it can never carry shell/URL tricks or a path-traversal
+				// segment.
 				.superRefine((tpl, ctx) => {
 					if (tpl.type === "github") {
 						if (!isValidGitRemote(tpl.source)) {
@@ -139,6 +169,21 @@ export const CreateProjectSchema = z.object({
 								code: z.ZodIssueCode.custom,
 								path: ["source"],
 								message: "github source must be an https:// or git@ repository URL",
+							});
+						}
+					} else if (tpl.type === "bun-create") {
+						if (!isValidBunCreateSource(tpl.source)) {
+							ctx.addIssue({
+								code: z.ZodIssueCode.custom,
+								path: ["source"],
+								message: "bun-create source must be an npm package name or GitHub owner/repo shorthand",
+							});
+						}
+						if (tpl.flags !== undefined && parseBunCreateFlags(tpl.flags) === null) {
+							ctx.addIssue({
+								code: z.ZodIssueCode.custom,
+								path: ["flags"],
+								message: "bun-create flags may only contain plain option tokens (no '..' or special characters)",
 							});
 						}
 					} else if (!isSafePathSegment(tpl.source)) {

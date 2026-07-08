@@ -21,7 +21,9 @@ export type {
 export {
 	AgentConfigSchema,
 	CreateProjectSchema,
+	isValidBunCreateSource,
 	ProjectConfigSchema,
 	ProjectContextSchema,
+	parseBunCreateFlags,
 	UpdateSettingsSchema,
 } from "./types";
