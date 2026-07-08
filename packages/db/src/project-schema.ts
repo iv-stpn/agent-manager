@@ -197,8 +197,12 @@ export const tasks = sqliteTable("tasks", {
 		.notNull()
 		.default("pending"), // Progress state of the task.
 	metadata: text("metadata"), // JSON: { dependsOn?: string[] } plus arbitrary fields. Null when empty.
-	// UI-only flag: hide the task from the default Tasks list into an "Archived"
-	// tab. Never read by the agent.
+	// Hide the task from the default Tasks list into an "Archived" tab. Set only
+	// from the UI (the agent never writes it), but the agent's task tools DO read
+	// it: list_tasks / get_current_task exclude archived rows, so archiving a task
+	// also clears it out of the agent's working set. Dependency checks still count
+	// archived-but-done tasks, so archiving a finished prerequisite never blocks
+	// its dependents.
 	archived: integer("archived", { mode: "boolean" }).notNull().default(false),
 	createdAt: integer("created_at").notNull().default(sql`(unixepoch() * 1000)`), // Creation time (epoch ms).
 	updatedAt: integer("updated_at").notNull().default(sql`(unixepoch() * 1000)`), // Last update time (epoch ms).

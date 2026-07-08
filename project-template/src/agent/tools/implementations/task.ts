@@ -1,5 +1,5 @@
 import { type TaskMetadata, tasks } from "@agent-manager/db/project-schema";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "../../../db/client";
 import { sessionEmitter } from "../../../emitter";
 
@@ -60,9 +60,14 @@ export async function addTask(
 }
 
 // List tasks across the whole project (cross-session), optionally filtered by
-// status. Dependency annotations are computed against all done tasks.
+// status. Archived tasks are excluded — archiving is the UI's way of clearing a
+// finished/abandoned task out of the agent's working set, so the agent should no
+// longer see it here. Dependency annotations are still computed against ALL done
+// tasks (archived included): archiving a completed prerequisite must not make its
+// dependents look blocked.
 export async function listTasks(db: Db, filter: TaskStatus | "all" = "all"): Promise<string> {
-	const rows = filter === "all" ? db.select().from(tasks).all() : db.select().from(tasks).where(eq(tasks.status, filter)).all();
+	const where = filter === "all" ? eq(tasks.archived, false) : and(eq(tasks.status, filter), eq(tasks.archived, false));
+	const rows = db.select().from(tasks).where(where).all();
 	if (rows.length === 0) return "No tasks found.";
 
 	const doneIds = new Set(
@@ -76,9 +81,16 @@ export async function listTasks(db: Db, filter: TaskStatus | "all" = "all"): Pro
 	return rows.map((task) => formatTask(task, doneIds)).join("\n");
 }
 
-// Return the task currently in progress, if any (project-wide).
+// Return the task currently in progress, if any (project-wide). Archived tasks
+// are excluded for consistency with list_tasks — an archived task is out of the
+// agent's working set even in the (normally impossible) case that it is still
+// flagged in_progress.
 export async function getCurrentTask(db: Db): Promise<string> {
-	const [task] = db.select().from(tasks).where(eq(tasks.status, "in_progress")).all();
+	const [task] = db
+		.select()
+		.from(tasks)
+		.where(and(eq(tasks.status, "in_progress"), eq(tasks.archived, false)))
+		.all();
 	if (!task) return "No current task (none in progress).";
 	return `[${task.id}] ${task.text}`;
 }
@@ -110,10 +122,12 @@ export async function setCurrentTask(db: Db, sessionId: string, id: string): Pro
 		});
 	}
 
-	// Set the new current task
+	// Set the new current task. Also clear `archived` unconditionally: the current
+	// task must be visible in the agent's working set (list_tasks/get_current_task
+	// both hide archived rows), so adopting a previously-archived task restores it.
 	const [updatedTask] = db
 		.update(tasks)
-		.set({ status: "in_progress", sessionId, updatedAt: now })
+		.set({ status: "in_progress", sessionId, archived: false, updatedAt: now })
 		.where(eq(tasks.id, id))
 		.returning()
 		.all();
