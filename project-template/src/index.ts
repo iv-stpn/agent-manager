@@ -5,6 +5,7 @@ import z from "zod";
 import { deleteTaskById, getTasks, initDb, stopRunningSessions, updateTaskFields } from "./db";
 import { sessionEmitter } from "./emitter";
 import { env } from "./env";
+import { filesRouter } from "./routes/files";
 import { sessionsRouter } from "./routes/sessions";
 import { globalStreamRouter, streamRouter } from "./routes/stream";
 import type { HonoProjectEnv } from "./types";
@@ -59,6 +60,7 @@ app
 	})
 	// Project-wide event stream (every session). api restreams this.
 	.route("/api/stream", globalStreamRouter)
+	.route("/api/files", filesRouter)
 	.route("/api/sessions", sessionsRouter)
 	.route("/api/sessions", streamRouter);
 

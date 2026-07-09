@@ -476,3 +476,84 @@ export async function getTemplates(): Promise<LocalTemplate[]> {
 	if (!res.ok) throw new Error(`API responded with ${res.status}`);
 	return (await res.json()).templates;
 }
+
+// ── Workspace files endpoints ─────────────────────────────────────────────────
+// The live file browser/editor. These proxy straight through the orchestrator to
+// the agent container (they read/write the real /workspace on disk), so they only
+// work while the project is running. Raw `fetch` — the responses are loosely typed
+// proxy passthroughs, and the content path carries the file body in a JSON body.
+
+export interface WorkspaceTree {
+	/** Flat list of every editable path (honours .gitignore). */
+	paths: string[];
+	/** True when the workspace exceeded the server-side entry cap. */
+	truncated: boolean;
+}
+
+export interface WorkspaceFile {
+	path: string;
+	/** File text, or null when the file is binary or too large to edit. */
+	content: string | null;
+	binary: boolean;
+	tooLarge: boolean;
+	size: number;
+}
+
+/** Pull the orchestrator's `{ error }` body out of a failed file-route response. */
+async function fileError(res: Response, fallback: string): Promise<never> {
+	const body = (await res.json().catch(() => null)) as { error?: string } | null;
+	throw new Error(body?.error || fallback);
+}
+
+export async function getWorkspaceTree(projectId: string, signal?: AbortSignal): Promise<WorkspaceTree> {
+	const res = await fetch(`${API_URL}/api/projects/${projectId}/files/tree`, {
+		headers: authHeaders(),
+		...(signal ? { signal } : {}),
+	});
+	if (!res.ok) return fileError(res, `API responded with ${res.status}`);
+	return (await res.json()) as WorkspaceTree;
+}
+
+export async function getWorkspaceFile(projectId: string, path: string, signal?: AbortSignal): Promise<WorkspaceFile> {
+	const res = await fetch(`${API_URL}/api/projects/${projectId}/files/content?path=${encodeURIComponent(path)}`, {
+		headers: authHeaders(),
+		...(signal ? { signal } : {}),
+	});
+	if (!res.ok) return fileError(res, `Could not open ${path}`);
+	return (await res.json()) as WorkspaceFile;
+}
+
+export async function saveWorkspaceFile(projectId: string, path: string, content: string): Promise<void> {
+	const res = await fetch(`${API_URL}/api/projects/${projectId}/files/content?path=${encodeURIComponent(path)}`, {
+		method: "PUT",
+		headers: { "Content-Type": "application/json", ...authHeaders() },
+		body: JSON.stringify({ content }),
+	});
+	if (!res.ok) await fileError(res, `Could not save ${path}`);
+}
+
+export async function createWorkspaceEntry(projectId: string, path: string, type: "file" | "directory"): Promise<void> {
+	const res = await fetch(`${API_URL}/api/projects/${projectId}/files/entry`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json", ...authHeaders() },
+		body: JSON.stringify({ path, type }),
+	});
+	if (!res.ok) await fileError(res, `Could not create ${path}`);
+}
+
+export async function moveWorkspaceEntry(projectId: string, from: string, to: string): Promise<void> {
+	const res = await fetch(`${API_URL}/api/projects/${projectId}/files/move`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json", ...authHeaders() },
+		body: JSON.stringify({ from, to }),
+	});
+	if (!res.ok) await fileError(res, `Could not move ${from}`);
+}
+
+export async function deleteWorkspaceEntry(projectId: string, path: string): Promise<void> {
+	const res = await fetch(`${API_URL}/api/projects/${projectId}/files/entry?path=${encodeURIComponent(path)}`, {
+		method: "DELETE",
+		headers: authHeaders(),
+	});
+	if (!res.ok) await fileError(res, `Could not delete ${path}`);
+}

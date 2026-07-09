@@ -875,6 +875,30 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 		const { projectId, sessionId } = c.req.param();
 		return proxyToAgent(c, projectId, `/api/sessions/${sessionId}/settings`);
 	})
+	// ── Live workspace files (browse + edit) ─────────────────────────────────
+	// All proxied to the agent container, which reads/writes the real /workspace
+	// behind the shared sandbox guard. `proxyToAgent` forwards the `path` query
+	// string and JSON bodies verbatim, so these stay one-liners. They only work
+	// while the container is running (a stopped project returns 502) — the web
+	// Files tab gates editing on the running state accordingly.
+	.get("/:projectId/files/tree", async (c) => {
+		return proxyToAgent(c, c.req.param("projectId"), "/api/files/tree");
+	})
+	.get("/:projectId/files/content", async (c) => {
+		return proxyToAgent(c, c.req.param("projectId"), "/api/files/content");
+	})
+	.put("/:projectId/files/content", async (c) => {
+		return proxyToAgent(c, c.req.param("projectId"), "/api/files/content");
+	})
+	.post("/:projectId/files/entry", async (c) => {
+		return proxyToAgent(c, c.req.param("projectId"), "/api/files/entry");
+	})
+	.delete("/:projectId/files/entry", async (c) => {
+		return proxyToAgent(c, c.req.param("projectId"), "/api/files/entry");
+	})
+	.post("/:projectId/files/move", async (c) => {
+		return proxyToAgent(c, c.req.param("projectId"), "/api/files/move");
+	})
 	// ── Archive toggles ────────────────────────────────────────────────────
 	// Written directly to the project DB (not proxied to the agent): `archived`
 	// is a UI-only column the agent never touches, so this works whether the

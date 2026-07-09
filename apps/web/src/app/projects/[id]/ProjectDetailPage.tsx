@@ -3,6 +3,7 @@ import {
 	ArrowLeft,
 	CheckSquare,
 	ClipboardList,
+	FolderTree,
 	Hammer,
 	LayoutGrid,
 	List,
@@ -22,6 +23,7 @@ import { API_URL } from "@/constants";
 import { getProject } from "@/lib/agent-api";
 import { useQuery } from "@/lib/query-cache";
 import { useProjectStream } from "@/lib/stores";
+import { FilesTab } from "./components/FilesTab";
 import { LogsTab } from "./components/LogsTab";
 import { OverviewTab } from "./components/OverviewTab";
 import { ReportsTab } from "./components/ReportsTab";
@@ -29,7 +31,7 @@ import { SessionsTab } from "./components/SessionsTab";
 import { SettingsTab } from "./components/SettingsTab";
 import { TasksTab } from "./components/TasksTab";
 
-type Tab = "overview" | "sessions" | "tasks" | "logs" | "reports" | "settings";
+type Tab = "overview" | "sessions" | "tasks" | "files" | "logs" | "reports" | "settings";
 
 export default function ProjectDetailPage() {
 	return (
@@ -51,7 +53,7 @@ function ProjectDetailContent() {
 	const [searchParams, setSearchParams] = useSearchParams();
 	const projectId = params.id;
 
-	const validTabs: Tab[] = ["overview", "sessions", "tasks", "logs", "reports", "settings"];
+	const validTabs: Tab[] = ["overview", "sessions", "tasks", "files", "logs", "reports", "settings"];
 
 	const rawTab = searchParams.get("tab");
 	const tab: Tab = validTabs.find((tab) => tab === rawTab) ?? "sessions";
@@ -174,6 +176,7 @@ function ProjectDetailContent() {
 		{ key: "sessions", label: "Sessions", icon: List, count: sessionCount },
 		{ key: "overview", label: "Overview", icon: LayoutGrid },
 		{ key: "tasks", label: "Tasks", icon: CheckSquare },
+		{ key: "files", label: "Files", icon: FolderTree },
 		{ key: "logs", label: "Logs", icon: Terminal, count: logCount },
 		{ key: "reports", label: "Reports", icon: ClipboardList, count: reportCount },
 		{ key: "settings", label: "Settings", icon: SettingsIcon },
@@ -279,6 +282,7 @@ function ProjectDetailContent() {
 						<SessionsTab projectId={project.id} running={running} dialogOpen={dialogOpen} setDialogOpen={setDialogOpen} />
 					)}
 					{tab === "tasks" && <TasksTab projectId={project.id} running={running} />}
+					{tab === "files" && <FilesTab projectId={project.id} running={running} />}
 					{tab === "logs" && <LogsTab projectId={project.id} running={running} />}
 					{tab === "reports" && <ReportsTab projectId={project.id} />}
 					{tab === "settings" && <SettingsTab projectId={project.id} />}
