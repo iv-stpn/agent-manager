@@ -250,7 +250,12 @@ async function runLoop(agent: AgentState): Promise<void> {
 			// at the blocking limit — there, the next API call would overflow the
 			// context window and 400, so an over-the-cooldown compaction attempt is
 			// strictly better than proceeding (see CompactionCircuitBreaker.mustCompact).
+			// A manual request (requestCompaction) also forces one, bypassing both the
+			// threshold and the circuit breaker — the user asked for it explicitly.
+			const manualCompact = agent.compactRequested;
+			agent.compactRequested = false;
 			if (
+				manualCompact ||
 				agent.circuitBreaker.shouldAutoCompact(estTokens, agent.config.compactThresholdTokens) ||
 				agent.circuitBreaker.mustCompact(estTokens)
 			) {

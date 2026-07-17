@@ -1,4 +1,4 @@
-import { ArrowDownToLine, ArrowLeft, Menu, Pause, RefreshCw, RotateCcw, Send, Square, X } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft, Menu, Pause, RefreshCw, RotateCcw, Send, Shrink, Square, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Session, Task } from "@/lib/agent-api";
 import {
+	compactSession,
 	getCheckins,
 	getCompactions,
 	getMessages,
@@ -42,6 +43,7 @@ export default function SessionPage() {
 	const [stopping, setStopping] = useState(false);
 	const [pausing, setPausing] = useState(false);
 	const [restarting, setRestarting] = useState(false);
+	const [compacting, setCompacting] = useState(false);
 	const [chatInput, setChatInput] = useState("");
 	const [sending, setSending] = useState(false);
 
@@ -251,6 +253,25 @@ export default function SessionPage() {
 		// the effect above) once the session_updated event reports it stopped.
 	}
 
+	async function handleCompact() {
+		if (!projectId || !sessionId) {
+			toast.info("No session is loaded.");
+			return;
+		}
+		setCompacting(true);
+		try {
+			await compactSession(projectId, sessionId);
+			// The agent picks the request up at the top of its next loop iteration
+			// (after any in-flight message finishes) and flips the status to
+			// "compacting" over SSE — no optimistic status update here.
+			toast.info("Compaction will run after the agent's current step");
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Failed to trigger compaction.");
+		} finally {
+			setCompacting(false);
+		}
+	}
+
 	async function handleRestart() {
 		if (!projectId || !sessionId) {
 			toast.info("No session is loaded.");
@@ -389,6 +410,18 @@ export default function SessionPage() {
 						<Button variant="secondary" size="icon" onClick={refreshAll} title="Refresh" aria-label="Refresh session">
 							<RefreshCw className="h-4 w-4" />
 						</Button>
+						{session.status === "running" && (
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={handleCompact}
+								disabled={compacting}
+								title="Summarize the context now instead of waiting for the token threshold"
+							>
+								<Shrink className="h-3 w-3" />
+								{compacting ? "Compacting..." : "Compact"}
+							</Button>
+						)}
 						{isActive && (
 							<Button
 								variant="outline"

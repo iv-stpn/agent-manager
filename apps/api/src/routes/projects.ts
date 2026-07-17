@@ -863,6 +863,10 @@ export const projectsRouter = new Hono<HonoOrchestratorEnv>()
 		const { projectId, sessionId } = c.req.param();
 		return proxyToAgent(c, projectId, `/api/sessions/${sessionId}/pause`);
 	})
+	.post("/:projectId/sessions/:sessionId/compact", async (c) => {
+		const { projectId, sessionId } = c.req.param();
+		return proxyToAgent(c, projectId, `/api/sessions/${sessionId}/compact`);
+	})
 	.post("/:projectId/sessions/:sessionId/restart", async (c) => {
 		const { projectId, sessionId } = c.req.param();
 		return proxyToAgent(c, projectId, `/api/sessions/${sessionId}/restart`);

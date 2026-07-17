@@ -63,6 +63,8 @@ export type AgentState = {
 	lastWarningState: TokenWarningState;
 	//
 	injectedMessage: string | null;
+	/** Set by requestCompaction(): force a compaction at the top of the next loop iteration, regardless of token threshold. */
+	compactRequested: boolean;
 	/** Messages queued to be injected at the start of the next turn (non-disruptive, no abort). */
 	steeringQueue: string[];
 	/** Messages queued to continue the agent after it reaches end_turn. */

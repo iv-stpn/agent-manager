@@ -4,7 +4,16 @@ import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import z from "zod";
 
-import { initAgent, interjectAgent, pauseAgent, queueFollowUp, runners, steerAgent, stopAgent } from "../agent/definition";
+import {
+	initAgent,
+	interjectAgent,
+	pauseAgent,
+	queueFollowUp,
+	requestCompaction,
+	runners,
+	steerAgent,
+	stopAgent,
+} from "../agent/definition";
 import { restart, resume, run } from "../agent/runner-utils/loop";
 import type { AgentLlmConfig, AgentStateConfig } from "../agent/types";
 import {
@@ -250,6 +259,24 @@ export const sessionsRouter = new Hono<HonoProjectEnv>()
 		// "aborted" itself once it stops (see runLoop's pauseRequested check),
 		// which arrives over SSE as a normal session_updated event.
 		pauseAgent(runner);
+		return c.json({ ok: true });
+	})
+	.post("/:id/compact", (c) => {
+		const id = c.req.param("id");
+		const db = c.get("db");
+		const session = getSession(db, id);
+		if (!session) return c.json({ error: "Not found" }, 404);
+
+		const runner = runners.get(id);
+		if (!runner) return c.json({ error: "Agent is not running" }, 409);
+		// Already summarizing — a second request would be a no-op at best and, if
+		// it slipped through, could abort the in-flight summarization call.
+		if (session.status === "compacting") return c.json({ error: "Agent is already compacting" }, 409);
+
+		// Non-disruptive, like steer: the flag is picked up at the top of the next
+		// loop iteration (after the in-flight API call and its tools finish), then
+		// the loop flips the status to "compacting" and back to "running" over SSE.
+		requestCompaction(runner);
 		return c.json({ ok: true });
 	})
 	.post("/:id/restart", async (c) => {

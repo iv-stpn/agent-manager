@@ -49,6 +49,7 @@ export function initAgent({ config, llm, sessionId, db, context, isFirstSession 
 		lastWarningState: "normal",
 		//
 		injectedMessage: null,
+		compactRequested: false,
 		steeringQueue: [],
 		followUpQueue: [],
 		turnNumber: 0,
@@ -102,4 +103,15 @@ export function steerAgent(agent: AgentState, text: string): void {
 export function queueFollowUp(agent: AgentState, text: string): void {
 	agent.pauseRequested = false;
 	agent.followUpQueue.push(text);
+}
+
+/**
+ * Force a context compaction at the top of the next loop iteration, regardless
+ * of the token threshold. Like steerAgent, this is non-disruptive: the flag is
+ * picked up before the next LLM request rather than aborting the in-flight one,
+ * so any current turn (and its tool calls) finishes first. Compacting mid-turn
+ * would discard the response the agent is already paying for.
+ */
+export function requestCompaction(agent: AgentState): void {
+	agent.compactRequested = true;
 }

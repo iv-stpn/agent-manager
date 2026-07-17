@@ -316,6 +316,18 @@ export async function pauseSession(projectId: string, id: string): Promise<void>
 	});
 }
 
+/** Force a context compaction at the start of the agent's next loop iteration,
+ * regardless of the token threshold. Only works while the agent is running. */
+export async function compactSession(projectId: string, id: string): Promise<void> {
+	const res = await api.api.projects[":projectId"].sessions[":sessionId"].compact.$post({
+		param: { projectId, sessionId: id },
+	});
+	if (!res.ok) {
+		const body = (await res.json().catch(() => null)) as { error?: string } | null;
+		throw new Error(body?.error || `API responded with ${res.status}`);
+	}
+}
+
 export async function restartSession(projectId: string, id: string): Promise<void> {
 	await api.api.projects[":projectId"].sessions[":sessionId"].restart.$post({
 		param: { projectId, sessionId: id },
@@ -353,6 +365,90 @@ export async function updateSessionSettings(projectId: string, id: string, data:
 		throw new Error(`API responded with ${res.status}`);
 	}
 	return (await res.json()) as Session;
+}
+
+// ── Memory endpoints (LanceDB-backed) ──────────────────────────────────────────
+// The project's semantic memory lives in the shared LanceDB container, addressed
+// by project id. These routes talk to it directly through the orchestrator — they
+// are NOT proxied to the agent container, so they work whether or not the project
+// is running. Raw `fetch` (like the tasks/workspace endpoints above): the memory
+// routes are manually-validated passthroughs returning loosely-typed LanceDB rows.
+
+export const MEMORY_TYPES = ["decision", "todo", "plan", "question", "memory", "report", "context"] as const;
+export type MemoryType = (typeof MEMORY_TYPES)[number];
+
+export interface MemoryEntry {
+	id: string;
+	type: MemoryType;
+	title: string;
+	content: string;
+	/** Stored as a JSON string in LanceDB; carries the `archived` flag among others. */
+	metadata: string;
+	createdAt: number;
+	updatedAt?: number;
+}
+
+/** Pull the orchestrator's `{ error }` body out of a failed memory response. */
+async function memoryJson<T>(res: Response): Promise<T> {
+	if (!res.ok) {
+		const body = (await res.json().catch(() => null)) as { error?: string } | null;
+		throw new Error(body?.error || `API responded with ${res.status}`);
+	}
+	return (await res.json()) as T;
+}
+
+export async function getMemoryEntries(
+	projectId: string,
+	opts: { type?: MemoryType; includeArchived?: boolean; limit?: number } = {}
+): Promise<MemoryEntry[]> {
+	const params = new URLSearchParams({ limit: String(opts.limit ?? 500) });
+	if (opts.type) params.set("type", opts.type);
+	if (opts.includeArchived) params.set("includeArchived", "true");
+	const res = await fetch(`${API_URL}/api/memory/${projectId}?${params}`, { headers: authHeaders() });
+	const data = await memoryJson<{ results?: MemoryEntry[] }>(res);
+	return data.results ?? [];
+}
+
+/** Semantic search across the project's memory. Always excludes archived entries. */
+export async function searchMemory(projectId: string, query: string, limit = 20): Promise<MemoryEntry[]> {
+	const params = new URLSearchParams({ q: query, limit: String(limit) });
+	const res = await fetch(`${API_URL}/api/memory/${projectId}/search?${params}`, { headers: authHeaders() });
+	const data = await memoryJson<{ results?: MemoryEntry[] }>(res);
+	return data.results ?? [];
+}
+
+export async function createMemoryEntry(
+	projectId: string,
+	entry: { type: MemoryType; title: string; content: string; metadata?: Record<string, unknown> }
+): Promise<string> {
+	const res = await fetch(`${API_URL}/api/memory/${projectId}`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json", ...authHeaders() },
+		body: JSON.stringify(entry),
+	});
+	const data = await memoryJson<{ id: string }>(res);
+	return data.id;
+}
+
+export async function updateMemoryEntry(
+	projectId: string,
+	entryId: string,
+	updates: { title?: string; content?: string; type?: MemoryType; metadata?: Record<string, unknown> }
+): Promise<void> {
+	const res = await fetch(`${API_URL}/api/memory/${projectId}/${encodeURIComponent(entryId)}`, {
+		method: "PUT",
+		headers: { "Content-Type": "application/json", ...authHeaders() },
+		body: JSON.stringify(updates),
+	});
+	await memoryJson<unknown>(res);
+}
+
+export async function deleteMemoryEntry(projectId: string, entryId: string): Promise<void> {
+	const res = await fetch(`${API_URL}/api/memory/${projectId}/${encodeURIComponent(entryId)}`, {
+		method: "DELETE",
+		headers: authHeaders(),
+	});
+	await memoryJson<unknown>(res);
 }
 
 // ── Tech stack endpoints ────────────────────────────────────────────────────
